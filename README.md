@@ -1,0 +1,25 @@
+# Prehistoric Survival Lab
+
+A UE 5.8 third-person dinosaur-survival vertical slice. The current slice contains C++ health and stamina logic, character/game-mode/HUD scaffolding, configuration, tests, and scripts; Editor-authored assets and maps are intentionally not fabricated.
+
+## Status
+
+**Implemented, not verified.** The development machine currently lacks Unreal Engine and Xcode, so the project has not been compiled, opened, or tested. See [`docs/SETUP_MAC.md`](docs/SETUP_MAC.md).
+
+## Quick start
+
+```bash
+./scripts/audit_env.sh
+./scripts/build.sh
+./scripts/run_tests.sh
+```
+
+The scripts use `UE_ROOT` or default to `/Users/Shared/Epic Games/UE_5.8`. Install the toolchain first; build and test commands cannot succeed without it. Then open `PrehistoricSurvivalLab.uproject` in the Editor and follow the manual asset steps in the setup guide.
+
+## Documentation
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — classes and data flow
+- [`docs/SETUP_MAC.md`](docs/SETUP_MAC.md) — macOS installation and Editor setup
+- [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md) — automated and manual checks
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — prioritized next work
+- [`docs/ASSET_LICENSES.md`](docs/ASSET_LICENSES.md) — asset provenance rules

@@ -1,0 +1,44 @@
+# Unreal generated
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+Build/
+.vs/
+*.xcworkspace/
+*.xcodeproj/
+Plugins/**/Binaries/
+Plugins/**/Intermediate/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+
+# Local secrets / credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+credentials*.json
+.netrc
+
+# Test reports (produced by scripts/run_tests.sh)
+TestReports/
+
+# Harness runtime state (SQLite, logs, handoffs, build lock)
+.harness/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.lock.tmp
+*.log
+node_modules/

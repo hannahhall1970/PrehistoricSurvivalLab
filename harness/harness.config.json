@@ -1,0 +1,43 @@
+{
+	"daemonUrl": "ws://127.0.0.1:6767/ws",
+	"roles": {
+		"planner": {
+			"provider": "omp/circle-ai/claude-opus-5-5",
+			"modeId": "full",
+			"thinkingOptionId": "high"
+		},
+		"implementer": {
+			"provider": "omp/openai-codex/gpt-6.1-sol",
+			"modeId": "full",
+			"thinkingOptionId": "high"
+		},
+		"reviewer": {
+			"provider": "omp/cliproxy/codex-auto-review",
+			"modeId": "full",
+			"thinkingOptionId": "high"
+		}
+	},
+	"limits": {
+		"defaultMaxAttempts": 3,
+		"defaultBudgetMs": 1200000,
+		"buildTimeoutMs": 3600000,
+		"testTimeoutMs": 1800000,
+		"preflightTimeoutMs": 120000,
+		"maxTasksPerRun": 12
+	},
+	"commands": {
+		"preflight": [
+			"bash",
+			"scripts/preflight.sh"
+		],
+		"build": [
+			"bash",
+			"scripts/build.sh"
+		],
+		"test": [
+			"bash",
+			"scripts/run_tests.sh"
+		]
+	},
+	"useWorktrees": false
+}

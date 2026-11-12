@@ -1,0 +1,16 @@
+{
+  "name": "harness",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@getpaseo/client": "0.15.4",
+    "@getpaseo/protocol": "0.15.4"
+  }
+}

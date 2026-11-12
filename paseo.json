@@ -1,0 +1,19 @@
+{
+	"scripts": {
+		"harness-status": {
+			"command": "bun harness/src/cli.ts status"
+		},
+		"harness-test": {
+			"command": "bun test --cwd harness"
+		},
+		"harness-preflight": {
+			"command": "bun harness/src/cli.ts gate preflight"
+		},
+		"ue-build": {
+			"command": "bun harness/src/cli.ts gate build"
+		},
+		"ue-test": {
+			"command": "bun harness/src/cli.ts gate test"
+		}
+	}
+}
