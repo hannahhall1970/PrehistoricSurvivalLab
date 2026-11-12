@@ -38,7 +38,7 @@ Record actual engine/editor version and results. Until the required toolchain is
 
 Load check (second approved read-only run): a script loads `/Game/Maps/L_TestArena`, asserts one each of `PlayerStart`, `DirectionalLight`, `SkyLight`, a `StaticMeshActor` floor using `/Engine/BasicShapes/Cube`, and `WorldSettings.DefaultGameMode == /Script/PrehistoricSurvivalLab.PSLGameMode`, without saving. Both runs exited 0 with no `LogPSL`, `LogPython`, map-check or save errors. The logs do contain unrelated engine lines: `LogTemp` "Error test" self-test entries at startup, a CoreAudio `Error querying Sample Rate` warning from the null audio device, and (creation run only) an auto-dismissed "Unable to Check Out From Revision Control" dialog for the new, untracked map; the save still succeeded.
 
-Re-running the creation script fails by design when the map already exists (`new_level` rejects an existing package). The map is not committed yet, so `git lfs ls-files` stays empty until it is added; `git check-attr filter` already reports `lfs` for `*.umap`.
+Re-running the creation script fails by design when the map already exists (`new_level` rejects an existing package). The map is committed through Git LFS (`git lfs ls-files` lists `Content/Maps/L_TestArena.umap`, oid `304c6645d8`).
 
 Manual creation if the script is ever unavailable:
 
