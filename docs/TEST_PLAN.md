@@ -59,3 +59,28 @@ Open `/Game/Maps/L_TestArena`, press Play (PIE). Record the engine version and t
 - [ ] At 0 stamina sprint stops; holding Shift does not resume it. Shift must be released and pressed again.
 - [ ] Stamina regenerates from 0 to full in about 8.3 s.
 - [ ] HUD health and stamina bars follow the values; stamina bar turns orange while exhausted (Shift still held at 0).
+
+## Task 002 Dinosaur (status: MANUAL-PENDING; nothing below is verified)
+
+Quaternius dinosaur mesh + Idle/Walk/Run locomotion. Licence: Quaternius "Animated Lowpoly Dinosaurs", CC0 (public domain), <https://quaternius.itch.io/animated-lowpoly-dinosaurs>.
+
+Import (one-shot; run only under `.harness/ue-build.lock`, one Unreal process at a time):
+
+```
+"$UE_ROOT/Engine/Binaries/Mac/UnrealEditor-Cmd" PrehistoricSurvivalLab.uproject \
+  -EnablePlugins=PythonScriptPlugin -ExecutePythonScript=<abs>/scripts/import_dino.py \
+  -ScriptErrorsAreFatal -unattended -nullrhi -nosplash
+```
+
+`<abs>` is the absolute repository path. `-EnablePlugins=PythonScriptPlugin` is required (plugin is not enabled in the `.uproject`). The import has not been run by this task; no imported asset is claimed.
+
+Manual PIE checklist (`/Game/Maps/L_TestArena`; record engine version and result per line):
+
+- [ ] MANUAL-PENDING: Idle plays when the character is at rest.
+- [ ] MANUAL-PENDING: Walk plays at walk speed (~300).
+- [ ] MANUAL-PENDING: Run plays while sprinting (~600).
+- [ ] MANUAL-PENDING: Idle/Walk/Run transitions are smooth (no pops or T-pose).
+- [ ] MANUAL-PENDING: Feet rest on the floor; no capsule clipping (mesh not sunk or floating).
+- [ ] MANUAL-PENDING: Camera framing is correct for the dinosaur's size.
+- [ ] MANUAL-PENDING: Stamina, health and HUD behave unchanged versus A7.
+- [ ] MANUAL-PENDING: On death, movement stops (no locomotion animation while dead).
