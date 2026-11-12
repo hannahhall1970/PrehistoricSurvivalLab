@@ -1,4 +1,35 @@
 // Shared contract for the harness. Every module imports from here; change only with all owners.
+export const APPROVAL_OPERATIONS = [
+	"git.commit",
+	"git.push",
+	"git.merge",
+	"privileged",
+	"destructive",
+	"repo.visibility",
+] as const;
+export type ApprovalOperation = (typeof APPROVAL_OPERATIONS)[number];
+/** Only the controlling-terminal challenge mints grants; CLI flags and forms never do. */
+export type ApprovalSource = "tty-challenge";
+/** Parked request; `agent.permission` is an OMP/Paseo tool permission the worker asked for. */
+export interface ApprovalRequest {
+	operation: ApprovalOperation | "agent.permission";
+	target?: string;
+}
+export interface ApprovalGrant {
+	operation: ApprovalOperation | "agent.permission";
+	approved: true;
+	source: ApprovalSource;
+	runId: string;
+	runVersion: number;
+	nonce: string;
+	target?: string;
+}
+
+export interface ApprovalDecision {
+	approved: boolean;
+	reason?: string;
+}
+
 
 export const STAGES = [
 	"INTAKE",
@@ -41,6 +72,7 @@ export type Outcome =
 
 export type FailureClass =
 	| "TOOLCHAIN_MISSING" // UE/Xcode absent or misconfigured -> BLOCKED
+	| "DISK_LOW" // free space below the preflight floor -> BLOCKED; never auto-clean caches
 	| "BUILD_LOCKED" // another full UE build holds the lock -> retry later
 	| "COMPILE_ERROR"
 	| "LINK_ERROR"
@@ -52,6 +84,12 @@ export type FailureClass =
 	| "REVIEW_REJECTED"
 	| "CANCELLED"
 	| "UNKNOWN";
+
+/** Environment failures park the run as BLOCKED instead of consuming retries. */
+export const BLOCKING_FAILURES: ReadonlySet<FailureClass> = new Set([
+	"TOOLCHAIN_MISSING",
+	"DISK_LOW",
+]);
 
 export interface Failure {
 	cls: FailureClass;
@@ -97,6 +135,10 @@ export interface RunState {
 	updatedAt: string;
 	stopRequested: boolean;
 	parkedReason?: string; // set when BLOCKED / HUMAN_APPROVAL
+	approvalOperation?: ApprovalOperation | "agent.permission";
+	approvalTarget?: string;
+	worktreePath?: string;
+	worktreeBranch?: string;
 	version: number; // optimistic concurrency, +1 per checkpoint
 }
 
@@ -183,6 +225,8 @@ export interface RoleConfig {
 	provider: string; // "omp/<model-id>"
 	modeId: string;
 	thinkingOptionId?: string;
+	/** Repo-relative OMP config overlay; passed to the agent as PI_CONFIG_FILES. */
+	configOverlay?: string;
 }
 
 export interface HarnessConfig {

@@ -20,12 +20,21 @@ import type {
 	GateResult,
 	HarnessConfig,
 } from "./types.ts";
+import { BLOCKING_FAILURES } from "./types.ts";
+import { TtyApprovalSource } from "./approval.ts";
 
 const usage = `bun harness/src/cli.ts <start "objective" | status [runId] | resume <runId> [--approve] | stop <runId> | logs <runId> [--task id] | gate <preflight|build|test>> [--fake]`;
 
 function fakeDelay(): number {
 	const value = Number(process.env.HARNESS_FAKE_DELAY_MS ?? 0);
 	return Number.isFinite(value) && value > 0 ? value : 0;
+}
+/** Approval comes only from the controlling-terminal challenge; grant-like flags are refused. */
+function rejectGrantFlags(args: string[]): string | undefined {
+	const flag = args.find((arg) => /^--approve-(op|target)(=|$)/.test(arg));
+	return flag
+		? `${flag} is not accepted: approvals are confirmed interactively on the controlling terminal (resume <runId> --approve)`
+		: undefined;
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<boolean> {
@@ -280,6 +289,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 	const fake =
 		argv.includes("--fake") || process.env.HARNESS_FAKE_AGENT === "1";
 	const args = argv.filter((arg) => arg !== "--fake");
+	const grantError = rejectGrantFlags(args);
+	if (grantError) {
+		console.error(grantError);
+		return 1;
+	}
 	const command = args[0];
 	const repoRoot = resolve(process.cwd());
 	if (!command) {
@@ -324,7 +338,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 		console.log(JSON.stringify(result, null, "\t"));
 		return result.outcome === "SUCCESS"
 			? 0
-			: result.failure?.cls === "TOOLCHAIN_MISSING"
+			: result.failure && BLOCKING_FAILURES.has(result.failure.cls)
 				? 2
 				: 1;
 	}
@@ -345,6 +359,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 		try {
 			const run = await runner.resume(args[1], {
 				approve: args.includes("--approve"),
+				approvals: new TtyApprovalSource(),
 			});
 			console.log(`run ${run.id} stage=${run.stage}`);
 			if (run.parkedReason) console.log(`reason: ${run.parkedReason}`);

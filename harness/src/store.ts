@@ -12,6 +12,10 @@ type RunRow = {
 	updated_at: string;
 	stop_requested: number;
 	parked_reason: string | null;
+	approval_operation: string | null;
+	approval_target: string | null;
+	worktree_path: string | null;
+	worktree_branch: string | null;
 	version: number;
 };
 
@@ -108,6 +112,10 @@ export class Store {
 				updated_at TEXT NOT NULL,
 				stop_requested INTEGER NOT NULL DEFAULT 0,
 				parked_reason TEXT,
+				approval_operation TEXT,
+				approval_target TEXT,
+				worktree_path TEXT,
+				worktree_branch TEXT,
 				version INTEGER NOT NULL DEFAULT 0
 			)
 		`);
@@ -160,6 +168,18 @@ export class Store {
 		} catch {
 			// Existing databases already have the column.
 		}
+		for (const column of [
+			"approval_operation TEXT",
+			"approval_target TEXT",
+			"worktree_path TEXT",
+			"worktree_branch TEXT",
+		]) {
+			try {
+				this.db.run(`ALTER TABLE runs ADD COLUMN ${column}`);
+			} catch {
+				// Existing databases already have the column.
+			}
+		}
 	}
 
 	createRun(objective: string, id?: string): RunState {
@@ -176,8 +196,9 @@ export class Store {
 		};
 		this.db.run(
 			`INSERT INTO runs
-				(id, objective, stage, current_task_id, created_at, updated_at, stop_requested, parked_reason, version)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				(id, objective, stage, current_task_id, created_at, updated_at, stop_requested,
+				 parked_reason, approval_operation, approval_target, worktree_path, worktree_branch, version)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			[
 				run.id,
 				run.objective,
@@ -186,6 +207,10 @@ export class Store {
 				run.createdAt,
 				run.updatedAt,
 				0,
+				null,
+				null,
+				null,
+				null,
 				null,
 				run.version,
 			],
@@ -216,7 +241,8 @@ export class Store {
 		const result = this.db.run(
 			`UPDATE runs SET
 				objective = ?, stage = ?, current_task_id = ?, updated_at = ?,
-				stop_requested = ?, parked_reason = ?, version = ?
+				stop_requested = ?, parked_reason = ?, approval_operation = ?,
+				approval_target = ?, worktree_path = ?, worktree_branch = ?, version = ?
 			 WHERE id = ? AND version = ?`,
 			[
 				run.objective,
@@ -225,6 +251,10 @@ export class Store {
 				updatedAt,
 				run.stopRequested ? 1 : 0,
 				nullable(run.parkedReason),
+				nullable(run.approvalOperation),
+				nullable(run.approvalTarget),
+				nullable(run.worktreePath),
+				nullable(run.worktreeBranch),
 				nextVersion,
 				run.id,
 				run.version,
@@ -490,6 +520,11 @@ export class Store {
 			updatedAt: row.updated_at,
 			stopRequested: bool(row.stop_requested),
 			parkedReason: row.parked_reason ?? undefined,
+			approvalOperation:
+				(row.approval_operation as RunState["approvalOperation"]) ?? undefined,
+			approvalTarget: row.approval_target ?? undefined,
+			worktreePath: row.worktree_path ?? undefined,
+			worktreeBranch: row.worktree_branch ?? undefined,
 			version: row.version,
 		};
 	}

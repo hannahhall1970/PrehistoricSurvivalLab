@@ -1,0 +1,37 @@
+# OMP settings overlay for harness planner/reviewer agents (passed as PI_CONFIG_FILES).
+# Allowlist: every tool prompts, and a headless Paseo agent has nobody to answer, so the
+# call is refused. Only the read/search tools below are allowed.
+# Approval policy, not an OS sandbox (same uid). Verified live; see docs/HARNESS.md.
+tools:
+  approvalMode: always-ask
+  approval:
+    read: allow
+    grep: allow
+    glob: allow
+    todo: allow
+    edit: deny
+    write: deny
+    ast_edit: deny
+    bash: deny
+    eval: deny
+    debug: deny
+    task: deny
+    create_terminal: deny
+    send_terminal_keys: deny
+    kill_terminal: deny
+    start_workspace_script: deny
+    stop_workspace_script: deny
+    create_agent: deny
+    send_agent_prompt: deny
+    respond_to_permission: deny
+    set_agent_mode: deny
+    update_agent: deny
+    create_workspace: deny
+    archive_workspace: deny
+    archive_agent: deny
+    kill_agent: deny
+    create_schedule: deny
+    create_heartbeat: deny
+    run_schedule_once: deny
+    learn: deny
+    manage_skill: deny

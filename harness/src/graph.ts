@@ -1,8 +1,28 @@
+import { createHash } from "node:crypto";
 import {
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	readFileSync,
+	readlinkSync,
+	realpathSync,
+} from "node:fs";
+import {
+	dirname,
+	join,
+	relative,
+	resolve as resolvePath,
+	sep,
+} from "node:path";
+import { requireApproval, type TtyApprovalSource } from "./approval.ts";
+
+import {
+	BLOCKING_FAILURES,
 	PARKED_STAGES,
 	TERMINAL_STAGES,
 	type AgentPort,
 	type AgentResult,
+	type ApprovalOperation,
 	type Failure,
 	type HarnessConfig,
 	type Outcome,
@@ -17,6 +37,11 @@ import {
 import type { ContextBuilder } from "./context.ts";
 import type { Gates } from "./gates.ts";
 import type { Store } from "./store.ts";
+import {
+	WorktreeValidationError,
+	cleanGitEnv,
+	validateWorktree,
+} from "./worktree.ts";
 
 export type EdgeTable = Record<Stage, Partial<Record<Outcome, Stage>>>;
 
@@ -60,7 +85,8 @@ export function transition(
 ): Stage {
 	if (TERMINAL_STAGES[stage] || PARKED_STAGES[stage]) return stage;
 	if (
-		ctx.failure?.cls === "TOOLCHAIN_MISSING" &&
+		ctx.failure &&
+		BLOCKING_FAILURES.has(ctx.failure.cls) &&
 		(stage === "PREFLIGHT" || stage === "BUILD" || stage === "TEST")
 	) {
 		return "BLOCKED";
@@ -85,6 +111,73 @@ export function transition(
 		}
 	}
 	return EDGE_TABLE[stage][outcome] ?? "FAILED";
+}
+
+const BUILD_RELEVANT_ROOTS = ["Source/", "Plugins/", "Config/"];
+const BUILD_RELEVANT_SUFFIXES = [
+	".uproject",
+	".uplugin",
+	".Build.cs",
+	".Target.cs",
+	".h",
+	".hpp",
+	".cpp",
+	".cc",
+	".c",
+	".inl",
+	".m",
+	".mm",
+	".cs",
+];
+const BUILD_RELEVANT_SCRIPTS: Record<string, true> = {
+	"scripts/build.sh": true,
+	"scripts/run_tests.sh": true,
+};
+
+function isBuildRelevantPath(value: string): boolean {
+	const path = value.replaceAll("\\", "/").replace(/^\.\/+/, "");
+	return (
+		BUILD_RELEVANT_ROOTS.some(
+			(root) => path === root.slice(0, -1) || path.startsWith(root),
+		) ||
+		BUILD_RELEVANT_SUFFIXES.some((suffix) => path.endsWith(suffix)) ||
+		BUILD_RELEVANT_SCRIPTS[path] === true
+	);
+}
+
+export function requiresBuild(
+	declaredFiles: string[],
+	changedFiles: string[] | null,
+	plannerNeedsBuild: boolean,
+): { required: boolean; reason: string } {
+	if (plannerNeedsBuild) {
+		return { required: true, reason: "planner requested build verification" };
+	}
+	if (changedFiles === null) {
+		return {
+			required: true,
+			reason: "checked changed files, but git status failed; failing closed",
+		};
+	}
+	const declared = declaredFiles.filter(isBuildRelevantPath);
+	if (declared.length > 0) {
+		return {
+			required: true,
+			reason: `checked declared task files; build-relevant paths: ${declared.join(", ")}`,
+		};
+	}
+	const changed = changedFiles.filter(isBuildRelevantPath);
+	if (changed.length > 0) {
+		return {
+			required: true,
+			reason: `checked changed files; build-relevant paths: ${changed.join(", ")}`,
+		};
+	}
+	return {
+		required: false,
+		reason:
+			"checked declared task files and changed files; no build-relevant paths found",
+	};
 }
 
 export interface PlanValidation {
@@ -331,6 +424,50 @@ class LeaseLostError extends Error {
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
+type GitCommandResult = {
+	exitCode: number;
+	stdout: string;
+	stderr: string;
+};
+
+function gitText(value: unknown): string {
+	if (typeof value === "string") return value;
+	if (value instanceof Uint8Array) return new TextDecoder().decode(value);
+	return "";
+}
+
+function gitCommand(cwd: string, args: string[]): GitCommandResult {
+	try {
+		const result = Bun.spawnSync(["git", ...args], {
+			cwd,
+			env: cleanGitEnv(),
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		return {
+			exitCode: result.exitCode,
+			stdout: gitText(result.stdout),
+			stderr: gitText(result.stderr),
+		};
+	} catch (error) {
+		return { exitCode: 1, stdout: "", stderr: errorMessage(error) };
+	}
+}
+
+function approvalOperationFor(
+	description: string,
+): ApprovalOperation | "agent.permission" {
+	const text = description.toLowerCase();
+	if (/\bgit\s+commit\b|\bcommit\b/.test(text)) return "git.commit";
+	if (/\bgit\s+push\b|\bpush\b/.test(text)) return "git.push";
+	if (/\bgit\s+merge\b|\bmerge\b/.test(text)) return "git.merge";
+	if (/\bsudo\b|xcodebuild\s+-runfirstlaunch/.test(text)) return "privileged";
+	if (/\b(delete|force|reset|worktree\s+remove)\b/.test(text))
+		return "destructive";
+	if (/\bvisibility\b|\bpublic\b|\bprivate\b/.test(text))
+		return "repo.visibility";
+	return "agent.permission";
+}
 
 export class Runner {
 	private readonly store: Store;
@@ -393,7 +530,10 @@ export class Runner {
 		return this.execute(run);
 	}
 
-	async resume(runId: string, opts?: { approve?: boolean }): Promise<RunState> {
+	async resume(
+		runId: string,
+		opts?: { approve?: boolean; approvals?: TtyApprovalSource },
+	): Promise<RunState> {
 		const run = this.store.getRun(runId);
 		if (!run) throw new Error(`Run not found: ${runId}`);
 		if (TERMINAL_STAGES[run.stage]) return run;
@@ -422,9 +562,39 @@ export class Runner {
 			}
 		}
 		if (run.stage === "HUMAN_APPROVAL") {
+			const operation =
+				run.approvalOperation ??
+				this.approvalOperationFromReason(run.parkedReason);
+			// Without an explicit approve request, resume leaves the run parked untouched.
 			if (!opts?.approve) return run;
+			{
+				const request = {
+					operation: operation ?? "agent.permission",
+					runId: run.id,
+					runVersion: run.version,
+					...(run.approvalTarget ? { target: run.approvalTarget } : {}),
+				};
+				const decision = requireApproval(
+					request,
+					opts.approvals?.confirm(request),
+				);
+				if (!decision.approved) {
+					run.parkedReason = `${run.parkedReason ?? `approvalOp=${operation}`}; ${decision.reason}`;
+					this.saveRun(run, []);
+					this.store.appendEvent({
+						runId: run.id,
+						stage: run.stage,
+						taskId: run.currentTaskId,
+						kind: "approval_denied",
+						data: { operation, reason: decision.reason },
+					});
+					return run;
+				}
+			}
 			run.stage = this.resumeStage(run.parkedReason) ?? "EXECUTE";
 			run.parkedReason = undefined;
+			run.approvalOperation = undefined;
+			run.approvalTarget = undefined;
 			this.checkpoint(run, [], { kind: "resume", approved: true });
 		} else if (run.stage === "BLOCKED") {
 			run.stage = this.resumeStage(run.parkedReason) ?? "PREFLIGHT";
@@ -538,6 +708,7 @@ export class Runner {
 				this.repoWriterHeld = false;
 			}
 			try {
+				if (run.worktreePath !== undefined) this.trustedCwd(run);
 				await this.step(run, abort.signal);
 			} catch (error) {
 				if (error instanceof LeaseLostError)
@@ -546,6 +717,10 @@ export class Runner {
 				if (abort.signal.aborted || current?.stopRequested) {
 					run.stopRequested = true;
 					this.stop(run);
+					return run;
+				}
+				if (error instanceof WorktreeValidationError) {
+					this.blockUntrustedWorktree(run, error);
 					return run;
 				}
 				throw error;
@@ -584,7 +759,7 @@ export class Runner {
 				}
 				const gateFailure =
 					result.failure ?? failure("UNKNOWN", "preflight failed");
-				if (gateFailure.cls === "TOOLCHAIN_MISSING") {
+				if (BLOCKING_FAILURES.has(gateFailure.cls)) {
 					run.stage = "BLOCKED";
 					run.parkedReason = this.parkedReason(from, gateFailure);
 				} else {
@@ -660,6 +835,7 @@ export class Runner {
 					...this.contextFor(run),
 					hasMoreTasks,
 				});
+				if (run.stage === "DONE") this.cleanupWorktree(run);
 				this.checkpoint(
 					run,
 					[],
@@ -712,8 +888,7 @@ export class Runner {
 		const handoffPath = this.writeHandoff(run, plannerTask, "planner", result);
 		if (result.status === "permission") {
 			const permissionFailure = resultFailure(result);
-			run.stage = "HUMAN_APPROVAL";
-			run.parkedReason = `${this.parkedReason(from, permissionFailure)}; attempt=${attempt}`;
+			this.parkForApproval(run, from, permissionFailure, `attempt=${attempt}`);
 			this.checkpoint(
 				run,
 				[],
@@ -828,6 +1003,356 @@ export class Runner {
 		);
 	}
 
+	private trustedCwd(run: RunState): string {
+		if (run.worktreePath === undefined) return this.repoRoot;
+		const result = validateWorktree(
+			this.repoRoot,
+			run.id,
+			run.worktreePath,
+			run.worktreeBranch,
+		);
+		if (!result.ok) throw new WorktreeValidationError(result.reason);
+		return result.path;
+	}
+
+	private taskCwd(run: RunState): string {
+		return this.trustedCwd(run);
+	}
+
+	private blockUntrustedWorktree(
+		run: RunState,
+		error: WorktreeValidationError,
+	): void {
+		const from = run.stage;
+		const task = this.currentTask(run);
+		const blocked = failure(
+			"TOOLCHAIN_MISSING",
+			`worktree validation failed: ${error.reason}`,
+		);
+		if (task) task.lastFailure = blocked;
+		run.stage = "BLOCKED";
+		run.parkedReason = this.parkedReason(from, blocked);
+		this.checkpoint(
+			run,
+			task ? [task] : [],
+			{ kind: "blocked", failure: blocked },
+			from,
+		);
+	}
+	private treeFingerprint(run: RunState): string | null {
+		const cwd = this.taskCwd(run);
+		const head = gitCommand(cwd, ["rev-parse", "HEAD"]);
+		if (head.exitCode !== 0 || !head.stdout.trim()) return null;
+		const status = gitCommand(cwd, [
+			"status",
+			"--porcelain=v1",
+			"-z",
+			"--untracked-files=all",
+		]);
+		if (status.exitCode !== 0) return null;
+		const entries = [`HEAD\t${head.stdout.trim()}`];
+		const records = status.stdout.split("\0");
+		for (let index = 0; index < records.length; index += 1) {
+			const record = records[index];
+			if (!record) continue;
+			const statusCode = record.slice(0, 2);
+			const path = record.slice(3);
+			const paths = [path];
+			if (statusCode.includes("R") || statusCode.includes("C")) {
+				const originalPath = records[index + 1];
+				if (originalPath) {
+					paths.push(originalPath);
+					index += 1;
+				}
+			}
+			for (const changedPath of paths) {
+				if (!changedPath || changedPath.startsWith(".harness/")) continue;
+				const deleted =
+					statusCode.includes("D") ||
+					(paths.length > 1 && changedPath === paths[1]);
+				let fileHash = "";
+				if (!deleted) {
+					try {
+						const absolutePath = join(cwd, changedPath);
+						const stat = lstatSync(absolutePath);
+						const bytes = stat.isSymbolicLink()
+							? readlinkSync(absolutePath)
+							: readFileSync(absolutePath);
+						fileHash = createHash("sha256").update(bytes).digest("hex");
+					} catch {
+						fileHash = "";
+					}
+				}
+				entries.push(`${statusCode}\t${changedPath}\t${fileHash}`);
+			}
+		}
+		// Index flags (assume-unchanged/skip-worktree) fail closed; build inputs are hashed from disk, ignored files included.
+		const flagged = gitCommand(cwd, ["ls-files", "-z", "-v"]);
+		if (flagged.exitCode !== 0) return null;
+		for (const rec of flagged.stdout.split("\0")) {
+			if (rec && /^[a-zS] /.test(rec)) return null;
+		}
+		const inputs = gitCommand(cwd, [
+			"ls-files",
+			"-z",
+			"--cached",
+			"--others",
+			"--",
+			"Source",
+			"Config",
+			"Plugins",
+			":(exclude)Plugins/**/Binaries/**",
+			":(exclude)Plugins/**/Intermediate/**",
+			"scripts",
+			"PrehistoricSurvivalLab.uproject",
+		]);
+		if (inputs.exitCode !== 0) return null;
+		const root = realpathSync(cwd);
+		for (const rel of inputs.stdout.split("\0")) {
+			if (!rel) continue;
+			try {
+				const abs = join(cwd, rel);
+				if (lstatSync(abs).isSymbolicLink()) {
+					const real = realpathSync(abs);
+					if (real !== root && !real.startsWith(root + sep)) return null;
+				}
+				entries.push(
+					`FS\t${rel}\t${createHash("sha256").update(readFileSync(abs)).digest("hex")}`,
+				);
+			} catch {
+				entries.push(`FS\t${rel}\tmissing`);
+			}
+		}
+		return createHash("sha256").update(entries.sort().join("\0")).digest("hex");
+	}
+
+	private changedFiles(run: RunState): string[] | null {
+		const cwd = this.taskCwd(run);
+		const hasWorktree = run.worktreePath !== undefined;
+		const status = gitCommand(cwd, [
+			"status",
+			"--porcelain=v1",
+			"-z",
+			"--untracked-files=all",
+		]);
+		if (status.exitCode !== 0) return null;
+		const changed = new Set<string>();
+		const entries = status.stdout.split("\0");
+		for (let index = 0; index < entries.length; index += 1) {
+			const entry = entries[index];
+			if (!entry) continue;
+			const statusCode = entry.slice(0, 2);
+			const path = entry.slice(3);
+			if (path) changed.add(path);
+			if (statusCode.includes("R") || statusCode.includes("C")) {
+				const renamedPath = entries[index + 1];
+				if (renamedPath) changed.add(renamedPath);
+				index += 1;
+			}
+		}
+
+		const runWithBaseline = run as RunState & {
+			startHead?: string;
+			baseHead?: string;
+		};
+		let base = hasWorktree
+			? "origin/main"
+			: (runWithBaseline.startHead ?? runWithBaseline.baseHead);
+		if (!base) {
+			const upstream = gitCommand(cwd, [
+				"rev-parse",
+				"--verify",
+				"@{upstream}",
+			]);
+			if (upstream.exitCode === 0 && upstream.stdout.trim())
+				base = "@{upstream}";
+		}
+		if (!base) return [...changed];
+
+		const diff = gitCommand(cwd, [
+			"diff",
+			"--name-only",
+			"--no-renames",
+			"-z",
+			`${base}...HEAD`,
+		]);
+		if (diff.exitCode !== 0) return hasWorktree ? null : [...changed];
+		for (const path of diff.stdout.split("\0")) {
+			if (path) changed.add(path);
+		}
+		return [...changed];
+	}
+
+	private ensureWorktree(run: RunState): void {
+		if (!this.config.useWorktrees) return;
+		if (!/^[0-9a-f-]{36}$/.test(run.id))
+			throw new WorktreeValidationError(
+				`invalid run id ${JSON.stringify(run.id)}`,
+			);
+		if (run.worktreePath !== undefined) {
+			this.trustedCwd(run);
+			return;
+		}
+		const branch = `harness/${run.id}`;
+		const worktreePath = join(this.repoRoot, ".harness", "worktrees", run.id);
+		const relativePath = relative(this.repoRoot, worktreePath);
+		let trustedPath = worktreePath;
+		if (existsSync(worktreePath)) {
+			const validated = validateWorktree(
+				this.repoRoot,
+				run.id,
+				worktreePath,
+				branch,
+			);
+			if (!validated.ok) throw new WorktreeValidationError(validated.reason);
+			trustedPath = validated.path;
+			const top = gitCommand(trustedPath, ["rev-parse", "--show-toplevel"]);
+			const currentBranch = gitCommand(trustedPath, [
+				"branch",
+				"--show-current",
+			]);
+			if (
+				top.exitCode !== 0 ||
+				resolvePath(top.stdout.trim()) !== resolvePath(trustedPath) ||
+				currentBranch.stdout.trim() !== branch
+			) {
+				throw new Error(`worktree path is not ${branch}: ${trustedPath}`);
+			}
+		} else {
+			mkdirSync(dirname(worktreePath), { recursive: true });
+			const created = gitCommand(this.repoRoot, [
+				"worktree",
+				"add",
+				"-b",
+				branch,
+				relativePath,
+				"origin/main",
+			]);
+			if (created.exitCode !== 0) {
+				throw new Error(
+					`git worktree add failed: ${(created.stderr || created.stdout).trim()}`,
+				);
+			}
+			const validated = validateWorktree(
+				this.repoRoot,
+				run.id,
+				worktreePath,
+				branch,
+			);
+			if (!validated.ok) throw new WorktreeValidationError(validated.reason);
+			trustedPath = validated.path;
+		}
+		run.worktreePath = trustedPath;
+		run.worktreeBranch = branch;
+		this.saveRun(run, []);
+		this.store.appendEvent({
+			runId: run.id,
+			stage: run.stage,
+			taskId: run.currentTaskId,
+			kind: "worktree_created",
+			data: { path: trustedPath, branch, base: "origin/main" },
+		});
+	}
+
+	private cleanupWorktree(run: RunState): void {
+		const persistedPath = run.worktreePath;
+		if (persistedPath === undefined) return;
+		const validation = validateWorktree(
+			this.repoRoot,
+			run.id,
+			persistedPath,
+			run.worktreeBranch,
+		);
+		if (!validation.ok) {
+			this.store.appendEvent({
+				runId: run.id,
+				stage: "DONE",
+				taskId: run.currentTaskId,
+				kind: "worktree_cleanup",
+				data: {
+					path: persistedPath,
+					removed: false,
+					reason: validation.reason,
+				},
+			});
+			return;
+		}
+		const worktreePath = validation.path;
+		const status = gitCommand(worktreePath, ["status", "--porcelain"]);
+		if (status.exitCode !== 0 || status.stdout.trim()) {
+			this.store.appendEvent({
+				runId: run.id,
+				stage: "DONE",
+				taskId: run.currentTaskId,
+				kind: "worktree_cleanup",
+				data: {
+					path: worktreePath,
+					removed: false,
+					reason:
+						status.exitCode !== 0
+							? (status.stderr || "git status failed").trim()
+							: "worktree has changes",
+				},
+			});
+			return;
+		}
+		const commits = gitCommand(worktreePath, [
+			"rev-list",
+			"--count",
+			"origin/main..HEAD",
+		]);
+		const commitCount = Number(commits.stdout.trim());
+		if (
+			commits.exitCode !== 0 ||
+			!Number.isInteger(commitCount) ||
+			commitCount > 0
+		) {
+			this.store.appendEvent({
+				runId: run.id,
+				stage: "DONE",
+				taskId: run.currentTaskId,
+				kind: "worktree_cleanup",
+				data: {
+					path: worktreePath,
+					removed: false,
+					reason:
+						commits.exitCode !== 0
+							? (commits.stderr || "git rev-list failed").trim()
+							: `${commitCount} commit(s) beyond origin/main`,
+				},
+			});
+			return;
+		}
+		const removed = gitCommand(this.repoRoot, [
+			"worktree",
+			"remove",
+			worktreePath,
+		]);
+		this.store.appendEvent({
+			runId: run.id,
+			stage: "DONE",
+			taskId: run.currentTaskId,
+			kind: "worktree_cleanup",
+			data: {
+				path: worktreePath,
+				removed: removed.exitCode === 0,
+				...(removed.exitCode === 0
+					? {}
+					: {
+							reason: (removed.stderr || "git worktree remove failed").trim(),
+						}),
+			},
+		});
+	}
+
+	private worktreeEvidence(run: RunState): string[] {
+		if (run.worktreePath === undefined) return [];
+		const worktreePath = this.trustedCwd(run);
+		const result = gitCommand(worktreePath, ["diff", "--stat", "origin/main"]);
+		const output = (result.stdout || result.stderr).trim() || "(no diff)";
+		return [`git -C ${worktreePath} diff --stat origin/main\n${output}`];
+	}
+
 	private taskContract(run: RunState): void {
 		const from = run.stage;
 		const tasks = this.store.getTasks(run.id);
@@ -880,6 +1405,7 @@ export class Runner {
 				return;
 			}
 			run.stage = "DONE";
+			this.cleanupWorktree(run);
 			this.checkpoint(
 				run,
 				dirty,
@@ -911,6 +1437,35 @@ export class Runner {
 			);
 			return;
 		}
+		if (this.config.useWorktrees) {
+			try {
+				this.ensureWorktree(run);
+			} catch (error) {
+				const setupFailure =
+					error instanceof WorktreeValidationError
+						? failure(
+								"TOOLCHAIN_MISSING",
+								`worktree validation failed: ${error.reason}`,
+							)
+						: failure(
+								"UNKNOWN",
+								`worktree setup failed: ${errorMessage(error)}`,
+							);
+				task.lastFailure = setupFailure;
+				run.stage = "BLOCKED";
+				run.parkedReason = `${this.parkedReason(
+					from,
+					setupFailure,
+				)}; worktreePath=${run.worktreePath ?? "unavailable"}`;
+				this.checkpoint(
+					run,
+					[task],
+					{ kind: "worktree_setup_failed", failure: setupFailure },
+					from,
+				);
+				return;
+			}
+		}
 		if (task.status === "PENDING") {
 			task.status = "RUNNING";
 			task.attempt += 1;
@@ -932,7 +1487,7 @@ export class Runner {
 					idempotencyKey: key,
 					title: `Implement ${task.id}: ${task.title}`,
 					prompt,
-					cwd: this.repoRoot,
+					cwd: this.taskCwd(run),
 					timeoutMs: task.budgetMs,
 					labels: {
 						"harness.key": key,
@@ -960,8 +1515,7 @@ export class Runner {
 		if (result.status === "permission") {
 			const permissionFailure = resultFailure(result);
 			task.lastFailure = permissionFailure;
-			run.stage = "HUMAN_APPROVAL";
-			run.parkedReason = this.parkedReason(from, permissionFailure);
+			this.parkForApproval(run, from, permissionFailure);
 			this.checkpoint(
 				run,
 				[task],
@@ -987,7 +1541,14 @@ export class Runner {
 			);
 			return;
 		}
-		const next = task.needsBuild ? "BUILD" : "INDEPENDENT_REVIEW";
+		const changedFiles = this.changedFiles(run);
+		const buildPolicy = requiresBuild(
+			task.files,
+			changedFiles,
+			task.needsBuild,
+		);
+		if (buildPolicy.required) task.needsBuild = true;
+		const next = buildPolicy.required ? "BUILD" : "INDEPENDENT_REVIEW";
 		run.stage = next;
 		this.checkpoint(
 			run,
@@ -999,6 +1560,12 @@ export class Runner {
 				agentId: result.agentId,
 				handoffPath,
 				next,
+				buildPolicy: {
+					required: buildPolicy.required,
+					reason: buildPolicy.reason,
+					changedFiles:
+						changedFiles === null ? null : changedFiles.slice(0, 50),
+				},
 			},
 			from,
 		);
@@ -1030,9 +1597,13 @@ export class Runner {
 			{ kind: "stage_start", stage: from, attempt: task.attempt },
 			from,
 		);
+		const preFingerprint = this.treeFingerprint(run);
 		const result = await this.awaitWithLeases(run, () =>
-			gate === "BUILD" ? this.gates.build(signal) : this.gates.test(signal),
+			gate === "BUILD"
+				? this.gates.build(signal, this.taskCwd(run))
+				: this.gates.test(signal, this.taskCwd(run)),
 		);
+		const postFingerprint = this.treeFingerprint(run);
 		if (result.outcome === "SUCCESS") {
 			run.stage = gate === "BUILD" ? "TEST" : "INDEPENDENT_REVIEW";
 			this.checkpoint(
@@ -1044,6 +1615,8 @@ export class Runner {
 					outcome: result.outcome,
 					attempt: task.attempt,
 					logPath: result.logPath,
+					preFingerprint,
+					treeFingerprint: postFingerprint,
 					next: run.stage,
 				},
 				from,
@@ -1056,7 +1629,7 @@ export class Runner {
 				result.outcome === "TIMEOUT" ? "TIMEOUT" : "UNKNOWN",
 				`${gate} failed`,
 			);
-		if (gateFailure.cls === "TOOLCHAIN_MISSING") {
+		if (BLOCKING_FAILURES.has(gateFailure.cls)) {
 			task.lastFailure = gateFailure;
 			run.stage = "BLOCKED";
 			run.parkedReason = this.parkedReason(from, gateFailure);
@@ -1116,7 +1689,12 @@ export class Runner {
 			from,
 		);
 		const key = `${run.id}:${task.id}:reviewer:${task.attempt}`;
-		const prompt = await this.context.forTask(run, task, "reviewer");
+		const prompt = await this.context.forTask(
+			run,
+			task,
+			"reviewer",
+			this.gateEvidence(run.id, task.id, task.attempt),
+		);
 		const result = await this.awaitWithLeases(run, () =>
 			this.agents.run(
 				{
@@ -1124,7 +1702,7 @@ export class Runner {
 					idempotencyKey: key,
 					title: `Review ${task.id}: ${task.title}`,
 					prompt,
-					cwd: this.repoRoot,
+					cwd: this.taskCwd(run),
 					outputSchema: REVIEW_SCHEMA,
 					timeoutMs: task.budgetMs,
 					labels: {
@@ -1153,8 +1731,7 @@ export class Runner {
 		if (result.status === "permission") {
 			const permissionFailure = resultFailure(result);
 			task.lastFailure = permissionFailure;
-			run.stage = "HUMAN_APPROVAL";
-			run.parkedReason = this.parkedReason(from, permissionFailure);
+			this.parkForApproval(run, from, permissionFailure);
 			this.checkpoint(
 				run,
 				[task],
@@ -1212,18 +1789,40 @@ export class Runner {
 			this.failTask(run, task, from, rejected, "FAILURE", handoffPath);
 			return;
 		}
-		if (
-			task.needsBuild &&
-			(!this.gateSucceeded(run.id, task.id, "BUILD", task.attempt) ||
-				!this.gateSucceeded(run.id, task.id, "TEST", task.attempt))
-		) {
+		const buildPolicy = requiresBuild(
+			task.files,
+			this.changedFiles(run),
+			task.needsBuild,
+		);
+		const fingerprint = this.treeFingerprint(run);
+		const gateEvents = this.store.events(run.id);
+		const requiredGates = ["BUILD", "TEST"] as const;
+		const gatesValid =
+			this.gateSucceeded(run.id, task.id, "BUILD", task.attempt, fingerprint) &&
+			this.gateSucceeded(run.id, task.id, "TEST", task.attempt, fingerprint);
+		const evidenceInvalidated = requiredGates.some((requiredGate) =>
+			gateEvents.some(
+				(event) =>
+					event.taskId === task.id &&
+					event.kind === "gate" &&
+					event.data.gate === requiredGate &&
+					event.data.outcome === "SUCCESS" &&
+					Number(event.data.attempt) === task.attempt &&
+					(fingerprint === null ||
+						event.data.treeFingerprint !== fingerprint ||
+						event.data.preFingerprint !== event.data.treeFingerprint),
+			),
+		);
+		if ((task.needsBuild || buildPolicy.required) && !gatesValid) {
 			this.failTask(
 				run,
 				task,
 				from,
 				failure(
 					"AGENT_ERROR",
-					"review approval lacked successful deterministic gates",
+					evidenceInvalidated
+						? "code changed after BUILD/TEST; verification evidence invalidated"
+						: "review approval lacked successful deterministic gates",
 				),
 				"FAILURE",
 				handoffPath,
@@ -1355,12 +1954,33 @@ export class Runner {
 		return result.data.outcome === "failure" ? last + 1 : last;
 	}
 
+	private gateEvidence(
+		runId: string,
+		taskId: string,
+		attempt: number,
+	): string[] {
+		return this.store
+			.events(runId)
+			.filter(
+				(event) =>
+					event.taskId === taskId &&
+					event.kind === "gate" &&
+					Number(event.data.attempt) === attempt,
+			)
+			.map((event) => {
+				const failure = event.data.failure as Failure | undefined;
+				return `${String(event.data.gate)} ${String(event.data.outcome)} exit=${String(event.data.exitCode)} log=${String(event.data.logPath)}${failure ? ` ${failure.cls}: ${failure.summary}` : ""}`;
+			});
+	}
+
 	private gateSucceeded(
 		runId: string,
 		taskId: string,
 		gate: string,
 		attempt: number,
+		fingerprint: string | null,
 	): boolean {
+		if (fingerprint === null) return false;
 		return this.store
 			.events(runId)
 			.some(
@@ -1369,7 +1989,9 @@ export class Runner {
 					event.kind === "gate" &&
 					event.data.gate === gate &&
 					event.data.outcome === "SUCCESS" &&
-					Number(event.data.attempt) === attempt,
+					Number(event.data.attempt) === attempt &&
+					event.data.treeFingerprint === fingerprint &&
+					event.data.preFingerprint === event.data.treeFingerprint,
 			);
 	}
 
@@ -1411,8 +2033,10 @@ export class Runner {
 				summary: resultText(result),
 				failure: result.status === "idle" ? undefined : resultFailure(result),
 				agentId: result.agentId,
+				evidence: this.worktreeEvidence(run),
 			});
-		} catch {
+		} catch (error) {
+			if (error instanceof WorktreeValidationError) throw error;
 			return undefined;
 		}
 	}
@@ -1508,5 +2132,25 @@ export class Runner {
 	private resumeStage(reason: string | undefined): Stage | undefined {
 		const match = reason?.match(/(?:^|;)\s*resumeStage=([A-Z_]+)/);
 		return match?.[1] as Stage | undefined;
+	}
+	private parkForApproval(
+		run: RunState,
+		stage: Stage,
+		reason: Failure,
+		suffix?: string,
+	): void {
+		const operation = approvalOperationFor(reason.summary);
+		run.stage = "HUMAN_APPROVAL";
+		run.approvalOperation = operation;
+		run.approvalTarget = undefined;
+		run.parkedReason = `${this.parkedReason(stage, reason)}; approvalOp=${operation}${suffix ? `; ${suffix}` : ""}`;
+	}
+	private approvalOperationFromReason(
+		reason: string | undefined,
+	): ApprovalOperation | "agent.permission" | undefined {
+		const value = reason?.match(/(?:^|;)\s*approvalOp=([^;]+)/)?.[1];
+		return value
+			? (value as ApprovalOperation | "agent.permission")
+			: undefined;
 	}
 }

@@ -4,17 +4,20 @@
 		"planner": {
 			"provider": "omp/circle-ai/claude-opus-5-5",
 			"modeId": "full",
-			"thinkingOptionId": "high"
+			"thinkingOptionId": "high",
+			"configOverlay": ".omp/roles/readonly.yml"
 		},
 		"implementer": {
 			"provider": "omp/openai-codex/gpt-6.1-sol",
 			"modeId": "full",
-			"thinkingOptionId": "high"
+			"thinkingOptionId": "high",
+			"configOverlay": ".omp/roles/implementer.yml"
 		},
 		"reviewer": {
 			"provider": "omp/cliproxy/codex-auto-review",
 			"modeId": "full",
-			"thinkingOptionId": "high"
+			"thinkingOptionId": "high",
+			"configOverlay": ".omp/roles/readonly.yml"
 		}
 	},
 	"limits": {
@@ -39,5 +42,5 @@
 			"scripts/run_tests.sh"
 		]
 	},
-	"useWorktrees": false
+	"useWorktrees": true
 }

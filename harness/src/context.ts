@@ -1,20 +1,34 @@
 import {
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	realpathSync,
 	writeFileSync,
 } from "node:fs";
-import { join, relative } from "node:path";
+import { isAbsolute, join, sep } from "node:path";
 import type { Failure, Role, RunState, TaskState } from "./types.ts";
+import { WorktreeValidationError, validateWorktree } from "./worktree.ts";
 
 export interface ContextBuilder {
 	forPlanner(run: RunState): Promise<string>;
-	forTask(run: RunState, task: TaskState, role: Role): Promise<string>;
+	forTask(
+		run: RunState,
+		task: TaskState,
+		role: Role,
+		evidence?: string[],
+	): Promise<string>;
 	writeHandoff(
 		run: RunState,
 		task: TaskState,
-		data: { role: Role; summary: string; failure?: Failure; agentId?: string },
+		data: {
+			role: Role;
+			summary: string;
+			failure?: Failure;
+			agentId?: string;
+			evidence?: string[];
+		},
 	): string;
 }
 
@@ -37,21 +51,31 @@ const globRegex = (pattern: string): RegExp => {
 	}
 	return new RegExp(`${out}$`);
 };
+const sensitivePathPatterns = [
+	/(?:^|\/)\.env(?:\..*)?$/i,
+	/(?:^|\/)[^/]+\.(?:pem|key|p12|pfx|keystore|mobileprovision|p8)$/i,
+	/(?:^|\/)(?:id_rsa|id_ed25519)[^/]*$/i,
+	/(?:^|\/)(?:\.npmrc|\.netrc|\.pypirc|credentials[^/]*|secrets[^/]*)(?:\/|$)/i,
+	/(?:^|\/)[^/]*\.secret[^/]*$/i,
+	/(?:^|\/)(?:\.git|\.harness|\.ssh|\.aws|\.gnupg|private|Saved|Intermediate|DerivedDataCache|Binaries)(?:\/|$)/i,
+];
 
-const walk = (base: string, directory: string, result: string[]): string[] => {
-	for (const entry of readdirSync(directory, { withFileTypes: true })) {
-		if (
-			entry.name === ".git" ||
-			entry.name === "node_modules" ||
-			entry.name === ".harness"
+export const redactSecrets = (text: string): string =>
+	text
+		.replace(
+			/-----BEGIN [^\r\n]*?PRIVATE KEY-----[\s\S]*?-----END [^\r\n]*?PRIVATE KEY-----/gi,
+			"[REDACTED PRIVATE KEY]",
 		)
-			continue;
-		const path = join(directory, entry.name);
-		if (entry.isDirectory()) walk(base, path, result);
-		else result.push(relative(base, path).replaceAll("\\", "/"));
-	}
-	return result;
-};
+		.replace(/\bBearer\s+\S+/gi, "Bearer [REDACTED]")
+		.replace(
+			/((?:securitytoken|api[_-]?key|secret|token|password|passwd|auth|credential)[\w.-]*["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|\S+)/gi,
+			"$1[REDACTED]",
+		)
+		.replace(/gh[pousr]_[A-Za-z0-9]{20,}/g, "[REDACTED]")
+		.replace(/github_pat_[A-Za-z0-9_]{20,}/g, "[REDACTED]")
+		.replace(/sk-[A-Za-z0-9_-]{20,}/g, "[REDACTED]")
+		.replace(/AKIA[0-9A-Z]{16}/g, "[REDACTED]")
+		.replace(/xox[baprs]-\S+/g, "[REDACTED]");
 
 const command = (cwd: string, args: string[]): string => {
 	try {
@@ -89,13 +113,36 @@ export class RepoContextBuilder implements ContextBuilder {
 		return this.limit(sections);
 	}
 
-	async forTask(run: RunState, task: TaskState, role: Role): Promise<string> {
+	async forTask(
+		run: RunState,
+		task: TaskState,
+		role: Role,
+		evidence: string[] = [],
+	): Promise<string> {
+		let cwd = this.opts.repoRoot;
+		if (run.worktreePath !== undefined) {
+			const validation = validateWorktree(
+				this.opts.repoRoot,
+				run.id,
+				run.worktreePath,
+				run.worktreeBranch,
+			);
+			if (!validation.ok) throw new WorktreeValidationError(validation.reason);
+			cwd = validation.path;
+		}
 		const sections = [
 			`# ${role} context\nObjective: ${run.objective}\nRun: ${run.id}\nStage: ${run.stage}`,
 			this.agents(),
 			`## Task contract\n${JSON.stringify({ id: task.id, title: task.title, description: task.description, acceptance: task.acceptance, dependsOn: task.dependsOn, files: task.files, needsBuild: task.needsBuild, maxAttempts: task.maxAttempts, budgetMs: task.budgetMs }, null, 2)}`,
-			this.gitState(),
-			this.taskFiles(task.files),
+			this.gitState(cwd),
+			// Reviewers get the change and the deterministic evidence inline; their tools are read-only.
+			...(role === "reviewer"
+				? [
+						`## Git diff\n${command(cwd, ["git", "diff", "HEAD", "--no-color", "--no-ext-diff"])}`,
+						`## Gate evidence (this attempt)\n${evidence.join("\n") || "(none recorded)"}`,
+					]
+				: []),
+			this.taskFiles(task.files, cwd),
 			this.previousFailure(task),
 			this.previousHandoff(run, task),
 			this.instructions(role),
@@ -106,7 +153,13 @@ export class RepoContextBuilder implements ContextBuilder {
 	writeHandoff(
 		run: RunState,
 		task: TaskState,
-		data: { role: Role; summary: string; failure?: Failure; agentId?: string },
+		data: {
+			role: Role;
+			summary: string;
+			failure?: Failure;
+			agentId?: string;
+			evidence?: string[];
+		},
 	): string {
 		const dir = join(this.opts.artifactDir, "runs", run.id, task.id);
 		mkdirSync(dir, { recursive: true });
@@ -120,6 +173,7 @@ export class RepoContextBuilder implements ContextBuilder {
 		];
 		if (data.agentId) lines.push(`agentId: ${data.agentId}`);
 		if (data.failure) lines.push(`failure: ${JSON.stringify(data.failure)}`);
+		if (data.evidence?.length) lines.push("evidence:", ...data.evidence);
 		writeFileSync(path, `${lines.join("\n")}\n`);
 		return path;
 	}
@@ -131,31 +185,68 @@ export class RepoContextBuilder implements ContextBuilder {
 			: "## AGENTS.md\n(absent)";
 	}
 
-	private gitState(): string {
-		return `## Git status\n${command(this.opts.repoRoot, ["git", "status", "--short"])}## Git diff stat\n${command(this.opts.repoRoot, ["git", "diff", "--stat"])}`;
+	private gitState(cwd = this.opts.repoRoot): string {
+		return `## Git status\n${command(cwd, ["git", "status", "--short"])}## Git diff stat\n${command(cwd, ["git", "diff", "--stat"])}`;
 	}
 
-	private taskFiles(patterns: string[]): string {
-		const all = walk(this.opts.repoRoot, this.opts.repoRoot, []);
+	private taskFiles(patterns: string[], cwd = this.opts.repoRoot): string {
+		let output: string;
+		try {
+			const result = Bun.spawnSync(
+				["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+				{ cwd, stdout: "pipe", stderr: "pipe" },
+			);
+			if (result.exitCode !== 0)
+				return "## Task files\n(unavailable: git ls-files failed)";
+			output = new TextDecoder().decode(result.stdout);
+		} catch {
+			return "## Task files\n(unavailable: git ls-files failed)";
+		}
+		const all = output
+			.split("\0")
+			.filter(Boolean)
+			.map((path) => path.replaceAll("\\", "/"));
 		const matches = all.filter((path) =>
 			patterns.some((pattern) =>
 				globRegex(pattern.replaceAll("\\", "/")).test(path),
 			),
 		);
+		let repoRoot: string;
+		try {
+			repoRoot = realpathSync(cwd);
+		} catch {
+			return "## Task files\n(unavailable: git ls-files failed)";
+		}
 		const sections: string[] = [];
 		for (const path of matches) {
-			const absolute = join(this.opts.repoRoot, path);
+			if (sensitivePathPatterns.some((pattern) => pattern.test(path))) {
+				sections.push(`### ${path}\n(excluded: sensitive path)`);
+				continue;
+			}
+			if (
+				isAbsolute(path) ||
+				/^[A-Za-z]:[\\/]/.test(path) ||
+				path.split(/[\\/]/).includes("..")
+			)
+				continue;
+			const absolute = join(cwd, path);
 			let content: string;
 			try {
-				content = readFileSync(absolute, "utf8");
+				const stat = lstatSync(absolute);
+				if (!stat.isFile() || stat.isSymbolicLink()) continue;
+				const resolved = realpathSync(absolute);
+				if (resolved !== repoRoot && !resolved.startsWith(`${repoRoot}${sep}`))
+					continue;
+				content = readFileSync(resolved, "utf8");
 			} catch {
 				continue;
 			}
-			const raw = Buffer.from(content, "utf8");
+			const safeContent = redactSecrets(content);
+			const raw = Buffer.from(safeContent, "utf8");
 			const clipped =
 				raw.byteLength > this.maxFileBytes
 					? `${raw.subarray(0, this.maxFileBytes).toString("utf8")}\n[truncated]`
-					: content;
+					: safeContent;
 			sections.push(`### ${path}\n${clipped}`);
 			if (/^Source\/.*\/Public\/[^/]+\.h$/i.test(path)) {
 				const signatures = content
@@ -179,21 +270,39 @@ export class RepoContextBuilder implements ContextBuilder {
 
 	private previousHandoff(run: RunState, task: TaskState): string {
 		const dir = join(this.opts.artifactDir, "runs", run.id, task.id);
-		if (!existsSync(dir)) return "## Previous handoff\n(none)";
+		let realDir: string;
+		try {
+			const dirStat = lstatSync(dir);
+			if (!dirStat.isDirectory() || dirStat.isSymbolicLink())
+				return "## Previous handoff\n(none)";
+			realDir = realpathSync(dir);
+		} catch {
+			return "## Previous handoff\n(none)";
+		}
 		const files = readdirSync(dir)
 			.filter((name) => name.startsWith("handoff-") && name.endsWith(".md"))
 			.sort();
-		const latest = files.at(-1);
-		return latest
-			? `## Previous handoff\n${readFileSync(join(dir, latest), "utf8")}`
-			: "## Previous handoff\n(none)";
+		for (let index = files.length - 1; index >= 0; index--) {
+			const latest = files[index];
+			if (!latest) continue;
+			const candidate = join(dir, latest);
+			try {
+				const stat = lstatSync(candidate);
+				if (!stat.isFile() || stat.isSymbolicLink()) continue;
+				const resolved = realpathSync(candidate);
+				if (resolved !== realDir && !resolved.startsWith(`${realDir}${sep}`))
+					continue;
+				return `## Previous handoff\n${readFileSync(resolved, "utf8")}`;
+			} catch {}
+		}
+		return "## Previous handoff\n(none)";
 	}
 
 	private instructions(role: Role): string {
 		if (role === "implementer")
 			return "## Instructions\nEdit only the allowed task files. Never run a full UE build; the harness runs deterministic gates. End with JSON summary.";
 		if (role === "reviewer")
-			return "## Instructions\nRead-only independent review. Do not edit files. End with ReviewVerdict JSON (approve/reject and findings).";
+			return "## Instructions\nIndependent review of the Git diff above against the acceptance criteria and gate evidence. Your write/shell tools are disabled; use read/grep for more context. End with ReviewVerdict JSON (approve/reject and findings).";
 		return "## Instructions\nProduce PlanOutput JSON with validated tasks, acceptance criteria, dependencies, files, and budgets.";
 	}
 
@@ -205,9 +314,10 @@ export class RepoContextBuilder implements ContextBuilder {
 			const separator = result.length ? "\n\n" : "";
 			const remaining = this.maxTotalBytes - total - bytes(separator);
 			if (remaining <= 0) break;
-			const encoded = Buffer.from(section, "utf8");
+			const safeSection = redactSecrets(section);
+			const encoded = Buffer.from(safeSection, "utf8");
 			let value: string;
-			if (encoded.byteLength <= remaining) value = section;
+			if (encoded.byteLength <= remaining) value = safeSection;
 			else {
 				const marker = "\n[context truncated]";
 				const markerSize = bytes(marker);

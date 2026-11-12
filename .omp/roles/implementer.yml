@@ -1,0 +1,55 @@
+# OMP settings overlay for the single harness implementer (passed as PI_CONFIG_FILES).
+# The harness runs deterministic UE gates and owns git history; the worker must not.
+# Approval policy, not an OS sandbox.
+tools:
+  approval:
+    task: deny
+    # Host tools that would bypass bash.patterns (verified: create_terminal+send_terminal_keys ran shell commands).
+    create_terminal: deny
+    send_terminal_keys: deny
+    start_workspace_script: deny
+    create_agent: deny
+    send_agent_prompt: deny
+    respond_to_permission: deny
+    set_agent_mode: deny
+    archive_workspace: deny
+    archive_agent: deny
+    kill_agent: deny
+    create_schedule: deny
+    create_heartbeat: deny
+    run_schedule_once: deny
+bash:
+  patterns:
+    - match: "git commit*"
+      approval: deny
+    - match: "git push*"
+      approval: deny
+    - match: "git merge*"
+      approval: deny
+    - match: "git reset --hard*"
+      approval: deny
+    - match: "*Build.sh*"
+      approval: deny
+    - match: "*UnrealEditor*"
+      approval: deny
+    - match: "*scripts/build.sh*"
+      approval: deny
+    - match: "*scripts/run_tests.sh*"
+      approval: deny
+    - match: "*DerivedDataCache*"
+      approval: deny
+    # Defense in depth only (review R1/R2): option-prefixed git, harness state/lock, approval replay, pty wrappers.
+    - match: "git * commit*"
+      approval: deny
+    - match: "git * push*"
+      approval: deny
+    - match: "git * merge*"
+      approval: deny
+    - match: "*.harness/*"
+      approval: deny
+    - match: "*harness/src/cli.ts*"
+      approval: deny
+    - match: "*sqlite3*"
+      approval: deny
+    - match: "script *"
+      approval: deny

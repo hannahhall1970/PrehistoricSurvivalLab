@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
@@ -105,5 +106,44 @@ describe("CommandGates", () => {
 		expect(result.outcome).toBe("SUCCESS");
 		expect(env.lock.holder()).toBeNull();
 		rmSync(env.root, { recursive: true, force: true });
+	});
+	it("blocks differing worktree scripts without executing them, but runs identical scripts", async () => {
+		const env = setup();
+		const worktree = join(env.root, "worktree");
+		const trustedScripts = join(env.root, "scripts");
+		const worktreeScripts = join(worktree, "scripts");
+		const marker = join(worktree, "marker.txt");
+		const trustedScript = "#!/bin/sh\nprintf trusted > marker.txt\n";
+		try {
+			mkdirSync(trustedScripts, { recursive: true });
+			mkdirSync(worktreeScripts, { recursive: true });
+			writeFileSync(join(trustedScripts, "build.sh"), trustedScript, {
+				mode: 0o755,
+			});
+			writeFileSync(
+				join(worktreeScripts, "build.sh"),
+				"#!/bin/sh\nprintf forged > marker.txt\n",
+				{ mode: 0o755 },
+			);
+			const gates = new CommandGates({
+				repoRoot: env.root,
+				config: makeConfig(["scripts/build.sh"]),
+				logDir: env.logDir,
+				lock: env.lock,
+			});
+
+			const blocked = await gates.build(undefined, worktree);
+			expect(blocked.outcome).toBe("BLOCKED");
+			expect(existsSync(marker)).toBe(false);
+
+			writeFileSync(join(worktreeScripts, "build.sh"), trustedScript, {
+				mode: 0o755,
+			});
+			const executed = await gates.build(undefined, worktree);
+			expect(executed.outcome).toBe("SUCCESS");
+			expect(Bun.file(marker).text()).resolves.toBe("trusted");
+		} finally {
+			rmSync(env.root, { recursive: true, force: true });
+		}
 	});
 });

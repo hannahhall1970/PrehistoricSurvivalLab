@@ -42,3 +42,7 @@ TestReports/
 *.lock.tmp
 *.log
 node_modules/
+
+# Python bytecode (scripts/verify_test_report.py)
+__pycache__/
+*.pyc

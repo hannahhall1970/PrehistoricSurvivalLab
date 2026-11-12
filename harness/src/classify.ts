@@ -38,9 +38,11 @@ export function classifyLog(
 			toolchain[0] ?? "Toolchain missing",
 			toolchain,
 		);
+	const disk = lines.filter((line) => /^DISK_LOW:/.test(line.trim()));
+	if (disk.length) return failure("DISK_LOW", disk[0] ?? "Disk low", disk);
 
 	const automation = lines.filter((line) =>
-		/Test Completed\. Result=\{Fail\}|AutomationController:\s*Error:|LogAutomationController:\s*Error:/i.test(
+		/Test Completed\. Result=\{Fail\}|AutomationController:\s*Error:|LogAutomationController:\s*Error:|PSL_REPORT_FAIL/i.test(
 			line,
 		),
 	);

@@ -8,14 +8,18 @@ A resumable state machine that turns one objective into verified, reviewed tasks
 INTAKE → PREFLIGHT → PLAN → TASK_CONTRACT → EXECUTE → BUILD → TEST → INDEPENDENT_REVIEW → CHECKPOINT → NEXT_TASK ─┬→ TASK_CONTRACT
                                                ▲          │       │            │                                  └→ DONE
                                                └── RETRY ─┴───────┴────────────┘  (attempt < maxAttempts, failure fed into next context)
-PREFLIGHT/BUILD TOOLCHAIN_MISSING → BLOCKED         permission request → HUMAN_APPROVAL         retries exhausted → FAILED
+PREFLIGHT/BUILD TOOLCHAIN_MISSING|DISK_LOW → BLOCKED         permission request → HUMAN_APPROVAL         retries exhausted → FAILED
 stop request (between steps or aborting in-flight agent/gate) → STOPPED
 ```
 
-- **Truth source.** A task is `PASSED` only when the BUILD and TEST gates recorded in the DB return SUCCESS (if `needsBuild`) and the independent reviewer returns `approve` with no blocker findings. A worker's own claims are ignored.
+## Approval and worktree safety
+
+The harness parks gated operations in `HUMAN_APPROVAL`. Only `resume <runId> --approve` run from a human's terminal can release them: it prints the run, operation, and target, plus a one-time code that must be typed back on the controlling terminal (`/dev/tty`). The resulting grant is held in memory only, bound to the run id, run version, operation, and target, and is consumed on first use. Paseo/OMP agent shells have no controlling terminal, so they cannot mint a grant and the run stays parked. **Limit:** an agent that has bash can still allocate a pty (`script`) or import `TtyApprovalSource` with its own `ask()`. The challenge stops accidental and prompt-injected self-approval, not a deliberately malicious same-uid worker. The implementer overlay denies `script`, `harness/src/cli.ts`, `.harness/*` and `sqlite3` as defense in depth. Hard isolation needs a separate uid. `--approve-op`/`--approve-target` are rejected, and forged grant objects, JSON, free text, and replays are refused (`harness/test/approval.test.ts`). With `useWorktrees: true`, each run uses `.harness/worktrees/<runId>` on `harness/<runId>` from `origin/main`; implementers and task gates use that directory, and clean worktrees are removed without force while dirty or committed work is retained.
+
+- **Truth source.** A task is `PASSED` only when the BUILD and TEST gates recorded in the DB return SUCCESS (when a build is required) and the independent reviewer returns `approve` with no blocker findings. A worker's own claims are ignored. The planner's `needsBuild` can only add verification. `requiresBuild()` in `graph.ts` forces BUILD+TEST whenever the actual changed files (`git status --porcelain`, untracked included) or the declared task files touch `Source/`, `Plugins/`, `Config/`, `*.uproject`/`*.uplugin`, `*.Build.cs`/`*.Target.cs`, C/C++/C# sources, or the build/test scripts. If git fails, it fails closed. The check runs again at review approval.
 - **Bounded.** Each task has `maxAttempts` (default 3) and a per-attempt `budgetMs`. A run is capped at `limits.maxTasksPerRun`. Gates have their own timeouts and kill the whole process group. Nothing loops without a bound, and there are no schedules or heartbeats.
 - **Crash-safe.** Every step checkpoints to SQLite and appends an event. A lease stops two runners from driving the same run. Agent calls use `idempotencyKey = runId:taskId:role:attempt`, so a resume reuses the existing Paseo agent instead of spawning a duplicate.
-- **Single writer.** UE builds and tests take `.harness/ue-build.lock`, an atomic `O_EXCL` lock file that holds the owner's PID. A lock whose PID is dead is reclaimed. A second build gets `BUILD_LOCKED`.
+- **Single writer.** UE builds and tests take `.harness/ue-build.lock`, an atomic lock file recording the owner PID, its start time (`ps -o lstart`), and the build child's process group. The lock is held while the owner is the same live, non-zombie process, or while any process in the build group is alive. That covers a harness crash during a UE build. A zombie, a reused PID, or a dead group lets the lock be reclaimed. A second build gets `BUILD_LOCKED`.
 - **Parked states.** `BLOCKED` and `HUMAN_APPROVAL` wait for a person. Run `resume <runId>` after fixing the toolchain, or `resume <runId> --approve` after granting a permission.
 
 ## Modules (`harness/src/`)
@@ -27,7 +31,7 @@ stop request (between steps or aborting in-flight agent/gate) → STOPPED
 | `graph.ts` | Pure transition table plus the `Runner` that drives it |
 | `gates.ts` / `classify.ts` | Spawn preflight/build/test with timeouts, write full logs to disk, extract ≤60-line excerpts, classify failures |
 | `lock.ts` | Single-writer UE build lock |
-| `context.ts` | Assembles per-role context: AGENTS.md, task contract, `git status`, the task's files and header signatures, the last failure excerpt (never full logs), and handoff notes |
+| `context.ts` | Assembles per-role context: AGENTS.md, task contract, `git status`, the task's files and header signatures, the last failure excerpt (never full logs), and handoff notes. Task files come only from `git ls-files --cached --others --exclude-standard`, so ignored files never appear. Symlinks, paths that escape the repo, and sensitive paths (`.env*`, keys, credentials, `Saved/`, `Intermediate/`, …) are skipped. Every section passes through `redactSecrets()` before it is truncated, which covers `SecurityToken=`, key/token assignments, private keys, and provider tokens |
 | `paseo.ts` / `config.ts` | `AgentPort` over `@getpaseo/client`; role → model routing from `harness/harness.config.json` |
 | `cli.ts` | `start`, `status`, `resume`, `stop`, `logs`, `gate` |
 
@@ -53,7 +57,11 @@ Paseo workspace scripts in `paseo.json` (`paseo script start <name>`) wrap the a
 
 - **Planner:** a strong reasoning model. Its output must be `PlanOutput` JSON, which is validated for unique ids, existing dependencies, no cycles, and non-empty acceptance.
 - **Implementer:** a strong coding model in mode `full` so it can run unattended. It edits code only; the harness runs the UE build.
-- **Reviewer:** a model from a different family than the implementer, also in mode `full`. It is read-only by instruction and returns `ReviewVerdict` JSON. Trade-off: the `ask` mode would block on every tool call. Read-only is not enforced by the sandbox, but the verdict counts only alongside the deterministic gates.
+- **Reviewer:** a model from a different family than the implementer, also in mode `full`. It receives the task contract, `git diff HEAD`, the task files, and this attempt's gate evidence inline, and returns `ReviewVerdict` JSON. The verdict counts only alongside the deterministic gates.
+- **Role tool policy:** each role's `configOverlay` is an OMP settings file passed as `PI_CONFIG_FILES`. A missing overlay fails closed.
+  - `.omp/roles/readonly.yml` (planner and reviewer) sets `approvalMode: always-ask`. Only `read`/`grep`/`glob`/`todo` are allowed, so a headless agent's other calls are refused. A live probe showed all 11 write paths denied: write, edit, bash, eval, ast_edit, lsp, terminal, workspace script, ssh, chrome-devtools, and task.
+  - `.omp/roles/implementer.yml` denies git commit/push/merge, UE builds, DerivedDataCache, `task`, and the terminal/agent host tools. Before this, `create_terminal` + `send_terminal_keys` bypassed the bash deny.
+  - These overlays are approval policy, not an OS sandbox: the agent runs as the same uid.
 - The exact model ids are in `harness/harness.config.json`. Only the `omp` provider is available on this machine.
 
 ## Why not LangGraph
@@ -84,4 +92,10 @@ Revisit LangGraph if you need dynamic graphs, many concurrent branches, or time-
 ## Limits
 
 - `useWorktrees` is `false` until the repo has a first commit, because worktrees need a Git HEAD and committing requires the user's approval. Until then, workers edit the main checkout one task at a time.
-- Read-only reviewers are enforced by prompt only, not by the sandbox.
+- Reviewer/implementer limits are OMP approval policy, not an OS sandbox. A tool added to OMP/Paseo later is refused for reviewers by `always-ask`, but the implementer's deny list must be extended by hand.
+- Low disk is `DISK_LOW` (BLOCKED, exit 2), not a toolchain error. The 20 GB preflight floor stays, and caches are never cleaned automatically.
+- `scripts/check_secrets.sh` (repo-local `.git/hooks/pre-commit`) refuses staged secrets, including Unreal's generated `AndroidFileServerRuntimeSettings` `SecurityToken`. `--worktree` scans the unstaged diff.
+- **R1/R2 are open, not fixed.** Prompt-level and tool-level denials (OMP `always-ask`, `bash.patterns`, role overlays) are approval policy, not OS isolation. A same-UID worker can spawn a pty, import harness code, or reach the state DB, so it must not be treated as safe against hostile code. Privileged git and system operations (commit, push, merge, delete, cache or worktree cleanup, global config) need a trusted human approval boundary outside the worker. A separate-UID worker is the only real fix and is not implemented.
+- **Storage.** `du` overstates `~/.omp/wt`: OMP clone-first (APFS clonefile) worktrees share blocks. Use `getattrlist ATTR_CMNEXT_PRIVATESIZE` (private bytes) for a lower bound on reclaim; the upper bound is not measurable without deleting. Cleanup is proposal-only: `omp worktree clear --dry-run`, then a path-specific approved manifest. Dead owner PID does not mean empty worktree; clone-first copies inherit the parent's dirty state, so "dirty" alone is not proof of unique work (compare diff hashes). Never run `omp worktree clear` without an approved manifest.
+- **AndroidFileServer.** Mac-only prototype: keep `AndroidFileServer` `Enabled:false` in the `.uproject` so the editor plugin (which writes `SecurityToken` to `DefaultEngine.ini`) is not loaded. Keep `check_secrets.sh` enabled regardless.
+- `scripts/run_tests.sh` passes only when `scripts/verify_test_report.py` accepts the exported `index.json`. Every `PSL.*` test declared in `Source/` must be present exactly once with state `Success`, `failed`/`notRun` must be 0, and the header counters must match the entries. An editor exit code of 0 alone never passes.

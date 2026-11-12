@@ -39,13 +39,19 @@ fi
 DISK_AVAILABLE_KB="$(df -Pk "$ROOT_DIR" | awk 'NR == 2 { print $4 }')"
 printf 'Disk available=%s KB\n' "${DISK_AVAILABLE_KB:-unknown}"
 if [[ ! "$DISK_AVAILABLE_KB" =~ ^[0-9]+$ ]] || ((DISK_AVAILABLE_KB < 20 * 1024 * 1024)); then
-	failures+=("less than 20 GB free disk space")
+	disk_low=1
 fi
 
 if ((${#failures[@]} > 0)); then
 	for failure in "${failures[@]}"; do
 		printf 'TOOLCHAIN_MISSING: %s\n' "$failure" >&2
 	done
+fi
+if [[ -n "${disk_low:-}" ]]; then
+	# Storage, not toolchain: the 20 GB floor covers UE build + DDC growth. Never auto-delete caches.
+	printf 'DISK_LOW: %s KB free, need 20 GB on %s\n' "${DISK_AVAILABLE_KB:-unknown}" "$ROOT_DIR" >&2
+fi
+if ((${#failures[@]} > 0)) || [[ -n "${disk_low:-}" ]]; then
 	exit 1
 fi
 

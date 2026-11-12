@@ -1,13 +1,22 @@
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+	appendFileSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
+import { join, resolve } from "node:path";
 import { classifyLog } from "./classify.ts";
 import { type BuildLock, withBuildLock } from "./lock.ts";
-import type { GateResult, HarnessConfig } from "./types.ts";
+import {
+	BLOCKING_FAILURES,
+	type GateResult,
+	type HarnessConfig,
+} from "./types.ts";
 
 export interface Gates {
-	preflight(signal?: AbortSignal): Promise<GateResult>;
-	build(signal?: AbortSignal): Promise<GateResult>;
-	test(signal?: AbortSignal): Promise<GateResult>;
+	preflight(signal?: AbortSignal, cwd?: string): Promise<GateResult>;
+	build(signal?: AbortSignal, cwd?: string): Promise<GateResult>;
+	test(signal?: AbortSignal, cwd?: string): Promise<GateResult>;
 }
 
 const tailLimit = 32_000;
@@ -30,6 +39,7 @@ async function execute(
 	logPath: string,
 	timeoutMs: number,
 	signal?: AbortSignal,
+	onSpawn?: (pid: number) => void,
 ): Promise<{
 	exitCode: number | null;
 	durationMs: number;
@@ -56,6 +66,7 @@ async function execute(
 			timedOut: false,
 		};
 	}
+	onSpawn?.(processHandle.pid);
 	let tail = "";
 	const consume = async (
 		stream: ReadableStream<Uint8Array> | null,
@@ -148,30 +159,33 @@ export class CommandGates implements Gates {
 		mkdirSync(this.logDir, { recursive: true });
 	}
 
-	preflight(signal?: AbortSignal): Promise<GateResult> {
+	preflight(signal?: AbortSignal, cwd = this.repoRoot): Promise<GateResult> {
 		return this.run(
 			"PREFLIGHT",
 			this.config.commands.preflight,
 			this.config.limits.preflightTimeoutMs,
 			signal,
+			cwd,
 		);
 	}
 
-	build(signal?: AbortSignal): Promise<GateResult> {
+	build(signal?: AbortSignal, cwd = this.repoRoot): Promise<GateResult> {
 		return this.runLocked(
 			"BUILD",
 			this.config.commands.build,
 			this.config.limits.buildTimeoutMs,
 			signal,
+			cwd,
 		);
 	}
 
-	test(signal?: AbortSignal): Promise<GateResult> {
+	test(signal?: AbortSignal, cwd = this.repoRoot): Promise<GateResult> {
 		return this.runLocked(
 			"TEST",
 			this.config.commands.test,
 			this.config.limits.testTimeoutMs,
 			signal,
+			cwd,
 		);
 	}
 
@@ -180,10 +194,13 @@ export class CommandGates implements Gates {
 		command: string[],
 		timeoutMs: number,
 		signal?: AbortSignal,
+		cwd = this.repoRoot,
 	): Promise<GateResult> {
 		const owner = `${process.pid}:${gate}:${Date.now()}`;
 		return withBuildLock(this.lock, owner, () =>
-			this.run(gate, command, timeoutMs, signal),
+			this.run(gate, command, timeoutMs, signal, cwd, (pid) =>
+				this.lock.attachChild(owner, pid),
+			),
 		).then((result) => {
 			if (result) return result;
 			const logPath = this.logPath(gate);
@@ -209,14 +226,42 @@ export class CommandGates implements Gates {
 		command: string[],
 		timeoutMs: number,
 		signal?: AbortSignal,
+		cwd = this.repoRoot,
+		onSpawn?: (pid: number) => void,
 	): Promise<GateResult> {
+		if (gate !== "PREFLIGHT" && resolve(cwd) !== resolve(this.repoRoot)) {
+			// Worker-controlled worktree must not substitute its own gate entrypoints.
+			for (const arg of command.filter((item) => item.startsWith("scripts/"))) {
+				let same = false;
+				try {
+					same = readFileSync(join(cwd, arg)).equals(
+						readFileSync(join(this.repoRoot, arg)),
+					);
+				} catch {
+					same = false;
+				}
+				if (!same) {
+					const summary = `${gate} entrypoint ${arg} in worktree differs from trusted checkout; refusing to execute`;
+					return {
+						gate,
+						outcome: "BLOCKED",
+						exitCode: null,
+						durationMs: 0,
+						command: [...command],
+						logPath: this.logPath(gate),
+						failure: { cls: "TOOLCHAIN_MISSING", summary, excerpt: summary },
+					};
+				}
+			}
+		}
 		const logPath = this.logPath(gate);
 		const executed = await execute(
 			command,
-			this.repoRoot,
+			cwd,
 			logPath,
 			timeoutMs,
 			signal,
+			onSpawn,
 		);
 		if (executed.timedOut) {
 			return {
@@ -246,7 +291,7 @@ export class CommandGates implements Gates {
 		const classified = classifyLog(gate, executed.exitCode, executed.tail);
 		return {
 			gate,
-			outcome: classified.cls === "TOOLCHAIN_MISSING" ? "BLOCKED" : "FAILURE",
+			outcome: BLOCKING_FAILURES.has(classified.cls) ? "BLOCKED" : "FAILURE",
 			exitCode: executed.exitCode,
 			durationMs: executed.durationMs,
 			command: [...command],

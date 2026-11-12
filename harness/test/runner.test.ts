@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+	appendFileSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TtyApprovalSource } from "../src/approval.ts";
 import { Runner } from "../src/graph.ts";
 import { Store } from "../src/store.ts";
 import type {
@@ -17,6 +24,11 @@ import type {
 } from "../src/types.ts";
 import type { ContextBuilder } from "../src/context.ts";
 import type { Gates } from "../src/gates.ts";
+
+/** Scripted human who reads the one-time code off the prompt and types it back. */
+const typedBack = {
+	ask: (prompt: string) => prompt.match(/Type ([0-9A-F]{6}) /)?.[1],
+};
 
 const stores: Store[] = [];
 const directories: string[] = [];
@@ -61,7 +73,7 @@ function task(needsBuild = false, maxAttempts = 2): TaskSpec {
 		description: "Do the task",
 		dependsOn: [],
 		acceptance: ["It is complete"],
-		files: ["Source/**"],
+		files: ["docs/**"],
 		needsBuild,
 		maxAttempts,
 		budgetMs: 1000,
@@ -95,18 +107,22 @@ function gate(
 class FakeGates implements Gates {
 	buildResults: (GateResult | Error)[] = [];
 	testResults: (GateResult | Error)[] = [];
+	readonly calls: GateResult["gate"][] = [];
 
 	preflight(): Promise<GateResult> {
+		this.calls.push("PREFLIGHT");
 		return Promise.resolve(gate("PREFLIGHT"));
 	}
 
 	async build(): Promise<GateResult> {
+		this.calls.push("BUILD");
 		const result = this.buildResults.shift() ?? gate("BUILD");
 		if (result instanceof Error) throw result;
 		return result;
 	}
 
 	async test(): Promise<GateResult> {
+		this.calls.push("TEST");
 		const result = this.testResults.shift() ?? gate("TEST");
 		if (result instanceof Error) throw result;
 		return result;
@@ -219,12 +235,12 @@ class StopOnceAgents extends FakeAgents {
 	}
 }
 
-
 function runner(
 	path: string,
 	agents: AgentPort,
 	gates = new FakeGates(),
 	owner = "test-owner",
+	repoRoot = process.cwd(),
 ) {
 	const store = new Store(path);
 	stores.push(store);
@@ -236,7 +252,7 @@ function runner(
 			gates,
 			context: new FakeContext(),
 			config: config(),
-			repoRoot: process.cwd(),
+			repoRoot,
 			owner,
 		}),
 		gates,
@@ -254,7 +270,311 @@ class CrashBeforeTaskPersistStore extends Store {
 	}
 }
 
+function gitRepoPath(): string {
+	const root = mkdtempSync(join(tmpdir(), "psl-harness-policy-"));
+	directories.push(root);
+	const result = Bun.spawnSync(["git", "init", "-q", root], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	if (result.exitCode !== 0) throw new Error("git init failed");
+	writeFileSync(join(root, "tracked.txt"), "base\n");
+	for (const args of [
+		["git", "config", "user.email", "harness@example.test"],
+		["git", "config", "user.name", "Harness Test"],
+		["git", "add", "tracked.txt"],
+		["git", "commit", "-qm", "base"],
+	]) {
+		const commit = Bun.spawnSync(args, {
+			cwd: root,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		if (commit.exitCode !== 0)
+			throw new Error(`git command failed: ${args.join(" ")}`);
+	}
+	return root;
+}
+
+function fingerprintFixture(): {
+	repo: string;
+	run: { id: string; worktreePath: string; worktreeBranch: string };
+} {
+	const repo = gitRepoPath();
+	mkdirSync(join(repo, "Source"), { recursive: true });
+	writeFileSync(join(repo, "Source", "a.cpp"), "int value = 1;\n");
+	for (const args of [
+		["git", "add", "Source/a.cpp"],
+		["git", "commit", "-qm", "source"],
+	]) {
+		const result = Bun.spawnSync(args, {
+			cwd: repo,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		if (result.exitCode !== 0)
+			throw new Error(`git command failed: ${args.join(" ")}`);
+	}
+	const id = crypto.randomUUID();
+	const worktreePath = join(repo, ".harness", "worktrees", id);
+	const worktreeBranch = `harness/${id}`;
+	mkdirSync(join(repo, ".harness", "worktrees"), { recursive: true });
+	const worktree = Bun.spawnSync(
+		[
+			"git",
+			"worktree",
+			"add",
+			"-q",
+			"-b",
+			worktreeBranch,
+			worktreePath,
+			"HEAD",
+		],
+		{ cwd: repo, stdout: "pipe", stderr: "pipe" },
+	);
+	if (worktree.exitCode !== 0) throw new Error("git worktree add failed");
+	return { repo, run: { id, worktreePath, worktreeBranch } };
+}
+
+describe("Runner.treeFingerprint", () => {
+	it("fails closed when a tracked build input is skip-worktree", () => {
+		const fixture = fingerprintFixture();
+		const { runner: instance } = runner(
+			dbPath(),
+			new FakeAgents(),
+			new FakeGates(),
+			"fingerprint",
+			fixture.repo,
+		);
+		const result = Bun.spawnSync(
+			["git", "update-index", "--skip-worktree", "Source/a.cpp"],
+			{ cwd: fixture.run.worktreePath, stdout: "pipe", stderr: "pipe" },
+		);
+		expect(result.exitCode).toBe(0);
+		expect(callTreeFingerprint(instance, fixture.run)).toBeNull();
+	});
+
+	it("changes when a tracked Source file is edited", () => {
+		const fixture = fingerprintFixture();
+		const { runner: instance } = runner(
+			dbPath(),
+			new FakeAgents(),
+			new FakeGates(),
+			"fingerprint",
+			fixture.repo,
+		);
+		const before = callTreeFingerprint(instance, fixture.run);
+		expect(before).not.toBeNull();
+		writeFileSync(
+			join(fixture.run.worktreePath, "Source", "a.cpp"),
+			"int value = 2;\n",
+		);
+		expect(callTreeFingerprint(instance, fixture.run)).not.toBe(before);
+	});
+
+	it("changes when a gitignored Plugins source file appears or is edited", () => {
+		const fixture = fingerprintFixture();
+		const { runner: instance } = runner(
+			dbPath(),
+			new FakeAgents(),
+			new FakeGates(),
+			"fingerprint",
+			fixture.repo,
+		);
+		const wt = fixture.run.worktreePath;
+		// ignore rule lives in the shared info/exclude so the tracked tree stays untouched
+		const exclude = Bun.spawnSync(
+			["git", "rev-parse", "--git-path", "info/exclude"],
+			{
+				cwd: wt,
+				stdout: "pipe",
+			},
+		);
+		const excludePath = join(
+			wt,
+			new TextDecoder().decode(exclude.stdout).trim(),
+		);
+		mkdirSync(join(excludePath, ".."), { recursive: true });
+		appendFileSync(excludePath, "\nPlugins/\n");
+		const before = callTreeFingerprint(instance, fixture.run);
+		expect(before).not.toBeNull();
+		mkdirSync(join(wt, "Plugins", "X", "Source"), { recursive: true });
+		const file = join(wt, "Plugins", "X", "Source", "x.cpp");
+		writeFileSync(file, "int a;\n");
+		const added = callTreeFingerprint(instance, fixture.run);
+		expect(added).not.toBe(before);
+		writeFileSync(file, "int b;\n");
+		expect(callTreeFingerprint(instance, fixture.run)).not.toBe(added);
+	});
+});
+type FingerprintRun = {
+	id: string;
+	worktreePath: string;
+	worktreeBranch: string;
+};
+
+function callTreeFingerprint(
+	instance: Runner,
+	run: FingerprintRun,
+): string | null {
+	const privateRunner = instance as unknown as {
+		treeFingerprint(run: FingerprintRun): string | null;
+	};
+	return privateRunner.treeFingerprint(run);
+}
+
 describe("PSL.Runner", () => {
+	it("invalidates gate evidence when review mutates the task tree", async () => {
+		const repo = gitRepoPath();
+		const agents = new FakeAgents(async (request) => {
+			if (request.role === "reviewer") {
+				writeFileSync(join(request.cwd, "review-change.txt"), "changed\n");
+				return {
+					status: "idle",
+					agentId: "reviewer",
+					structured: { verdict: "approve", findings: [] },
+				};
+			}
+			return { status: "idle", agentId: "worker" };
+		});
+		const { runner: instance, store } = runner(
+			dbPath(),
+			agents,
+			new FakeGates(),
+			"test-owner",
+			repo,
+		);
+		const run = await instance.start("review mutation", {
+			tasks: [task(true, 1)],
+		});
+		expect(run.stage).toBe("FAILED");
+		expect(store.getTasks(run.id)[0]?.lastFailure?.summary).toContain(
+			"verification evidence invalidated",
+		);
+	});
+
+	it("invalidates gate evidence when review stages a post-test change", async () => {
+		const repo = gitRepoPath();
+		const agents = new FakeAgents(async (request) => {
+			if (request.role === "implementer") {
+				writeFileSync(join(request.cwd, "tracked.txt"), "worker change\n");
+			}
+			if (request.role === "reviewer") {
+				const staged = Bun.spawnSync(["git", "add", "tracked.txt"], {
+					cwd: request.cwd,
+					stdout: "pipe",
+					stderr: "pipe",
+				});
+				if (staged.exitCode !== 0) throw new Error("git add failed");
+				return {
+					status: "idle",
+					agentId: "reviewer",
+					structured: { verdict: "approve", findings: [] },
+				};
+			}
+			return { status: "idle", agentId: "worker" };
+		});
+		const { runner: instance, store } = runner(
+			dbPath(),
+			agents,
+			new FakeGates(),
+			"test-owner",
+			repo,
+		);
+		const run = await instance.start("staged mutation", {
+			tasks: [task(true, 1)],
+		});
+		expect(run.stage).toBe("FAILED");
+		expect(store.getTasks(run.id)[0]?.lastFailure?.summary).toContain(
+			"verification evidence invalidated",
+		);
+	});
+
+	it("fails closed when git cannot produce a tree fingerprint", async () => {
+		const repo = mkdtempSync(join(tmpdir(), "psl-harness-no-git-"));
+		directories.push(repo);
+		const { runner: instance, store } = runner(
+			dbPath(),
+			new FakeAgents(),
+			new FakeGates(),
+			"test-owner",
+			repo,
+		);
+		const run = await instance.start("missing git", {
+			tasks: [task(true, 1)],
+		});
+		expect(run.stage).toBe("FAILED");
+		expect(store.getTasks(run.id)[0]?.lastFailure?.summary).toContain(
+			"verification evidence invalidated",
+		);
+	});
+
+	it("forces build and test when an untracked C++ file appears", async () => {
+		const repo = gitRepoPath();
+		const agents = new FakeAgents(async (request) => {
+			if (request.role === "implementer") {
+				await Bun.write(join(request.cwd, "new.cpp"), "int main() {}\n");
+				return { status: "idle", agentId: "worker" };
+			}
+			if (request.role === "reviewer") {
+				return {
+					status: "idle",
+					agentId: "reviewer",
+					structured: { verdict: "approve", findings: [] },
+				};
+			}
+			return { status: "idle", agentId: "planner" };
+		});
+		const gates = new FakeGates();
+		const { runner: instance, store } = runner(
+			dbPath(),
+			agents,
+			gates,
+			"test-owner",
+			repo,
+		);
+		const run = await instance.start("untracked source", { tasks: [task()] });
+		expect(run.stage).toBe("DONE");
+		expect(gates.calls).toEqual(["PREFLIGHT", "BUILD", "TEST"]);
+		expect(store.getTasks(run.id)[0]?.needsBuild).toBe(true);
+		const policyEvent = store
+			.events(run.id)
+			.find((event) => event.kind === "agent" && event.stage === "EXECUTE");
+		expect(policyEvent?.data.buildPolicy).toMatchObject({
+			required: true,
+			changedFiles: ["new.cpp"],
+		});
+	});
+
+	it("does not pass a source-changing task when the forced test gate fails", async () => {
+		const repo = gitRepoPath();
+		const agents = new FakeAgents(async (request) => {
+			if (request.role === "implementer") {
+				await Bun.write(join(request.cwd, "new.cpp"), "int main() {}\n");
+				return { status: "idle", agentId: "worker" };
+			}
+			return {
+				status: "idle",
+				agentId: "reviewer",
+				structured: { verdict: "approve", findings: [] },
+			};
+		});
+		const gates = new FakeGates();
+		gates.testResults = [gate("TEST", "FAILURE", "TEST_FAILURE")];
+		const { runner: instance, store } = runner(
+			dbPath(),
+			agents,
+			gates,
+			"test-owner",
+			repo,
+		);
+		const run = await instance.start("failed forced test", {
+			tasks: [task(false, 1)],
+		});
+		expect(run.stage).toBe("FAILED");
+		expect(store.getTasks(run.id)[0]?.status).toBe("FAILED");
+	});
+
 	it("runs a provided task through execute, review, checkpoint, and done", async () => {
 		const agents = new FakeAgents();
 		const { runner: instance, store } = runner(dbPath(), agents);
@@ -320,7 +640,6 @@ describe("PSL.Runner", () => {
 		expect(first.store.getRun(parked.id)?.stage).toBe("STOPPED");
 		expect((await first.runner.resume(parked.id)).stage).toBe("STOPPED");
 	});
-
 
 	it("does not pass a worker that claims success when the build fails", async () => {
 		const agents = new FakeAgents();
@@ -414,7 +733,13 @@ describe("PSL.Runner", () => {
 		expect(parked.stage).toBe("HUMAN_APPROVAL");
 		const key = `${parked.id}:task-1:implementer:1`;
 		const second = runner(path, agents, new FakeGates(), "resume-owner");
-		const done = await second.runner.resume(parked.id, { approve: true });
+		// Without a trusted human channel, --approve alone stays parked (fail closed).
+		const refused = await second.runner.resume(parked.id, { approve: true });
+		expect(refused.stage).toBe("HUMAN_APPROVAL");
+		const done = await second.runner.resume(parked.id, {
+			approve: true,
+			approvals: new TtyApprovalSource(typedBack),
+		});
 		expect(done.stage).toBe("DONE");
 		expect(agents.countForKey(key)).toBe(1);
 	});

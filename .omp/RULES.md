@@ -6,3 +6,8 @@
 - Reviewers and research subagents are read-only: never edit, write, or delete implementation files.
 - Never fabricate build/test results; missing UE/Xcode is BLOCKED with the exact error.
 - Never commit, push, delete DerivedDataCache/engine/user data, or change global config without explicit user approval.
+
+- Approvals MUST name one exact operation and be explicit structured grants.
+- NEVER preselect an approve option; free text and commit-message fields never count.
+- Generic approval flags do not authorize a different operation.
+- If approval is ambiguous, do not run the operation.

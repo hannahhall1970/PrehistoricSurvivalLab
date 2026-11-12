@@ -64,4 +64,19 @@ describe("classifyLog", () => {
 		expect(result.cls).toBe("UNKNOWN");
 		expect(result.excerpt?.split("\n")).toHaveLength(40);
 	});
+
+	it("fails TEST on report verdict lines even when automation log is quiet", () => {
+		const result = classifyLog(
+			"TEST",
+			1,
+			"PSL_REPORT: succeeded=0 failed=0 notRun=0 total=0\nPSL_REPORT_FAIL: report contains zero PSL tests\n",
+		);
+		expect(result.cls).toBe("TEST_FAILURE");
+		expect(result.summary).toContain("zero PSL tests");
+	});
+
+	it("classifies low disk as DISK_LOW, not a missing toolchain", () => {
+		const result = classifyLog("PREFLIGHT", 1, "Disk available=1 KB\nDISK_LOW: 1 KB free, need 20 GB on /r\n");
+		expect(result.cls).toBe("DISK_LOW");
+	});
 });

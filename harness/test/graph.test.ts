@@ -1,8 +1,43 @@
 import { describe, expect, it } from "bun:test";
-import { EDGE_TABLE, transition } from "../src/graph.ts";
+import { EDGE_TABLE, requiresBuild, transition } from "../src/graph.ts";
 import type { Outcome, Stage } from "../src/types.ts";
 
 const context = { attempt: 1, maxAttempts: 3, hasMoreTasks: true };
+describe("PSL.requiresBuild", () => {
+	it("requires verification for build-relevant changed files", () => {
+		expect(
+			requiresBuild(
+				["docs/x.md"],
+				["Source/PrehistoricSurvivalLab/Private/A.cpp"],
+				false,
+			).required,
+		).toBe(true);
+	});
+
+	it("allows docs-only declared and changed files", () => {
+		const result = requiresBuild(["docs/**"], ["docs/x.md"], false);
+		expect(result.required).toBe(false);
+		expect(result.reason).toContain("checked");
+	});
+
+	it("fails closed when changed files are unavailable", () => {
+		expect(requiresBuild(["docs/**"], null, false).required).toBe(true);
+	});
+
+	it("never removes planner-requested verification", () => {
+		expect(requiresBuild(["docs/**"], ["docs/x.md"], true).required).toBe(true);
+	});
+
+	it("recognizes Unreal project, config, and build metadata paths", () => {
+		for (const path of [
+			"Foo.Build.cs",
+			"X.uproject",
+			"Config/DefaultGame.ini",
+		]) {
+			expect(requiresBuild(["docs/**"], [path], false).required).toBe(true);
+		}
+	});
+});
 
 const expected: [Stage, Outcome, Stage][] = [
 	["INTAKE", "SUCCESS", "PREFLIGHT"],

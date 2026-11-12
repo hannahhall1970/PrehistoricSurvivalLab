@@ -7,16 +7,19 @@ const DEFAULT_ROLES: Record<Role, RoleConfig> = {
 		provider: "omp/circle-ai/claude-opus-5-5",
 		modeId: "full",
 		thinkingOptionId: "high",
+		configOverlay: ".omp/roles/readonly.yml",
 	},
 	implementer: {
 		provider: "omp/openai-codex/gpt-6.1-sol",
 		modeId: "full",
 		thinkingOptionId: "high",
+		configOverlay: ".omp/roles/implementer.yml",
 	},
 	reviewer: {
 		provider: "omp/cliproxy/codex-auto-review",
 		modeId: "full",
 		thinkingOptionId: "high",
+		configOverlay: ".omp/roles/readonly.yml",
 	},
 };
 
@@ -73,6 +76,12 @@ function role(value: unknown, fallback: RoleConfig): RoleConfig {
 			? { thinkingOptionId: value.thinkingOptionId }
 			: fallback.thinkingOptionId
 				? { thinkingOptionId: fallback.thinkingOptionId }
+				: {}),
+		...(typeof value.configOverlay === "string" &&
+		value.configOverlay.length > 0
+			? { configOverlay: value.configOverlay }
+			: fallback.configOverlay
+				? { configOverlay: fallback.configOverlay }
 				: {}),
 	};
 }

@@ -1,6 +1,7 @@
 import { createPaseoClient, type PaseoLogger } from "@getpaseo/client";
-import { writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { configPath, loadConfig } from "./config.ts";
 import type {
 	AgentPort,
@@ -27,9 +28,16 @@ type Permission = {
 
 type AgentSnapshot = {
 	id?: unknown;
+	provider?: unknown;
+	cwd?: unknown;
+	model?: unknown;
+	currentModeId?: unknown;
+	thinkingOptionId?: unknown;
+	effectiveThinkingOptionId?: unknown;
 	workspaceId?: unknown;
 	labels?: unknown;
 	pendingPermissions?: unknown;
+	status?: unknown;
 	archivedAt?: unknown;
 };
 
@@ -70,6 +78,7 @@ type CreateAgentOptions = {
 	title: string;
 	prompt: string;
 	outputSchema?: Record<string, unknown>;
+	env?: Record<string, string>;
 	labels: Record<string, string>;
 };
 
@@ -108,6 +117,8 @@ export interface PaseoAgentPortOptions {
 	logger?: PaseoLogger;
 	/** Test seam; production callers omit this and use the configured daemon. */
 	client?: unknown;
+	/** Resolves repo-relative role overlays; defaults to this checkout. */
+	repoRoot?: string;
 }
 
 export interface AgentRunHooks {
@@ -133,6 +144,104 @@ function sanitizeLabel(value: string): string {
 export function harnessKeyLabel(idempotencyKey: string): string {
 	return sanitizeLabel(idempotencyKey);
 }
+
+export function resolveRoleOverlay(
+	repoRoot: string,
+	overlay: string | undefined,
+): string {
+	const requested = typeof overlay === "string" ? overlay : "<missing>";
+	const reject = (reason: string, cause?: unknown): never => {
+		throw new Error(
+			`Role config overlay rejected "${requested}": ${reason}`,
+			cause === undefined ? undefined : { cause },
+		);
+	};
+	if (typeof overlay !== "string") return reject("missing overlay");
+	if (overlay.length === 0) return reject("empty path");
+
+	const candidate = isAbsolute(overlay) ? overlay : resolve(repoRoot, overlay);
+	let trustedRoot: string;
+	try {
+		trustedRoot = realpathSync(join(repoRoot, ".omp", "roles"));
+	} catch (error) {
+		return reject(
+			`trusted roles root unavailable: ${errorMessage(error)}`,
+			error,
+		);
+	}
+
+	for (const dir of [join(repoRoot, ".omp"), join(repoRoot, ".omp", "roles")]) {
+		try {
+			if (lstatSync(dir).isSymbolicLink() || !lstatSync(dir).isDirectory())
+				return reject(`trusted roles path is a symlink or not a directory: ${dir}`);
+		} catch (error) {
+			return reject(`trusted roles path unavailable: ${errorMessage(error)}`, error);
+		}
+	}
+
+	let realPath: string;
+	try {
+		realPath = realpathSync(candidate);
+	} catch (error) {
+		const code =
+			isRecord(error) && typeof error.code === "string" ? error.code : "";
+		return reject(
+			code === "ENOENT"
+				? `file not found at ${candidate}`
+				: `cannot resolve path at ${candidate}: ${errorMessage(error)}`,
+			error,
+		);
+	}
+	if (!realPath.startsWith(`${trustedRoot}${sep}`)) {
+		return reject(
+			`outside trusted root ${trustedRoot}; resolved to ${realPath}`,
+		);
+	}
+	if (!realPath.endsWith(".yml")) {
+		return reject(`must end in .yml; resolved to ${realPath}`);
+	}
+	try {
+		if (!statSync(realPath).isFile()) {
+			return reject(`not a regular file; resolved to ${realPath}`);
+		}
+	} catch (error) {
+		return reject(
+			`cannot inspect file ${realPath}: ${errorMessage(error)}`,
+			error,
+		);
+	}
+	return realPath;
+}
+
+type RoleOverlay = {
+	path: string;
+	fingerprint: string;
+	env: Record<string, string>;
+};
+
+function overlayFingerprint(path: string, requested: string): string {
+	try {
+		return createHash("sha256")
+			.update(path)
+			.update("\0")
+			.update(readFileSync(path))
+			.digest("hex")
+			.slice(0, 16);
+	} catch (error) {
+		throw new Error(
+			`Role config overlay rejected "${requested}": file unreadable at ${path}: ${errorMessage(error)}`,
+			{ cause: error },
+		);
+	}
+}
+
+type AgentExpectation = {
+	provider: string;
+	modeId: string;
+	thinkingOptionId?: string;
+	cwd: string;
+	labels: Record<string, string>;
+};
 
 function snapshotFromEntry(entry: unknown): AgentSnapshot | undefined {
 	if (!isRecord(entry)) return undefined;
@@ -336,12 +445,19 @@ function chooseModel(
 	)[0]!;
 }
 
-function roleConfig(model: Model, thinking: string[]): RoleConfig {
+function roleConfig(
+	model: Model,
+	thinking: string[],
+	previous?: RoleConfig,
+): RoleConfig {
 	const thinkingOptionId = chooseThinking(model, thinking);
 	return {
 		provider: `omp/${model.id}`,
 		modeId: "full",
 		...(thinkingOptionId ? { thinkingOptionId } : {}),
+		...(previous?.configOverlay
+			? { configOverlay: previous.configOverlay }
+			: {}),
 	};
 }
 
@@ -378,24 +494,13 @@ export async function discoverRoles(
 		"reviewer",
 		new Set([modelFamily(implementer.id)]),
 	);
-	const roles: Record<Role, RoleConfig> = {
-		planner: roleConfig(planner, ["high", "medium", "low", "minimal", "auto"]),
-		implementer: roleConfig(implementer, [
-			"high",
-			"medium",
-			"low",
-			"minimal",
-			"auto",
-		]),
-		reviewer: roleConfig(reviewer, [
-			"high",
-			"medium",
-			"low",
-			"minimal",
-			"auto",
-		]),
-	};
 	const config = loadConfig(repoRoot);
+	const thinking = ["high", "medium", "low", "minimal", "auto"];
+	const roles: Record<Role, RoleConfig> = {
+		planner: roleConfig(planner, thinking, config.roles.planner),
+		implementer: roleConfig(implementer, thinking, config.roles.implementer),
+		reviewer: roleConfig(reviewer, thinking, config.roles.reviewer),
+	};
 	config.roles = roles;
 	writeFileSync(
 		configPath(repoRoot),
@@ -410,14 +515,187 @@ export class PaseoAgentPort implements AgentPort {
 	private connected = false;
 	private readonly logger?: PaseoLogger;
 
+	private readonly repoRoot: string;
+
 	constructor(options: PaseoAgentPortOptions) {
 		this.config = options.config;
 		this.logger = options.logger;
+		this.repoRoot = options.repoRoot ?? resolve(import.meta.dir, "../..");
 		this.client = (options.client ??
 			createPaseoClient({
 				url: options.config.daemonUrl,
 				logger: options.logger,
 			})) as unknown as PaseoClientLike;
+	}
+
+	/** Role tool policy travels as an OMP settings overlay; a missing file must not silently widen permissions. */
+	private roleEnv(overlay?: string): RoleOverlay {
+		const requested = typeof overlay === "string" ? overlay : "<missing>";
+		const path = resolveRoleOverlay(this.repoRoot, overlay);
+		return {
+			path,
+			fingerprint: overlayFingerprint(path, requested),
+			env: { PI_CONFIG_FILES: path },
+		};
+	}
+
+	private expectation(
+		request: AgentRequest,
+		role: RoleConfig,
+		overlay: RoleOverlay,
+	): AgentExpectation {
+		const labels = {
+			...request.labels,
+			"harness.key": harnessKeyLabel(request.idempotencyKey),
+			"harness.role": request.role,
+			"harness.overlay": overlay.fingerprint,
+			"harness.mode": role.modeId,
+			"harness.provider": sanitizeLabel(role.provider),
+		};
+		return {
+			provider: role.provider,
+			modeId: role.modeId,
+			...(role.thinkingOptionId
+				? { thinkingOptionId: role.thinkingOptionId }
+				: {}),
+			cwd: request.cwd,
+			labels,
+		};
+	}
+
+	private incompatible(
+		key: string,
+		agentId: string,
+		field: string,
+		expected: unknown,
+		got: unknown,
+	): never {
+		const expectedText =
+			expected === undefined
+				? "<missing>"
+				: expected === null
+					? "<null>"
+					: String(expected);
+		const gotText =
+			got === undefined ? "<missing>" : got === null ? "<null>" : String(got);
+		throw new Error(
+			`agent ${agentId} for key ${key} is incompatible: ${field} expected ${expectedText} got ${gotText}`,
+		);
+	}
+
+	private verifyExisting(
+		request: AgentRequest,
+		snapshot: AgentSnapshot,
+		expected: AgentExpectation,
+	): void {
+		const agentId = agentIdFromSnapshot(snapshot) ?? "<missing>";
+		if (snapshot.archivedAt !== undefined && snapshot.archivedAt !== null) {
+			this.incompatible(
+				request.idempotencyKey,
+				agentId,
+				"archived",
+				"active",
+				snapshot.archivedAt,
+			);
+		}
+
+		const labels = labelsFromSnapshot(snapshot);
+		for (const key of ["harness.overlay", "harness.mode", "harness.provider"]) {
+			if (labels[key] !== expected.labels[key]) {
+				this.incompatible(
+					request.idempotencyKey,
+					agentId,
+					key,
+					expected.labels[key],
+					labels[key],
+				);
+			}
+		}
+		for (const key of [
+			"harness.key",
+			"harness.role",
+			"harness.runId",
+			"harness.taskId",
+		]) {
+			const expectedValue = expected.labels[key];
+			if (expectedValue !== undefined && labels[key] !== expectedValue) {
+				this.incompatible(
+					request.idempotencyKey,
+					agentId,
+					key,
+					expectedValue,
+					labels[key],
+				);
+			}
+		}
+
+		const provider = stringValue(snapshot.provider);
+		if (provider !== undefined && provider !== expected.provider) {
+			this.incompatible(
+				request.idempotencyKey,
+				agentId,
+				"provider",
+				expected.provider,
+				provider,
+			);
+		}
+		const mode = stringValue(snapshot.currentModeId);
+		if (mode !== undefined && mode !== expected.modeId) {
+			this.incompatible(
+				request.idempotencyKey,
+				agentId,
+				"mode",
+				expected.modeId,
+				mode,
+			);
+		}
+		if (
+			provider === undefined &&
+			labels["harness.provider"] !== expected.labels["harness.provider"]
+		) {
+			this.incompatible(
+				request.idempotencyKey,
+				agentId,
+				"provider",
+				expected.provider,
+				labels["harness.provider"],
+			);
+		}
+		if (
+			mode === undefined &&
+			labels["harness.mode"] !== expected.labels["harness.mode"]
+		) {
+			this.incompatible(
+				request.idempotencyKey,
+				agentId,
+				"mode",
+				expected.modeId,
+				labels["harness.mode"],
+			);
+		}
+
+		const cwd = stringValue(snapshot.cwd);
+		if (cwd !== expected.cwd) {
+			this.incompatible(
+				request.idempotencyKey,
+				agentId,
+				"cwd",
+				expected.cwd,
+				snapshot.cwd,
+			);
+		}
+		const thinking =
+			stringValue(snapshot.thinkingOptionId) ??
+			stringValue(snapshot.effectiveThinkingOptionId);
+		if (thinking !== undefined && thinking !== expected.thinkingOptionId) {
+			this.incompatible(
+				request.idempotencyKey,
+				agentId,
+				"thinkingOptionId",
+				expected.thinkingOptionId,
+				thinking,
+			);
+		}
 	}
 
 	private async connect(): Promise<void> {
@@ -447,18 +725,27 @@ export class PaseoAgentPort implements AgentPort {
 		request: AgentRequest,
 		hooks?: AgentRunHooks,
 	): Promise<AgentHandle> {
+		const role = this.config.roles[request.role];
+		if (!role) throw new Error(`Unknown agent role: ${request.role}`);
+		const overlay = this.roleEnv(role.configOverlay);
+		const expected = this.expectation(request, role, overlay);
 		const existing = await this.findExisting(request.idempotencyKey);
-		const existingId = agentIdFromSnapshot(existing);
-		if (existingId) {
+		if (existing) {
+			const existingId = agentIdFromSnapshot(existing);
+			if (!existingId) {
+				this.incompatible(
+					request.idempotencyKey,
+					"<missing>",
+					"id",
+					"present",
+					undefined,
+				);
+			}
+			this.verifyExisting(request, existing, expected);
 			hooks?.onCreated?.(existingId);
 			return this.client.agents.ref(existing);
 		}
 
-		const role = this.config.roles[request.role];
-		const labels = {
-			...request.labels,
-			"harness.key": harnessKeyLabel(request.idempotencyKey),
-		};
 		try {
 			const handle = await this.client.agents.create({
 				idempotencyKey: request.idempotencyKey,
@@ -473,15 +760,26 @@ export class PaseoAgentPort implements AgentPort {
 				title: request.title,
 				prompt: request.prompt,
 				...(request.outputSchema ? { outputSchema: request.outputSchema } : {}),
-				labels,
+				env: overlay.env,
+				labels: expected.labels,
 			});
 			hooks?.onCreated?.(handle.id);
 			return handle;
 		} catch (error) {
 			if (!isConflict(error)) throw error;
 			const raced = await this.findExisting(request.idempotencyKey);
+			if (!raced) throw error;
 			const racedId = agentIdFromSnapshot(raced);
-			if (!racedId) throw error;
+			if (!racedId) {
+				this.incompatible(
+					request.idempotencyKey,
+					"<missing>",
+					"id",
+					"present",
+					undefined,
+				);
+			}
+			this.verifyExisting(request, raced, expected);
 			hooks?.onCreated?.(racedId);
 			return this.client.agents.ref(raced);
 		}
