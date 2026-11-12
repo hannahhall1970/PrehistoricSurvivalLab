@@ -66,6 +66,9 @@ private:
     void StartSprint(const FInputActionValue& Value);
     void StopSprint(const FInputActionValue& Value);
 
+    // Fills only the null input properties with code-built defaults; assigned assets win.
+    void ApplyInputDefaults();
+
     UFUNCTION()
     void HandleSprintStateChanged(bool bIsSprinting);
 

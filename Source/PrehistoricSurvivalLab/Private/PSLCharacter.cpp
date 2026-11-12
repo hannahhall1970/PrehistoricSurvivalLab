@@ -2,6 +2,7 @@
 
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "PSLInputDefaults.h"
 #include "InputActionValue.h"
 #include "PSLStatsComponent.h"
 #include "PSLSurvivalComponent.h"
@@ -37,9 +38,15 @@ APSLCharacter::APSLCharacter()
     GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
 }
 
+void APSLCharacter::ApplyInputDefaults()
+{
+    PSLInputDefaults::Resolve(this, DefaultMappingContext, MoveAction, LookAction, JumpAction, SprintAction);
+}
+
 void APSLCharacter::BeginPlay()
 {
     Super::BeginPlay();
+    ApplyInputDefaults();
 
     if (StatsComponent)
     {
@@ -69,6 +76,7 @@ void APSLCharacter::BeginPlay()
 void APSLCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
     Super::SetupPlayerInputComponent(PlayerInputComponent);
+    ApplyInputDefaults();
 
     if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
     {
