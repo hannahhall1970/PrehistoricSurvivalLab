@@ -11,6 +11,11 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "Animation/AnimSequence.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
+#include "PSLDinoAnimInstance.h"
 
 APSLCharacter::APSLCharacter()
 {
@@ -36,6 +41,44 @@ APSLCharacter::APSLCharacter()
     bUseControllerRotationRoll = false;
     GetCharacterMovement()->bOrientRotationToMovement = true;
     GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+
+    GetCapsuleComponent()->InitCapsuleSize(DinoCapsuleRadius, DinoCapsuleHalfHeight);
+    GetMesh()->SetRelativeLocationAndRotation(
+        FVector(0.0f, 0.0f, -DinoCapsuleHalfHeight), FRotator(0.0f, DinoMeshYaw, 0.0f));
+
+    DinoMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Dino/SK_Trex.SK_Trex")));
+    DinoAnimClass = TSoftClassPtr<UAnimInstance>(FSoftObjectPath(TEXT("/Script/PrehistoricSurvivalLab.PSLDinoAnimInstance")));
+    DinoIdleAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(TEXT("/Game/Characters/Dino/A_Trex_Idle.A_Trex_Idle")));
+    DinoWalkAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(TEXT("/Game/Characters/Dino/A_Trex_Walk.A_Trex_Walk")));
+    DinoRunAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(TEXT("/Game/Characters/Dino/A_Trex_Run.A_Trex_Run")));
+}
+
+
+void APSLCharacter::ApplyDinoVisuals()
+{
+    USkeletalMesh* Mesh = DinoMesh.LoadSynchronous();
+    UClass* AnimClass = DinoAnimClass.LoadSynchronous();
+    if (!Mesh || !AnimClass)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("%s: Dino mesh/anim class missing (%s, %s); keeping capsule placeholder. Run scripts/import_dino.py."),
+            *GetName(), *DinoMesh.ToString(), *DinoAnimClass.ToString());
+        return;
+    }
+
+    GetMesh()->SetSkeletalMeshAsset(Mesh);
+    GetMesh()->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+    GetMesh()->SetAnimInstanceClass(AnimClass);
+
+    if (UPSLDinoAnimInstance* DinoAnim = Cast<UPSLDinoAnimInstance>(GetMesh()->GetAnimInstance()))
+    {
+        DinoAnim->IdleSequence = DinoIdleAnim.LoadSynchronous();
+        DinoAnim->WalkSequence = DinoWalkAnim.LoadSynchronous();
+        DinoAnim->RunSequence = DinoRunAnim.LoadSynchronous();
+        if (!DinoAnim->IdleSequence || !DinoAnim->WalkSequence || !DinoAnim->RunSequence)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("%s: Dino Idle/Walk/Run sequences incomplete; pose will fall back to reference pose."), *GetName());
+        }
+    }
 }
 
 void APSLCharacter::ApplyInputDefaults()
@@ -46,6 +89,7 @@ void APSLCharacter::ApplyInputDefaults()
 void APSLCharacter::BeginPlay()
 {
     Super::BeginPlay();
+    ApplyDinoVisuals();
     ApplyInputDefaults();
 
     if (StatsComponent)

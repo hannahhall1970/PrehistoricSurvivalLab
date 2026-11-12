@@ -11,6 +11,9 @@ class USpringArmComponent;
 class UPSLStatsComponent;
 class UPSLSurvivalComponent;
 struct FInputActionValue;
+class UAnimInstance;
+class UAnimSequence;
+class USkeletalMesh;
 
 UCLASS()
 class PREHISTORICSURVIVALLAB_API APSLCharacter : public ACharacter
@@ -47,6 +50,28 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Movement", meta=(ClampMin="0.0", UIMin="0.0"))
     float SprintSpeed;
 
+    // Biped capsule + mesh placement for the Quaternius T-Rex (mesh faces +Y in the FBX, so yaw -90).
+    static constexpr float DinoCapsuleRadius = 60.0f;
+    static constexpr float DinoCapsuleHalfHeight = 120.0f;
+    static constexpr float DinoMeshYaw = -90.0f;
+
+    // Soft references only: resolved in BeginPlay so a missing import leaves the capsule playable.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dino")
+    TSoftObjectPtr<USkeletalMesh> DinoMesh;
+
+    // Native PSLDinoAnimInstance by default; an assigned AnimBP class wins.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dino")
+    TSoftClassPtr<UAnimInstance> DinoAnimClass;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dino")
+    TSoftObjectPtr<UAnimSequence> DinoIdleAnim;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dino")
+    TSoftObjectPtr<UAnimSequence> DinoWalkAnim;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dino")
+    TSoftObjectPtr<UAnimSequence> DinoRunAnim;
+
     UFUNCTION(BlueprintPure, Category="Components")
     UPSLStatsComponent* GetStatsComponent() const { return StatsComponent; }
 
@@ -65,6 +90,9 @@ private:
     void StopJump(const FInputActionValue& Value);
     void StartSprint(const FInputActionValue& Value);
     void StopSprint(const FInputActionValue& Value);
+
+    // Loads the soft dino assets; warns and keeps the capsule if any are missing.
+    void ApplyDinoVisuals();
 
     // Fills only the null input properties with code-built defaults; assigned assets win.
     void ApplyInputDefaults();
