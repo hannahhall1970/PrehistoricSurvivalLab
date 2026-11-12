@@ -14,5 +14,10 @@ public class PrehistoricSurvivalLab : ModuleRules
             "InputCore",
             "EnhancedInput"
         });
+
+        if (Target.bBuildEditor)
+        {
+            PrivateDependencyModuleNames.Add("UnrealEd");
+        }
     }
 }

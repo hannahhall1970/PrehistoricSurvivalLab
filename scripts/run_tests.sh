@@ -28,6 +28,8 @@ set -e
 
 # The Editor can exit 0 with zero or failed tests; the exported report is the verdict.
 REPORT="$REPORT_DIR/index.json"
+# Evidence binding: scripts/evidence.ts accepts only the report this run names.
+echo "PSL_REPORT_PATH=$REPORT"
 if [[ ! -f "$REPORT" ]]; then
 	echo "PSL_REPORT_FAIL: no automation report at $REPORT (editor exit $EDITOR_EXIT)" >&2
 	exit 1
