@@ -50,6 +50,7 @@ bool FPSLSurvivalZeroStaminaTest::RunTest(const FString& Parameters)
     Survival->UpdateStamina(5.0f, true);
     TestFalse(TEXT("Zero stamina stops sprint"), Survival->IsSprinting());
     TestEqual(TEXT("Stamina reaches zero"), Survival->GetStamina(), 0.0f);
+    TestTrue(TEXT("Empty stamina locks sprint"), Survival->IsSprintLocked());
 
     Survival->UpdateStamina(1.0f, true);
     TestFalse(TEXT("Held request remains locked"), Survival->IsSprinting());
@@ -59,6 +60,7 @@ bool FPSLSurvivalZeroStaminaTest::RunTest(const FString& Parameters)
     Survival->SetSprintRequested(true);
     Survival->UpdateStamina(0.1f, true);
     TestTrue(TEXT("Releasing and pressing sprint unlocks it"), Survival->IsSprinting());
+    TestFalse(TEXT("Release clears the lock"), Survival->IsSprintLocked());
     return true;
 }
 

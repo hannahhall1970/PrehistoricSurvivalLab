@@ -42,6 +42,10 @@ public:
     UFUNCTION(BlueprintPure, Category="Survival|Stamina")
     bool IsSprinting() const { return bIsSprinting; }
 
+    // True from stamina hitting 0 until sprint is released; HUD uses it for the exhausted tint.
+    UFUNCTION(BlueprintPure, Category="Survival|Stamina")
+    bool IsSprintLocked() const { return bSprintLocked; }
+
     UFUNCTION(BlueprintPure, Category="Survival|Stamina")
     float GetStamina() const { return Stamina; }
 

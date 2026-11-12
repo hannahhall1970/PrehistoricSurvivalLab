@@ -11,4 +11,7 @@ class PREHISTORICSURVIVALLAB_API APSLHUD : public AHUD
 
 public:
     virtual void DrawHUD() override;
+
+    // Value/Max clamped to [0,1]; 0 when Max <= 0.
+    static float BarFraction(float Value, float Max);
 };
