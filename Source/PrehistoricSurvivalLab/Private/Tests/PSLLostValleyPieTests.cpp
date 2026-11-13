@@ -69,7 +69,7 @@ bool PlaceNear(FPSLPieCtx& Ctx, const FVector& Center, double Distance, const AA
             {
                 FCollisionQueryParams Params;
                 Params.AddIgnoredActor(SightFrom);
-                Params.AddIgnoredActor(Ctx.Character);
+                Params.AddIgnoredActor(Ctx.Character.Get());
                 FHitResult Hit;
                 if (Ctx.World->LineTraceSingleByChannel(Hit, SightFrom->GetActorLocation() + FVector(0.0, 0.0, 60.0), Ground, ECC_Visibility, Params))
                 {
@@ -666,7 +666,7 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
         const FVector Center = Prey[0]->GetComponentsBoundingBox().GetCenter();
         // The player pawn ignores ECC_Visibility under the default Pawn profile, so the world trace ignores it and pawn
         // occlusion is tested separately against the real bodies (component line traces do not use collision channels).
-        FCollisionQueryParams Params(SCENE_QUERY_STAT(PSLDeathSide), false, Ctx.Character);
+        FCollisionQueryParams Params(SCENE_QUERY_STAT(PSLDeathSide), false, Ctx.Character.Get());
         FHitResult Hit;
         const bool bHit = Ctx.World->LineTraceSingleByChannel(Hit, CameraLocation, Center, ECC_Visibility, Params);
         const FCollisionQueryParams PawnParams(SCENE_QUERY_STAT(PSLDeathSidePawn));

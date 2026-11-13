@@ -10,7 +10,8 @@ namespace PSLInputDefaults
     /**
      * Fills each null argument with a transient, code-built default; assigned objects are never replaced.
      * A defaulted Context maps keys to the resolved actions (assigned or defaulted):
-     * W/S/A/D + arrows -> Move, Mouse2D -> Look, SpaceBar -> Jump, LeftShift -> Sprint, LeftMouseButton -> Bite.
+     * W/S/A/D + arrows -> Move, Mouse2D -> Look, SpaceBar -> Jump, LeftShift -> Sprint, LeftMouseButton -> Bite,
+     * Escape/P -> Pause (the Pause action triggers while the game is paused).
      */
     PREHISTORICSURVIVALLAB_API void Resolve(
         UObject* Outer,
@@ -19,5 +20,6 @@ namespace PSLInputDefaults
         TObjectPtr<UInputAction>& Look,
         TObjectPtr<UInputAction>& Jump,
         TObjectPtr<UInputAction>& Sprint,
-        TObjectPtr<UInputAction>& Bite);
+        TObjectPtr<UInputAction>& Bite,
+        TObjectPtr<UInputAction>& Pause);
 }

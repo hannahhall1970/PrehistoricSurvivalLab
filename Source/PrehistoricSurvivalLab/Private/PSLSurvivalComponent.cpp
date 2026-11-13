@@ -1,6 +1,7 @@
 #include "PSLSurvivalComponent.h"
 
 #include "GameFramework/Actor.h"
+#include "PSLStatsComponent.h"
 
 UPSLSurvivalComponent::UPSLSurvivalComponent()
 {
@@ -12,13 +13,37 @@ UPSLSurvivalComponent::UPSLSurvivalComponent()
     bSprintRequested = false;
     bSprintLocked = false;
     bIsSprinting = false;
+    MaxHunger = 100.0f;
+    Hunger = MaxHunger;
+    HungerDrainPerSecond = 0.55f;
+    StarveDamagePerSecond = 4.0f;
 }
 
 void UPSLSurvivalComponent::BeginPlay()
 {
     Super::BeginPlay();
+    ResetVitalsForPlay();
+}
+
+void UPSLSurvivalComponent::ResetVitalsForPlay()
+{
     MaxStamina = FMath::Max(MaxStamina, 1.0f);
+    MaxHunger = FMath::Max(MaxHunger, 1.0f);
+    if (bStateRestored)
+    {
+        return;
+    }
     Stamina = MaxStamina;
+    Hunger = MaxHunger;
+}
+
+void UPSLSurvivalComponent::RestoreState(float InStamina, float InHunger)
+{
+    MaxStamina = FMath::Max(MaxStamina, 1.0f);
+    MaxHunger = FMath::Max(MaxHunger, 1.0f);
+    Stamina = FMath::Clamp(InStamina, 0.0f, MaxStamina);
+    Hunger = FMath::Clamp(InHunger, 0.0f, MaxHunger);
+    bStateRestored = true;
 }
 
 void UPSLSurvivalComponent::SetSprintRequested(bool bRequested)
@@ -52,7 +77,8 @@ void UPSLSurvivalComponent::UpdateStamina(float DeltaSeconds, bool bIsMoving)
     }
     else
     {
-        Stamina = FMath::Min(MaxStamina, Stamina + StaminaRegenPerSecond * DeltaSeconds);
+        const float Regen = IsStarving() ? StaminaRegenPerSecond * 0.5f : StaminaRegenPerSecond;
+        Stamina = FMath::Min(MaxStamina, Stamina + Regen * DeltaSeconds);
     }
 
     if (!FMath::IsNearlyEqual(PreviousStamina, Stamina))
@@ -66,6 +92,40 @@ void UPSLSurvivalComponent::UpdateStamina(float DeltaSeconds, bool bIsMoving)
     }
 }
 
+void UPSLSurvivalComponent::UpdateHunger(float DeltaSeconds)
+{
+    UPSLStatsComponent* Stats = GetOwner() ? GetOwner()->FindComponentByClass<UPSLStatsComponent>() : nullptr;
+    if (DeltaSeconds <= 0.0f || (Stats && Stats->IsDead()))
+    {
+        return;
+    }
+
+    const float Previous = Hunger;
+    Hunger = FMath::Max(0.0f, Hunger - HungerDrainPerSecond * (bIsSprinting ? 2.0f : 1.0f) * DeltaSeconds);
+    if (!FMath::IsNearlyEqual(Previous, Hunger))
+    {
+        OnHungerChanged.Broadcast(Hunger);
+    }
+    if (IsStarving() && Stats)
+    {
+        Stats->ApplyDamage(StarveDamagePerSecond * DeltaSeconds);
+    }
+}
+
+void UPSLSurvivalComponent::AddFood(float Amount)
+{
+    if (Amount <= 0.0f)
+    {
+        return;
+    }
+    const float Previous = Hunger;
+    Hunger = FMath::Min(MaxHunger, Hunger + Amount);
+    if (!FMath::IsNearlyEqual(Previous, Hunger))
+    {
+        OnHungerChanged.Broadcast(Hunger);
+    }
+}
+
 void UPSLSurvivalComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
@@ -73,4 +133,5 @@ void UPSLSurvivalComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
     const AActor* Owner = GetOwner();
     const bool bIsMoving = Owner && Owner->GetVelocity().Size2D() > KINDA_SMALL_NUMBER;
     UpdateStamina(DeltaTime, bIsMoving);
+    UpdateHunger(DeltaTime);
 }

@@ -88,6 +88,22 @@ APSLPreyCharacter::APSLPreyCharacter()
     PreyDeathAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(TEXT("/Game/Characters/Prey/A_Para_Death.A_Para_Death")));
 }
 
+float APSLPreyCharacter::EatMeat(float Amount)
+{
+    if (!bDeathHandled || Amount <= 0.0f || MeatRemaining <= 0.0f)
+    {
+        return 0.0f;
+    }
+
+    const float Taken = FMath::Min(Amount, MeatRemaining);
+    MeatRemaining -= Taken;
+    if (MeatRemaining <= 0.0f)
+    {
+        SetLifeSpan(CarcassDestroyDelay);
+    }
+    return Taken;
+}
+
 void APSLPreyCharacter::BeginPlay()
 {
     Super::BeginPlay();
@@ -159,6 +175,10 @@ void APSLPreyCharacter::ApplyPreyVisuals()
 void APSLPreyCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     GetWorldTimerManager().ClearTimer(StaggerTimer);
+    if (EndPlayReason == EEndPlayReason::Destroyed && bDeathHandled)
+    {
+        OnAnyCarcassDestroyed().Broadcast();
+    }
     Super::EndPlay(EndPlayReason);
 }
 
@@ -203,6 +223,12 @@ void APSLPreyCharacter::SetMaterialScalar(FName Param, float Value)
 FPSLPreyKilledSignature& APSLPreyCharacter::OnAnyPreyKilled()
 {
     static FPSLPreyKilledSignature Instance;
+    return Instance;
+}
+
+FPSLCarcassDestroyedSignature& APSLPreyCharacter::OnAnyCarcassDestroyed()
+{
+    static FPSLCarcassDestroyedSignature Instance;
     return Instance;
 }
 

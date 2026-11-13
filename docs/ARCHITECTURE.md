@@ -15,6 +15,12 @@
 | `APSLHUD` | Creates `UPSLHudWidget` in `BeginPlay` and adds it to the viewport; keeps the pure `BarFraction` helper. |
 | `UPSLHudWidget` | UMG HUD built entirely in C++ (no UMG asset): `Initialize()` constructs the widget tree (icon + label + `value / max` rows for health/stamina, sprint state, DEAD text, a `PREY DOWN` kill banner and a `HIT` marker) when the root is null, so it works without a PlayerContext; `NativeTick` reads the owning `APSLCharacter` and rebinds `OnBiteHit`; the banner binds `APSLPreyCharacter::OnAnyPreyKilled` in `NativeConstruct` (after removing any earlier handle) and unbinds in `NativeDestruct`. |
 | `UPSLLevelBuildLibrary` | Editor-only (`WITH_EDITOR`) helpers for level-building scripts: `CreateLandscape` and `AddMeshInstances` (HISM). Not available in packaged builds. |
+| `UPSLDinoSpecies` | Playable species data (`UPrimaryDataAsset`, type `PSLSpecies`): diet, body, speeds, bite, hunger. `MakeBuiltin(TRex/Para)` builds code defaults so tests need no assets; `APSLCharacter::ApplySpecies` copies them onto the pawn. |
+| `APSLFoodPlant` | Herbivore food: `Consume()` yields `FoodAmount`, hides, regrows after `RegrowSeconds`. |
+| `UPSLSurvivalComponent` (hunger) | `Hunger` drains per second (2x while sprinting); at 0 it damages the owner through `UPSLStatsComponent`; `AddFood` refills. `APSLCharacter::TryEat` feeds it from carcasses (carnivore) or plants (herbivore). |
+| `UPSLGameInstance` | Session state across maps: selected species, continue request, run stats; `StartNewGame`, `ContinueGame`, `ReturnToMenu`, `QuitGame`. Set as `GameInstanceClass`. |
+| `UPSLSaveGame` / `UPSLSaveSubsystem` | One versioned slot (`PSL_Slot0`, user 0) with a CRC32 checksum. `Validate` rejects bad version, species, map, transform, health, checksum; `CanCheckpoint` refuses saves while dead or starving at low health. Prey are not saved. |
+| `APSLGameMode` (flow) | State `Playing / Paused / GameOver` (pause via `SetGamePaused`, Game Over 2 s after the player dies), applies the session species and the continue save to the new pawn, 60 s autosave, run stats, and the prey respawner. |
 
 ## Data flow
 

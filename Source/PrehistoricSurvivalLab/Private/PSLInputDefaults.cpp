@@ -42,7 +42,8 @@ void PSLInputDefaults::Resolve(
     TObjectPtr<UInputAction>& Look,
     TObjectPtr<UInputAction>& Jump,
     TObjectPtr<UInputAction>& Sprint,
-    TObjectPtr<UInputAction>& Bite)
+    TObjectPtr<UInputAction>& Bite,
+    TObjectPtr<UInputAction>& Pause)
 {
     if (!Move)
     {
@@ -63,6 +64,11 @@ void PSLInputDefaults::Resolve(
     if (!Bite)
     {
         Bite = MakeAction(Outer, TEXT("PSL_DefaultBite"), EInputActionValueType::Boolean);
+    }
+    if (!Pause)
+    {
+        Pause = MakeAction(Outer, TEXT("PSL_DefaultPause"), EInputActionValueType::Boolean);
+        Pause->bTriggerWhenPaused = true;
     }
     if (Context)
     {
@@ -87,4 +93,6 @@ void PSLInputDefaults::Resolve(
     Context->MapKey(Jump, EKeys::SpaceBar);
     Context->MapKey(Sprint, EKeys::LeftShift);
     Context->MapKey(Bite, EKeys::LeftMouseButton);
+    Context->MapKey(Pause, EKeys::Escape);
+    Context->MapKey(Pause, EKeys::P);
 }

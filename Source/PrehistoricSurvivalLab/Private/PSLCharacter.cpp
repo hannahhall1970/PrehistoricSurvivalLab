@@ -22,6 +22,11 @@
 #include "Kismet/GameplayStatics.h"
 #include "Camera/PlayerCameraManager.h"
 #include "TimerManager.h"
+#include "PSLDinoSpecies.h"
+#include "PSLFoodPlant.h"
+#include "PSLPreyCharacter.h"
+#include "PSLGameMode.h"
+#include "Sound/SoundBase.h"
 
 APSLCharacter::APSLCharacter()
 {
@@ -37,6 +42,8 @@ APSLCharacter::APSLCharacter()
     BiteCount = 0;
     LastBiteHitCount = 0;
     LastBiteTime = TNumericLimits<double>::Lowest() / 2.0;
+    FoodPerBite = 1.0f;
+    EatSound = TSoftObjectPtr<USoundBase>(FSoftObjectPath(TEXT("/Game/Audio/SFX_Eat.SFX_Eat")));
 
     StatsComponent = CreateDefaultSubobject<UPSLStatsComponent>(TEXT("StatsComponent"));
     SurvivalComponent = CreateDefaultSubobject<UPSLSurvivalComponent>(TEXT("SurvivalComponent"));
@@ -111,11 +118,75 @@ void APSLCharacter::ApplyDinoVisuals()
             UE_LOG(LogTemp, Warning, TEXT("%s: Dino Attack/Death clips missing; those actions will be skipped, locomotion unaffected."), *GetName());
         }
     }
+
+    // Species mesh scale: 0 fits the mesh to 90% of the capsule height with the feet on the capsule bottom.
+    if (ActiveSpecies)
+    {
+        const float HalfHeight = GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight();
+        float Scale = ActiveSpecies->MeshScale;
+        float FootZ = 0.0f;
+        if (Scale <= 0.0f)
+        {
+            const FBoxSphereBounds Bounds = Mesh->GetBounds();
+            Scale = Bounds.BoxExtent.Z > KINDA_SMALL_NUMBER ? (HalfHeight * 2.0f * 0.9f) / (Bounds.BoxExtent.Z * 2.0f) : 1.0f;
+            FootZ = (Bounds.Origin.Z - Bounds.BoxExtent.Z) * Scale;
+        }
+        GetMesh()->SetRelativeScale3D(FVector(Scale));
+        GetMesh()->SetRelativeLocationAndRotation(FVector(0.0f, 0.0f, -HalfHeight - FootZ), FRotator(0.0f, ActiveSpecies->MeshYaw, 0.0f));
+    }
+}
+
+void APSLCharacter::ApplySpecies(const UPSLDinoSpecies* Species)
+{
+    if (!Species)
+    {
+        return;
+    }
+
+    ActiveSpecies = Species;
+    WalkSpeed = Species->WalkSpeed;
+    SprintSpeed = Species->SprintSpeed;
+    BiteDamage = Species->BiteDamage;
+    BiteRadius = Species->BiteRadius;
+    BiteCooldown = Species->BiteCooldown;
+    FoodPerBite = Species->FoodPerBite;
+
+    DinoMesh = Species->Mesh;
+    DinoIdleAnim = Species->IdleAnim;
+    DinoWalkAnim = Species->WalkAnim;
+    DinoRunAnim = Species->RunAnim;
+    DinoAttackAnim = Species->AttackAnim;
+    DinoDeathAnim = Species->DeathAnim;
+
+    GetCapsuleComponent()->SetCapsuleSize(Species->CapsuleRadius, Species->CapsuleHalfHeight);
+    GetMesh()->SetRelativeLocationAndRotation(
+        FVector(0.0f, 0.0f, -Species->CapsuleHalfHeight), FRotator(0.0f, Species->MeshYaw, 0.0f));
+    GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+
+    if (StatsComponent)
+    {
+        StatsComponent->MaxHealth = Species->MaxHealth;
+        StatsComponent->Health = Species->MaxHealth;
+    }
+    if (SurvivalComponent)
+    {
+        SurvivalComponent->MaxStamina = Species->MaxStamina;
+        SurvivalComponent->Stamina = Species->MaxStamina;
+        SurvivalComponent->MaxHunger = Species->MaxHunger;
+        SurvivalComponent->Hunger = Species->MaxHunger;
+        SurvivalComponent->HungerDrainPerSecond = Species->HungerDrainPerSecond;
+    }
+
+    // Before BeginPlay the visuals are applied there; afterwards they must be refreshed here.
+    if (HasActorBegunPlay())
+    {
+        ApplyDinoVisuals();
+    }
 }
 
 void APSLCharacter::ApplyInputDefaults()
 {
-    PSLInputDefaults::Resolve(this, DefaultMappingContext, MoveAction, LookAction, JumpAction, SprintAction, BiteAction);
+    PSLInputDefaults::Resolve(this, DefaultMappingContext, MoveAction, LookAction, JumpAction, SprintAction, BiteAction, PauseAction);
 }
 
 void APSLCharacter::BeginPlay()
@@ -183,6 +254,10 @@ void APSLCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompon
         if (BiteAction)
         {
             EnhancedInputComponent->BindAction(BiteAction, ETriggerEvent::Started, this, &APSLCharacter::StartBite);
+        }
+        if (PauseAction)
+        {
+            EnhancedInputComponent->BindAction(PauseAction, ETriggerEvent::Started, this, &APSLCharacter::StartPause);
         }
     }
 }
@@ -288,6 +363,14 @@ void APSLCharacter::StartBite(const FInputActionValue& Value)
     TryBite();
 }
 
+void APSLCharacter::StartPause(const FInputActionValue& Value)
+{
+    if (APSLGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<APSLGameMode>() : nullptr)
+    {
+        GameMode->TogglePause();
+    }
+}
+
 bool APSLCharacter::TryBite()
 {
     UWorld* World = GetWorld();
@@ -340,4 +423,89 @@ void APSLCharacter::ResolveBiteHit()
     {
         OnBiteHit.Broadcast();
     }
+
+    const float Ate = TryEat(Center);
+    if (Ate > 0.0f)
+    {
+        OnAteFood.Broadcast(Ate);
+        if (USoundBase* Sound = EatSound.LoadSynchronous())
+        {
+            UGameplayStatics::PlaySoundAtLocation(this, Sound, GetActorLocation());
+        }
+    }
+}
+
+float APSLCharacter::TryEat(const FVector& Center)
+{
+    UWorld* World = GetWorld();
+    if (!World || !SurvivalComponent)
+    {
+        return 0.0f;
+    }
+
+    // Corpses and plants are WorldDynamic (the dead prey capsule ignores Pawn), so the pawn overlap in ResolveBiteHit never sees them.
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(PSLEat), false, this);
+    TArray<FOverlapResult> Overlaps;
+    World->OverlapMultiByObjectType(Overlaps, Center, FQuat::Identity, FCollisionObjectQueryParams(ECC_WorldDynamic), FCollisionShape::MakeSphere(BiteRadius), Params);
+
+    // No species applied = default T-Rex = carnivore.
+    const bool bCarnivore = !ActiveSpecies || ActiveSpecies->Diet == EPSLDiet::Carnivore;
+    float Gained = 0.0f;
+    bool bAte = false;
+    bool bWrongFood = false;
+    for (const FOverlapResult& Overlap : Overlaps)
+    {
+        AActor* Actor = Overlap.GetActor();
+        if (APSLPreyCharacter* Carcass = Cast<APSLPreyCharacter>(Actor))
+        {
+            if (!Carcass->IsDead() || Carcass->MeatRemaining <= 0.0f)
+            {
+                continue;
+            }
+            if (!bCarnivore)
+            {
+                bWrongFood = true;
+            }
+            else if (!bAte)
+            {
+                // One carcass per bite.
+                Gained = Carcass->EatMeat(BaseFoodPerBite * FoodPerBite);
+                bAte = Gained > 0.0f;
+            }
+        }
+        else if (APSLFoodPlant* Plant = Cast<APSLFoodPlant>(Actor))
+        {
+            if (!Plant->IsAvailable())
+            {
+                continue;
+            }
+            if (bCarnivore)
+            {
+                bWrongFood = true;
+            }
+            else if (!bAte)
+            {
+                Gained = Plant->Consume();
+                bAte = Gained > 0.0f;
+            }
+        }
+    }
+
+    if (bAte)
+    {
+        FoodHint = FText::GetEmpty();
+        SurvivalComponent->AddFood(Gained);
+    }
+    else if (bWrongFood)
+    {
+        FoodHint = bCarnivore
+            ? NSLOCTEXT("PSL", "HintCannotEatPlants", "Carnivores can't eat plants. Hunt prey instead.")
+            : NSLOCTEXT("PSL", "HintCannotEatMeat", "Herbivores can't eat meat. Find plants instead.");
+    }
+    else
+    {
+        // A bite that touched no food must not leave a stale hint on the HUD.
+        FoodHint = FText::GetEmpty();
+    }
+    return Gained;
 }

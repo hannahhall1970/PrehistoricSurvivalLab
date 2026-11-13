@@ -131,8 +131,8 @@ bool FPSLPiePlayerSpawnTest::RunTest(const FString& Parameters)
         const bool bMappingContextPresent = Ctx.Character->DefaultMappingContext != nullptr
             && InputSubsystem != nullptr && InputSubsystem->HasMappingContext(Ctx.Character->DefaultMappingContext);
         Ctx.Test->TestTrue(TEXT("World is PIE"), Ctx.World->WorldType == EWorldType::PIE);
-        Ctx.Test->TestTrue(TEXT("PlayerController possesses the discovered character"), Ctx.PC->GetPawn() == Ctx.Character);
-        Ctx.Test->TestTrue(TEXT("Character is controlled by the discovered PlayerController"), Ctx.Character->GetController() == Ctx.PC);
+        Ctx.Test->TestTrue(TEXT("PlayerController possesses the discovered character"), Ctx.PC->GetPawn() == Ctx.Character.Get());
+        Ctx.Test->TestTrue(TEXT("Character is controlled by the discovered PlayerController"), Ctx.Character->GetController() == Ctx.PC.Get());
         Ctx.Test->TestTrue(TEXT("Character is locally controlled"), Ctx.Character->IsLocallyControlled());
         Ctx.Test->TestTrue(TEXT("PIE GameMode is APSLGameMode"), Ctx.World->GetAuthGameMode<APSLGameMode>() != nullptr);
         Ctx.Test->TestTrue(TEXT("Default mapping context is active"), bMappingContextPresent);
@@ -779,7 +779,7 @@ static APSLPreyCharacter* RequirePrey(FPSLPieCtx& Ctx)
         Ctx.MarkInvalid(TEXT("Prey is not possessed by APSLPreyAIController"));
         return nullptr;
     }
-    UNavigationSystemV1* NavSys = UNavigationSystemV1::GetCurrent(Ctx.World);
+    UNavigationSystemV1* NavSys = UNavigationSystemV1::GetCurrent(Ctx.World.Get());
     if (!NavSys || !NavSys->GetDefaultNavDataInstance(FNavigationSystem::DontCreate))
     {
         Ctx.MarkInvalid(TEXT("UNavigationSystemV1 has no nav data (missing NavMeshBoundsVolume or unbuilt navmesh)"));

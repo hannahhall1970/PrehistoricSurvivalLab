@@ -48,6 +48,22 @@ namespace PSLPie
 constexpr const TCHAR* ArenaMapPath = TEXT("/Game/Maps/L_TestArena");
 constexpr float FrameDelta = 1.0f / 60.0f;
 
+// Weak object reference that keeps the raw-pointer call syntax (`Ctx.World->X`, `*Ctx.Character`, implicit T*).
+// A PIE world torn down mid-test makes Get() null (HasObjects() false) instead of leaving a dangling pointer.
+template <typename T>
+struct TPSLWeakRef
+{
+    T* Get() const { return Ptr.Get(); }
+    bool IsValid() const { return Ptr.IsValid(); }
+    operator T*() const { return Ptr.Get(); }
+    T* operator->() const { return Ptr.Get(); }
+    T& operator*() const { return *Ptr.Get(); }
+    TPSLWeakRef& operator=(T* InPtr) { Ptr = InPtr; return *this; }
+
+private:
+    TWeakObjectPtr<T> Ptr;
+};
+
 struct FPSLPieCtx
 {
     explicit FPSLPieCtx(FAutomationTestBase* InTest, const TCHAR* InName)
@@ -58,8 +74,7 @@ struct FPSLPieCtx
 
     bool HasObjects() const
     {
-        return World != nullptr && GameViewport != nullptr && PC != nullptr && Character != nullptr
-            && IsValid(World) && IsValid(GameViewport) && IsValid(PC) && IsValid(Character);
+        return World.IsValid() && GameViewport.IsValid() && PC.IsValid() && Character.IsValid();
     }
 
     bool IsUsable() const
@@ -81,10 +96,12 @@ struct FPSLPieCtx
 
     FAutomationTestBase* Test = nullptr;
     FString TestName;
-    UWorld* World = nullptr;
-    UGameViewportClient* GameViewport = nullptr;
-    APlayerController* PC = nullptr;
-    APSLCharacter* Character = nullptr;
+    TPSLWeakRef<UWorld> World;
+    TPSLWeakRef<UGameViewportClient> GameViewport;
+    TPSLWeakRef<APlayerController> PC;
+    TPSLWeakRef<APSLCharacter> Character;
+    // When set, WaitForPlayer only accepts a PIE world whose map name contains this (used after OpenLevel).
+    FString RequiredMap;
     bool bReady = false;
     double ReadyWorldTime = 0.0;
     bool bInvalid = false;
@@ -415,6 +432,10 @@ inline bool WaitForPlayer(FPSLPieCtx& Context)
         }
 
         UWorld* World = WorldContext.World();
+        if (World && !Context.RequiredMap.IsEmpty() && !World->GetMapName().Contains(Context.RequiredMap))
+        {
+            continue;
+        }
         UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
         APlayerController* PC = GameInstance ? GameInstance->GetFirstLocalPlayerController(World) : nullptr;
         APSLCharacter* Character = PC ? Cast<APSLCharacter>(PC->GetPawn()) : nullptr;
@@ -551,7 +572,7 @@ inline void TrackPreyBones(APSLPreyCharacter& Prey)
     Prey.GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 }
 
-// Z of bone Hips above the capsule bottom: ~274-300 uu standing, ~110 uu lying; -1 when the mesh has no Hips bone.
+// Z of bone Hips above the capsule bottom: ~50 uu standing, ~20 uu lying (the mesh is scaled to the capsule, not the raw import size); -1 when the mesh has no Hips bone.
 inline float PreyBodyHeight(const APSLPreyCharacter& Prey)
 {
     const USkeletalMeshComponent* Mesh = Prey.GetMesh();

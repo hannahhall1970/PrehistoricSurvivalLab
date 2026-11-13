@@ -48,11 +48,13 @@ bool FPSLInputDefaultBindingsTest::RunTest(const FString& Parameters)
     TObjectPtr<UInputAction> Jump;
     TObjectPtr<UInputAction> Sprint;
     TObjectPtr<UInputAction> Bite;
-    PSLInputDefaults::Resolve(Outer, Context, Move, Look, Jump, Sprint, Bite);
+    TObjectPtr<UInputAction> Pause;
+    PSLInputDefaults::Resolve(Outer, Context, Move, Look, Jump, Sprint, Bite, Pause);
 
     if (!TestNotNull(TEXT("Context built"), Context.Get()) || !TestNotNull(TEXT("Move built"), Move.Get())
         || !TestNotNull(TEXT("Look built"), Look.Get()) || !TestNotNull(TEXT("Jump built"), Jump.Get())
-        || !TestNotNull(TEXT("Sprint built"), Sprint.Get()) || !TestNotNull(TEXT("Bite built"), Bite.Get()))
+        || !TestNotNull(TEXT("Sprint built"), Sprint.Get()) || !TestNotNull(TEXT("Bite built"), Bite.Get())
+        || !TestNotNull(TEXT("Pause built"), Pause.Get()))
     {
         return false;
     }
@@ -95,6 +97,15 @@ bool FPSLInputDefaultBindingsTest::RunTest(const FString& Parameters)
     {
         TestTrue(TEXT("LeftMouseButton maps to Bite"), BiteMapping->Action == Bite);
     }
+    for (const FKey& PauseKey : { EKeys::Escape, EKeys::P })
+    {
+        const FEnhancedActionKeyMapping* PauseMapping = FindMapping(Context, PauseKey);
+        if (TestNotNull(*FString::Printf(TEXT("%s mapped"), *PauseKey.ToString()), PauseMapping))
+        {
+            TestTrue(*FString::Printf(TEXT("%s maps to Pause"), *PauseKey.ToString()), PauseMapping->Action == Pause);
+        }
+    }
+    TestTrue(TEXT("Pause fires while the game is paused"), Pause->bTriggerWhenPaused);
 
     // An assigned asset must survive Resolve untouched, and defaults must bind to it.
     UObject* OverrideOuter = GetTransientPackage();
@@ -105,7 +116,8 @@ bool FPSLInputDefaultBindingsTest::RunTest(const FString& Parameters)
     TObjectPtr<UInputAction> OverrideJump;
     TObjectPtr<UInputAction> OverrideSprint = AssignedSprint;
     TObjectPtr<UInputAction> OverrideBite;
-    PSLInputDefaults::Resolve(OverrideOuter, OverrideContext, OverrideMove, OverrideLook, OverrideJump, OverrideSprint, OverrideBite);
+    TObjectPtr<UInputAction> OverridePause;
+    PSLInputDefaults::Resolve(OverrideOuter, OverrideContext, OverrideMove, OverrideLook, OverrideJump, OverrideSprint, OverrideBite, OverridePause);
     TestTrue(TEXT("Assigned action is kept"), OverrideSprint == AssignedSprint);
     const FEnhancedActionKeyMapping* OverrideMapping = FindMapping(OverrideContext, EKeys::LeftShift);
     if (TestNotNull(TEXT("Override LeftShift mapped"), OverrideMapping))
@@ -121,7 +133,8 @@ bool FPSLInputDefaultBindingsTest::RunTest(const FString& Parameters)
     TObjectPtr<UInputAction> NullJump;
     TObjectPtr<UInputAction> NullSprint;
     TObjectPtr<UInputAction> NullBite;
-    PSLInputDefaults::Resolve(KeptOuter, KeptContext, NullMove, NullLook, NullJump, NullSprint, NullBite);
+    TObjectPtr<UInputAction> NullPause;
+    PSLInputDefaults::Resolve(KeptOuter, KeptContext, NullMove, NullLook, NullJump, NullSprint, NullBite, NullPause);
     TestTrue(TEXT("Assigned context is kept"), KeptContext == AssignedContext);
     TestEqual(TEXT("Assigned context gets no default mappings"), AssignedContext->GetMappings().Num(), 0);
     return true;

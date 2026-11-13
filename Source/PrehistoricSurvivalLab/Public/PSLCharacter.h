@@ -15,9 +15,14 @@ struct FInputActionValue;
 class UAnimInstance;
 class UAnimSequence;
 class USkeletalMesh;
+class UPSLDinoSpecies;
+class USoundBase;
 
 // Fired when a resolved bite damaged at least one pawn. Visual feedback only (HUD hit marker).
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FPSLBiteHitSignature);
+
+// Fired when a bite ate Amount hunger worth of food (carcass meat or plant).
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FPSLAteFoodSignature, float, Amount);
 
 UCLASS()
 class PREHISTORICSURVIVALLAB_API APSLCharacter : public ACharacter
@@ -50,6 +55,10 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
     TObjectPtr<UInputAction> BiteAction;
+
+    // Escape/P; fires while paused so the same key resumes.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
+    TObjectPtr<UInputAction> PauseAction;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Movement", meta=(ClampMin="0.0", UIMin="0.0"))
     float WalkSpeed;
@@ -112,6 +121,31 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dino")
     TSoftObjectPtr<UAnimSequence> DinoDeathAnim;
 
+    UPROPERTY(BlueprintAssignable, Category="Hunger")
+    FPSLAteFoodSignature OnAteFood;
+
+    // Played on every bite that ate food; soft so a missing asset is skipped.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Hunger")
+    TSoftObjectPtr<USoundBase> EatSound;
+
+    // Multiplier on the food a bite yields; set from the species.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Hunger")
+    float FoodPerBite;
+
+    // Hunger given by one full bite before the FoodPerBite multiplier.
+    static constexpr float BaseFoodPerBite = 25.0f;
+
+    // Species applied by ApplySpecies; null while the constructor's T-Rex defaults are in effect.
+    UFUNCTION(BlueprintPure, Category="Dino")
+    const UPSLDinoSpecies* GetSpecies() const { return ActiveSpecies; }
+
+    // Applies mesh, anims, capsule, speeds, bite and survival stats from Species. Null is ignored.
+    UFUNCTION(BlueprintCallable, Category="Dino")
+    void ApplySpecies(const UPSLDinoSpecies* Species);
+
+    // Set when a bite touched food this dino cannot eat; the HUD shows it. Empty otherwise.
+    const FText& GetFoodHint() const { return FoodHint; }
+
     UFUNCTION(BlueprintPure, Category="Components")
     UPSLStatsComponent* GetStatsComponent() const { return StatsComponent; }
 
@@ -139,6 +173,7 @@ private:
     void StartSprint(const FInputActionValue& Value);
     void StopSprint(const FInputActionValue& Value);
     void StartBite(const FInputActionValue& Value);
+    void StartPause(const FInputActionValue& Value);
 
     // Sphere overlap in front of the dino; damages each other pawn once.
     void ResolveBiteHit();
@@ -158,4 +193,12 @@ private:
     bool bDeathHandled;
     double LastBiteTime;
     FTimerHandle BiteHitTimer;
+
+    // Carnivore bites eat one dead prey in the sphere; herbivore bites eat plants. Returns hunger gained.
+    float TryEat(const FVector& Center);
+
+    UPROPERTY(Transient)
+    TObjectPtr<const UPSLDinoSpecies> ActiveSpecies;
+
+    FText FoodHint;
 };

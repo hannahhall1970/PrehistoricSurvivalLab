@@ -16,6 +16,9 @@ class APSLPreyCharacter;
 // Fired once when any prey dies; Killer is the actor that dealt the killing damage (may be null).
 DECLARE_MULTICAST_DELEGATE_TwoParams(FPSLPreyKilledSignature, APSLPreyCharacter*, AActor*);
 
+// Fired when a dead prey is removed from the world (eaten up); parameterless on purpose, the actor is going away.
+DECLARE_MULTICAST_DELEGATE(FPSLCarcassDestroyedSignature);
+
 /** Small prey animal: wanders, flees from the player dino, dies through UPSLStatsComponent. */
 UCLASS()
 class PREHISTORICSURVIVALLAB_API APSLPreyCharacter : public ACharacter
@@ -44,7 +47,23 @@ public:
     UFUNCTION(BlueprintPure, Category="Prey")
     bool IsStaggered() const { return bStaggered; }
 
+    // Meat left on the carcass; only a dead prey can be eaten.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Prey|Food", meta=(ClampMin="0.0"))
+    float MeatRemaining = 60.0f;
+
+    // Seconds a fully eaten carcass lingers before it is destroyed.
+    static constexpr float CarcassDestroyDelay = 2.0f;
+
+    // Removes up to Amount meat from a dead prey and returns what was taken (0 while alive).
+    // Destroys the carcass CarcassDestroyDelay seconds after the last meat is gone.
+    float EatMeat(float Amount);
+
+    bool IsDead() const { return bDeathHandled; }
+
     static FPSLPreyKilledSignature& OnAnyPreyKilled();
+
+    // Fired when a dead prey (a carcass) is destroyed; the GameMode uses it to schedule a replacement.
+    static FPSLCarcassDestroyedSignature& OnAnyCarcassDestroyed();
 
     virtual float TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
 
