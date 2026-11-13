@@ -15,12 +15,16 @@ public class PrehistoricSurvivalLab : ModuleRules
             "EnhancedInput",
             "AIModule",
             "NavigationSystem",
-            "GameplayTasks"
+            "GameplayTasks",
+            "UMG",
+            "Slate",
+            "SlateCore",
+            "Landscape"
         });
 
         if (Target.bBuildEditor)
         {
-            PrivateDependencyModuleNames.Add("UnrealEd");
+            PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "Foliage" });
         }
     }
 }

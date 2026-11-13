@@ -1,0 +1,102 @@
+#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
+
+#include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "Components/SceneComponent.h"
+#include "Editor.h"
+#include "Engine/Engine.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
+#include "Landscape.h"
+#include "LandscapeEdit.h"
+#include "LandscapeInfo.h"
+#include "LandscapeComponent.h"
+#include "LandscapeDataAccess.h"
+#include "Misc/AutomationTest.h"
+#include "PSLLevelBuildLibrary.h"
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLLandscapeBuildTest, "PSL.Editor.LandscapeBuild", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPSLLandscapeBuildTest::RunTest(const FString& Parameters)
+{
+    constexpr int32 SizeVerts = 127; // 2 x 2 components of 63 quads
+    constexpr float RampPerVertZ = 1.0f; // local z rises by 1 uu per X vertex
+
+    UWorld* World = UWorld::CreateWorld(EWorldType::Editor, false, TEXT("PSLLandscapeBuildWorld"), GetTransientPackage());
+    if (!TestNotNull(TEXT("Transient world"), World))
+    {
+        return false;
+    }
+    FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Editor);
+    WorldContext.SetCurrentWorld(World);
+
+    TArray<int32> Heights;
+    Heights.SetNum(SizeVerts * SizeVerts);
+    for (int32 Y = 0; Y < SizeVerts; ++Y)
+    {
+        for (int32 X = 0; X < SizeVerts; ++X)
+        {
+            Heights[Y * SizeVerts + X] = LandscapeDataAccess::GetTexHeight(X * RampPerVertZ);
+        }
+    }
+
+    ALandscape* Landscape = UPSLLevelBuildLibrary::CreateLandscape(World, FVector(0.0f, 0.0f, 500.0f), FVector(100.0f, 100.0f, 1.0f), SizeVerts, Heights, nullptr);
+    if (TestNotNull(TEXT("Landscape created"), Landscape))
+    {
+        TArray<ULandscapeComponent*> Components;
+        Landscape->GetComponents(Components);
+        TestEqual(TEXT("Landscape component count"), Components.Num(), 4);
+
+        // GetHeightAtLocation samples the collision heightfield, so verify the imported data directly.
+        // Vertex X=60: local z = 60, scale z = 1 -> stored texel must be GetTexHeight(60).
+        TestEqual(TEXT("Landscape world Z"), Landscape->GetActorLocation().Z, 500.0);
+        TestEqual(TEXT("Landscape scale Z"), Landscape->GetActorScale3D().Z, 1.0);
+        TestEqual(TEXT("Landscape scale X"), Landscape->GetActorScale3D().X, 100.0);
+
+        ULandscapeInfo* Info = Landscape->GetLandscapeInfo();
+        if (TestNotNull(TEXT("Landscape info"), Info))
+        {
+            TArray<uint16> Data;
+            Data.SetNumZeroed(SizeVerts * SizeVerts);
+            FLandscapeEditDataInterface EditInterface(Info);
+            EditInterface.GetHeightDataFast(0, 0, SizeVerts - 1, SizeVerts - 1, Data.GetData(), 0);
+            TestEqual(TEXT("Stored height at X=60,Y=30"), (int32)Data[30 * SizeVerts + 60], (int32)LandscapeDataAccess::GetTexHeight(60.0f * RampPerVertZ));
+            TestEqual(TEXT("Stored height at X=0,Y=0"), (int32)Data[0], (int32)LandscapeDataAccess::GetTexHeight(0.0f));
+        }
+    }
+
+    // Invalid inputs fail loudly (nullptr), they do not create a landscape.
+    AddExpectedError(TEXT("PSL CreateLandscape"), EAutomationExpectedErrorFlags::Contains, 2);
+    TestNull(TEXT("Bad SizeVerts rejected"), UPSLLevelBuildLibrary::CreateLandscape(World, FVector::ZeroVector, FVector::OneVector, 100, Heights, nullptr));
+    TestNull(TEXT("Bad height count rejected"), UPSLLevelBuildLibrary::CreateLandscape(World, FVector::ZeroVector, FVector::OneVector, SizeVerts, TArray<int32>(), nullptr));
+
+    // HISM.
+    AActor* Holder = World->SpawnActor<AActor>();
+    UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+    if (TestNotNull(TEXT("Holder actor"), Holder) && TestNotNull(TEXT("Cube mesh"), Cube))
+    {
+        USceneComponent* Root = NewObject<USceneComponent>(Holder, TEXT("Root"));
+        Holder->SetRootComponent(Root);
+        Root->RegisterComponent();
+
+        TArray<FTransform> Transforms;
+        for (int32 I = 0; I < 5; ++I)
+        {
+            Transforms.Add(FTransform(FVector(I * 200.0f, 0.0f, 0.0f)));
+        }
+        UHierarchicalInstancedStaticMeshComponent* Hism = UPSLLevelBuildLibrary::AddMeshInstances(Holder, Cube, Transforms, false, 5000.0f);
+        if (TestNotNull(TEXT("HISM created"), Hism))
+        {
+            TestEqual(TEXT("HISM instance count"), Hism->GetInstanceCount(), 5);
+        }
+
+        AddExpectedError(TEXT("PSL AddMeshInstances"), EAutomationExpectedErrorFlags::Contains, 1);
+        TestNull(TEXT("Empty transforms rejected"), UPSLLevelBuildLibrary::AddMeshInstances(Holder, Cube, TArray<FTransform>(), false, 0.0f));
+    }
+
+    GEngine->DestroyWorldContext(World);
+    World->DestroyWorld(false);
+    return true;
+}
+
+#endif

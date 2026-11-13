@@ -1,5 +1,9 @@
 #include "PSLPreyCharacter.h"
 
+#include "Animation/AnimSequence.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
+#include "PSLDinoAnimInstance.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -19,6 +23,7 @@ APSLPreyCharacter::APSLPreyCharacter()
     HitCount = 0;
     bStaggered = false;
     bDeathHandled = false;
+    bUsingSkeletalVisual = false;
 
     GetCapsuleComponent()->InitCapsuleSize(40.0f, 60.0f);
 
@@ -56,15 +61,71 @@ APSLPreyCharacter::APSLPreyCharacter()
         BodyMesh->SetStaticMesh(CubeFinder.Object);
         HeadMesh->SetStaticMesh(CubeFinder.Object);
     }
+
+    PreyMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(TEXT("/Game/Characters/Prey/SK_Parasaurolophus.SK_Parasaurolophus")));
+    PreyIdleAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(TEXT("/Game/Characters/Prey/A_Para_Idle.A_Para_Idle")));
+    PreyWalkAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(TEXT("/Game/Characters/Prey/A_Para_Walk.A_Para_Walk")));
+    PreyRunAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(TEXT("/Game/Characters/Prey/A_Para_Run.A_Para_Run")));
+    PreyAttackAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(TEXT("/Game/Characters/Prey/A_Para_Attack.A_Para_Attack")));
+    PreyDeathAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(TEXT("/Game/Characters/Prey/A_Para_Death.A_Para_Death")));
 }
 
 void APSLPreyCharacter::BeginPlay()
 {
     Super::BeginPlay();
+    ApplyPreyVisuals();
     if (StatsComponent)
     {
         StatsComponent->OnDeath.AddDynamic(this, &APSLPreyCharacter::HandleDeath);
     }
+}
+
+void APSLPreyCharacter::ApplyPreyVisuals()
+{
+    USkeletalMesh* Mesh = PreyMesh.LoadSynchronous();
+    UAnimSequence* Idle = PreyIdleAnim.LoadSynchronous();
+    UAnimSequence* Walk = PreyWalkAnim.LoadSynchronous();
+    UAnimSequence* Run = PreyRunAnim.LoadSynchronous();
+    if (!Mesh || !Idle || !Walk || !Run)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("%s: prey mesh/Idle/Walk/Run missing (%s); keeping cube placeholder. Run scripts/build_lost_valley.py."),
+            *GetName(), *PreyMesh.ToString());
+        return;
+    }
+
+    USkeletalMeshComponent* Skel = GetMesh();
+    Skel->SetSkeletalMeshAsset(Mesh);
+    Skel->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+    Skel->SetAnimInstanceClass(UPSLDinoAnimInstance::StaticClass());
+    UPSLDinoAnimInstance* Anim = Cast<UPSLDinoAnimInstance>(Skel->GetAnimInstance());
+    if (!Anim)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("%s: prey anim instance not created; keeping cube placeholder."), *GetName());
+        Skel->SetSkeletalMeshAsset(nullptr);
+        return;
+    }
+    Anim->IdleSequence = Idle;
+    Anim->WalkSequence = Walk;
+    Anim->RunSequence = Run;
+    Anim->AttackSequence = PreyAttackAnim.LoadSynchronous();
+    Anim->DeathSequence = PreyDeathAnim.LoadSynchronous();
+    if (!Anim->AttackSequence || !Anim->DeathSequence)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("%s: prey Attack/Death clips missing; those actions are skipped."), *GetName());
+    }
+
+    // Fit the mesh into the capsule: feet on the capsule bottom, height 90% of the capsule. Imported mesh faces +Y (yaw -90, like the T-Rex).
+    const UCapsuleComponent* Capsule = GetCapsuleComponent();
+    const float HalfHeight = Capsule->GetUnscaledCapsuleHalfHeight();
+    const FBoxSphereBounds Bounds = Mesh->GetBounds();
+    const float Scale = Bounds.BoxExtent.Z > KINDA_SMALL_NUMBER ? (HalfHeight * 2.0f * 0.9f) / (Bounds.BoxExtent.Z * 2.0f) : 1.0f;
+    const float FootZ = (Bounds.Origin.Z - Bounds.BoxExtent.Z) * Scale;
+    Skel->SetRelativeScale3D(FVector(Scale));
+    Skel->SetRelativeLocationAndRotation(FVector(0.0f, 0.0f, -HalfHeight - FootZ), FRotator(0.0f, -90.0f, 0.0f));
+
+    BodyMesh->SetVisibility(false);
+    HeadMesh->SetVisibility(false);
+    bUsingSkeletalVisual = true;
 }
 
 void APSLPreyCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -130,6 +191,16 @@ void APSLPreyCharacter::HandleDeath()
     // The corpse must not be a bite target or block pawns.
     GetCapsuleComponent()->SetCollisionObjectType(ECC_WorldDynamic);
     GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
-    BodyMesh->AddRelativeRotation(FRotator(0.0f, 0.0f, 90.0f));
+    if (bUsingSkeletalVisual)
+    {
+        if (UPSLDinoAnimInstance* Anim = Cast<UPSLDinoAnimInstance>(GetMesh()->GetAnimInstance()))
+        {
+            Anim->PlayAction(EPSLDinoAction::Death);
+        }
+    }
+    else
+    {
+        BodyMesh->AddRelativeRotation(FRotator(0.0f, 0.0f, 90.0f));
+    }
     UE_LOG(LogTemp, Log, TEXT("%s died"), *GetName());
 }

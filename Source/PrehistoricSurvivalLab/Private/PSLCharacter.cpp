@@ -20,6 +20,7 @@
 #include "Engine/World.h"
 #include "GameFramework/DamageType.h"
 #include "Kismet/GameplayStatics.h"
+#include "Camera/PlayerCameraManager.h"
 #include "TimerManager.h"
 
 APSLCharacter::APSLCharacter()
@@ -42,12 +43,21 @@ APSLCharacter::APSLCharacter()
 
     USpringArmComponent* SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
     SpringArm->SetupAttachment(RootComponent);
-    SpringArm->TargetArmLength = 300.0f;
+    SpringArm->TargetArmLength = 450.0f;
+    SpringArm->SocketOffset = FVector(0.0f, 60.0f, 90.0f);
+    SpringArm->TargetOffset = FVector(0.0f, 0.0f, 40.0f);
     SpringArm->bUsePawnControlRotation = true;
+    SpringArm->bDoCollisionTest = true;
+    SpringArm->ProbeSize = 12.0f;
+    SpringArm->bEnableCameraLag = true;
+    SpringArm->CameraLagSpeed = 10.0f;
+    // No rotation lag: PSL.PIE.LookInput reads the camera rotation right after input.
+    SpringArm->bEnableCameraRotationLag = false;
 
     UCameraComponent* Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
     Camera->SetupAttachment(SpringArm, USpringArmComponent::SocketName);
     Camera->bUsePawnControlRotation = false;
+    Camera->SetFieldOfView(75.0f);
 
     bUseControllerRotationPitch = false;
     bUseControllerRotationYaw = false;
@@ -126,6 +136,12 @@ void APSLCharacter::BeginPlay()
 
     if (APlayerController* PlayerController = Cast<APlayerController>(GetController()))
     {
+        if (PlayerController->PlayerCameraManager)
+        {
+            PlayerController->PlayerCameraManager->ViewPitchMin = -60.0f;
+            PlayerController->PlayerCameraManager->ViewPitchMax = 20.0f;
+        }
+
         if (ULocalPlayer* LocalPlayer = PlayerController->GetLocalPlayer())
         {
             if (UEnhancedInputLocalPlayerSubsystem* InputSubsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(LocalPlayer))

@@ -7,6 +7,8 @@
 
 class UPSLStatsComponent;
 class UStaticMeshComponent;
+class USkeletalMesh;
+class UAnimSequence;
 
 /** Small prey animal: wanders, flees from the player dino, dies through UPSLStatsComponent. */
 UCLASS()
@@ -42,6 +44,26 @@ protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
+public:
+    // Soft references only: a missing import keeps the cube placeholder (L_TestArena tests rely on that).
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Prey|Visual")
+    TSoftObjectPtr<USkeletalMesh> PreyMesh;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Prey|Visual")
+    TSoftObjectPtr<UAnimSequence> PreyIdleAnim;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Prey|Visual")
+    TSoftObjectPtr<UAnimSequence> PreyWalkAnim;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Prey|Visual")
+    TSoftObjectPtr<UAnimSequence> PreyRunAnim;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Prey|Visual")
+    TSoftObjectPtr<UAnimSequence> PreyAttackAnim;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Prey|Visual")
+    TSoftObjectPtr<UAnimSequence> PreyDeathAnim;
+
 private:
     UFUNCTION()
     void HandleDeath();
@@ -56,6 +78,11 @@ private:
 
     UPROPERTY(VisibleAnywhere, Category="Visual")
     TObjectPtr<UStaticMeshComponent> HeadMesh;
+
+    // Applies the soft-referenced skeletal mesh + clips; keeps the cube placeholder if any asset is missing.
+    void ApplyPreyVisuals();
+
+    bool bUsingSkeletalVisual;
 
     FTimerHandle StaggerTimer;
     bool bStaggered;

@@ -2,7 +2,7 @@
 
 ## Module
 
-`PrehistoricSurvivalLab` depends on Core, CoreUObject, Engine, InputCore, and EnhancedInput. No GAS, Mass, plugin, or multiplayer infrastructure is required for this slice.
+`PrehistoricSurvivalLab` depends on Core, CoreUObject, Engine, InputCore, EnhancedInput, AIModule, NavigationSystem, GameplayTasks, UMG, Slate, SlateCore, and Landscape (plus UnrealEd in editor builds). No GAS, Mass, plugin, or multiplayer infrastructure is required for this slice.
 
 ## Responsibilities
 
@@ -12,7 +12,9 @@
 | `UPSLSurvivalComponent` | Owns stamina and sprint request state; pure `UpdateStamina` drains while requested and moving, regenerates otherwise, clamps values, and broadcasts state/value transitions. |
 | `APSLCharacter` | Owns stats, survival, spring arm, and camera; consumes Enhanced Input; maps sprint state to movement speed; routes `TakeDamage`; disables movement/input on death. |
 | `APSLGameMode` | Uses `APSLHUD` and falls back to `APSLCharacter`; Blueprint configuration supplies `BP_PSLCharacter` as the default pawn. |
-| `APSLHUD` | Minimal debug DrawHUD display for health, stamina, sprinting, and death. |
+| `APSLHUD` | Creates `UPSLHudWidget` in `BeginPlay` and adds it to the viewport; keeps the pure `BarFraction` helper. |
+| `UPSLHudWidget` | UMG HUD built entirely in C++ (no UMG asset): `Initialize()` constructs the widget tree (health/stamina bars, sprint state, DEAD text) when the root is null, so it works without a PlayerContext; `NativeTick` reads the owning `APSLCharacter`. |
+| `UPSLLevelBuildLibrary` | Editor-only (`WITH_EDITOR`) helpers for level-building scripts: `CreateLandscape` and `AddMeshInstances` (HISM). Not available in packaged builds. |
 
 ## Data flow
 
