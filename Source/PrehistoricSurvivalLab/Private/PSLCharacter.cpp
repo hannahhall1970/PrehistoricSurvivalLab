@@ -16,6 +16,11 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "PSLDinoAnimInstance.h"
+#include "Engine/OverlapResult.h"
+#include "Engine/World.h"
+#include "GameFramework/DamageType.h"
+#include "Kismet/GameplayStatics.h"
+#include "TimerManager.h"
 
 APSLCharacter::APSLCharacter()
 {
@@ -23,6 +28,14 @@ APSLCharacter::APSLCharacter()
     WalkSpeed = 300.0f;
     SprintSpeed = 600.0f;
     bDeathHandled = false;
+    BiteCooldown = 1.0f;
+    BiteHitDelay = 0.35f;
+    BiteReach = 220.0f;
+    BiteRadius = 120.0f;
+    BiteDamage = 25.0f;
+    BiteCount = 0;
+    LastBiteHitCount = 0;
+    LastBiteTime = TNumericLimits<double>::Lowest() / 2.0;
 
     StatsComponent = CreateDefaultSubobject<UPSLStatsComponent>(TEXT("StatsComponent"));
     SurvivalComponent = CreateDefaultSubobject<UPSLSurvivalComponent>(TEXT("SurvivalComponent"));
@@ -51,6 +64,8 @@ APSLCharacter::APSLCharacter()
     DinoIdleAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(TEXT("/Game/Characters/Dino/A_Trex_Idle.A_Trex_Idle")));
     DinoWalkAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(TEXT("/Game/Characters/Dino/A_Trex_Walk.A_Trex_Walk")));
     DinoRunAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(TEXT("/Game/Characters/Dino/A_Trex_Run.A_Trex_Run")));
+    DinoAttackAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(TEXT("/Game/Characters/Dino/TrexArmature_TRex_Attack.TrexArmature_TRex_Attack")));
+    DinoDeathAnim = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(TEXT("/Game/Characters/Dino/TrexArmature_TRex_Death.TrexArmature_TRex_Death")));
 }
 
 
@@ -78,12 +93,19 @@ void APSLCharacter::ApplyDinoVisuals()
         {
             UE_LOG(LogTemp, Warning, TEXT("%s: Dino Idle/Walk/Run sequences incomplete; pose will fall back to reference pose."), *GetName());
         }
+
+        DinoAnim->AttackSequence = DinoAttackAnim.LoadSynchronous();
+        DinoAnim->DeathSequence = DinoDeathAnim.LoadSynchronous();
+        if (!DinoAnim->AttackSequence || !DinoAnim->DeathSequence)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("%s: Dino Attack/Death clips missing; those actions will be skipped, locomotion unaffected."), *GetName());
+        }
     }
 }
 
 void APSLCharacter::ApplyInputDefaults()
 {
-    PSLInputDefaults::Resolve(this, DefaultMappingContext, MoveAction, LookAction, JumpAction, SprintAction);
+    PSLInputDefaults::Resolve(this, DefaultMappingContext, MoveAction, LookAction, JumpAction, SprintAction, BiteAction);
 }
 
 void APSLCharacter::BeginPlay()
@@ -141,6 +163,10 @@ void APSLCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompon
         {
             EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Started, this, &APSLCharacter::StartSprint);
             EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &APSLCharacter::StopSprint);
+        }
+        if (BiteAction)
+        {
+            EnhancedInputComponent->BindAction(BiteAction, ETriggerEvent::Started, this, &APSLCharacter::StartBite);
         }
     }
 }
@@ -219,5 +245,78 @@ void APSLCharacter::HandleDeath()
     {
         GetCharacterMovement()->DisableMovement();
     }
+    GetWorldTimerManager().ClearTimer(BiteHitTimer);
+    if (const USkeletalMeshComponent* SkelMesh = GetMesh())
+    {
+        if (UPSLDinoAnimInstance* DinoAnim = Cast<UPSLDinoAnimInstance>(SkelMesh->GetAnimInstance()))
+        {
+            DinoAnim->PlayAction(EPSLDinoAction::Death);
+        }
+    }
     UE_LOG(LogTemp, Log, TEXT("%s died"), *GetName());
+}
+
+void APSLCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    GetWorldTimerManager().ClearTimer(BiteHitTimer);
+    Super::EndPlay(EndPlayReason);
+}
+
+bool APSLCharacter::CanBite(double Now, double LastBite, double Cooldown, bool bDead)
+{
+    return !bDead && (Now - LastBite) >= Cooldown;
+}
+
+void APSLCharacter::StartBite(const FInputActionValue& Value)
+{
+    TryBite();
+}
+
+bool APSLCharacter::TryBite()
+{
+    UWorld* World = GetWorld();
+    const bool bDead = !StatsComponent || StatsComponent->IsDead();
+    if (!World || !CanBite(World->GetTimeSeconds(), LastBiteTime, BiteCooldown, bDead))
+    {
+        return false;
+    }
+
+    LastBiteTime = World->GetTimeSeconds();
+    ++BiteCount;
+    if (UPSLDinoAnimInstance* DinoAnim = Cast<UPSLDinoAnimInstance>(GetMesh()->GetAnimInstance()))
+    {
+        DinoAnim->PlayAction(EPSLDinoAction::Attack);
+    }
+    World->GetTimerManager().SetTimer(BiteHitTimer, this, &APSLCharacter::ResolveBiteHit, FMath::Max(BiteHitDelay, KINDA_SMALL_NUMBER), false);
+    return true;
+}
+
+void APSLCharacter::ResolveBiteHit()
+{
+    UWorld* World = GetWorld();
+    if (!World || !StatsComponent || StatsComponent->IsDead())
+    {
+        return;
+    }
+
+    const FVector Center = GetActorLocation() + GetActorForwardVector() * BiteReach;
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(PSLBite), false, this);
+    TArray<FOverlapResult> Overlaps;
+    World->OverlapMultiByObjectType(Overlaps, Center, FQuat::Identity, FCollisionObjectQueryParams(ECC_Pawn), FCollisionShape::MakeSphere(BiteRadius), Params);
+
+    TSet<AActor*> Victims;
+    for (const FOverlapResult& Overlap : Overlaps)
+    {
+        AActor* Victim = Overlap.GetActor();
+        if (Victim && Victim != this && Victim->IsA<APawn>())
+        {
+            Victims.Add(Victim);
+        }
+    }
+
+    for (AActor* Victim : Victims)
+    {
+        UGameplayStatics::ApplyDamage(Victim, BiteDamage, GetController(), this, UDamageType::StaticClass());
+    }
+    LastBiteHitCount = Victims.Num();
 }

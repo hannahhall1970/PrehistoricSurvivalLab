@@ -41,7 +41,8 @@ void PSLInputDefaults::Resolve(
     TObjectPtr<UInputAction>& Move,
     TObjectPtr<UInputAction>& Look,
     TObjectPtr<UInputAction>& Jump,
-    TObjectPtr<UInputAction>& Sprint)
+    TObjectPtr<UInputAction>& Sprint,
+    TObjectPtr<UInputAction>& Bite)
 {
     if (!Move)
     {
@@ -58,6 +59,10 @@ void PSLInputDefaults::Resolve(
     if (!Sprint)
     {
         Sprint = MakeAction(Outer, TEXT("PSL_DefaultSprint"), EInputActionValueType::Boolean);
+    }
+    if (!Bite)
+    {
+        Bite = MakeAction(Outer, TEXT("PSL_DefaultBite"), EInputActionValueType::Boolean);
     }
     if (Context)
     {
@@ -81,4 +86,5 @@ void PSLInputDefaults::Resolve(
 
     Context->MapKey(Jump, EKeys::SpaceBar);
     Context->MapKey(Sprint, EKeys::LeftShift);
+    Context->MapKey(Bite, EKeys::LeftMouseButton);
 }

@@ -24,6 +24,35 @@ FPSLLocomotionWeights UPSLDinoAnimInstance::ComputeLocomotionWeights(float Groun
     return Weights;
 }
 
+float UPSLDinoAnimInstance::ComputeActionWeight(float TimeSinceStart, float ClipLength, bool bHoldLast)
+{
+    if (ClipLength <= 0.0f || TimeSinceStart < 0.0f)
+    {
+        return 0.0f;
+    }
+    const float In = FMath::Clamp(TimeSinceStart / ActionBlendIn, 0.0f, 1.0f);
+    const float Out = bHoldLast ? 1.0f : FMath::Clamp((ClipLength - TimeSinceStart) / ActionBlendOut, 0.0f, 1.0f);
+    return In * Out;
+}
+
+void UPSLDinoAnimInstance::PlayAction(EPSLDinoAction Action)
+{
+    if (Action == EPSLDinoAction::None || RequestedAction == EPSLDinoAction::Death)
+    {
+        return;
+    }
+
+    const UAnimSequence* Clip = Action == EPSLDinoAction::Attack ? AttackSequence.Get() : DeathSequence.Get();
+    if (!Clip)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("%s: no clip for dino action %d; locomotion continues."), *GetName(), static_cast<int32>(Action));
+        return;
+    }
+
+    RequestedAction = Action;
+    ++ActionRequestId;
+}
+
 namespace
 {
 struct FPSLDinoAnimProxy : public FAnimInstanceProxy
@@ -37,6 +66,14 @@ struct FPSLDinoAnimProxy : public FAnimInstanceProxy
 
     enum { NumNodes = 3 };
 
+    // Action layer: index 0 = Attack, 1 = Death (EPSLDinoAction minus one).
+    FAnimNode_SequencePlayer_Standalone ActionNodes[2];
+    uint32 SeenRequestId = 0;
+    EPSLDinoAction ActionType = EPSLDinoAction::None;
+    float ActionTime = 0.0f;
+    float ActionClipLength = 0.0f;
+    float ActionWeight = 0.0f;
+
     FAnimNode_SequencePlayer_Standalone Nodes[NumNodes];
     float TargetSpeed = 0.0f;
     float SmoothedSpeed = 0.0f;
@@ -48,6 +85,10 @@ struct FPSLDinoAnimProxy : public FAnimInstanceProxy
         FAnimInstanceProxy::Initialize(InAnimInstance);
         FAnimationInitializeContext Context(this);
         for (FAnimNode_SequencePlayer_Standalone& Node : Nodes)
+        {
+            Node.Initialize_AnyThread(Context);
+        }
+        for (FAnimNode_SequencePlayer_Standalone& Node : ActionNodes)
         {
             Node.Initialize_AnyThread(Context);
         }
@@ -70,6 +111,10 @@ struct FPSLDinoAnimProxy : public FAnimInstanceProxy
         {
             Nodes[Index].SetSequence(nullptr);
         }
+        for (FAnimNode_SequencePlayer_Standalone& Node : ActionNodes)
+        {
+            Node.SetSequence(nullptr);
+        }
     }
 
     virtual void PreUpdate(UAnimInstance* InAnimInstance, float DeltaSeconds) override
@@ -77,6 +122,27 @@ struct FPSLDinoAnimProxy : public FAnimInstanceProxy
         FAnimInstanceProxy::PreUpdate(InAnimInstance, DeltaSeconds);
         const APawn* Pawn = InAnimInstance->TryGetPawnOwner();
         TargetSpeed = Pawn ? Pawn->GetVelocity().Size2D() : 0.0f;
+
+        // A new request id restarts the matching one-shot node from the first frame.
+        const UPSLDinoAnimInstance* Dino = CastChecked<UPSLDinoAnimInstance>(InAnimInstance);
+        if (Dino->GetActionRequestId() != SeenRequestId)
+        {
+            SeenRequestId = Dino->GetActionRequestId();
+            const EPSLDinoAction Requested = Dino->GetRequestedAction();
+            UAnimSequence* Clip = Requested == EPSLDinoAction::Attack ? Dino->AttackSequence.Get() : Dino->DeathSequence.Get();
+            if (Requested != EPSLDinoAction::None && Clip)
+            {
+                FAnimNode_SequencePlayer_Standalone& Node = ActionNodes[static_cast<int32>(Requested) - 1];
+                Node.SetSequence(Clip);
+                Node.SetLoopAnimation(false);
+                Node.SetStartPosition(0.0f);
+                Node.Initialize_AnyThread(FAnimationInitializeContext(this));
+                ActionType = Requested;
+                ActionTime = 0.0f;
+                ActionClipLength = Clip->GetPlayLength();
+                ActionWeight = 0.0f;
+            }
+        }
     }
 
     virtual void Update(float DeltaSeconds) override
@@ -86,6 +152,18 @@ struct FPSLDinoAnimProxy : public FAnimInstanceProxy
         Weights[0] = W.Idle;
         Weights[1] = W.Walk;
         Weights[2] = W.Run;
+
+        if (ActionType != EPSLDinoAction::None)
+        {
+            ActionTime += DeltaSeconds;
+            const bool bHold = ActionType == EPSLDinoAction::Death;
+            ActionWeight = UPSLDinoAnimInstance::ComputeActionWeight(ActionTime, ActionClipLength, bHold);
+            if (!bHold && ActionTime >= ActionClipLength)
+            {
+                ActionType = EPSLDinoAction::None;
+                ActionWeight = 0.0f;
+            }
+        }
     }
 
     virtual void UpdateAnimationNode(const FAnimationUpdateContext& InContext) override
@@ -96,6 +174,11 @@ struct FPSLDinoAnimProxy : public FAnimInstanceProxy
             {
                 Nodes[Index].Update_AnyThread(InContext.FractionalWeight(Weights[Index]));
             }
+        }
+
+        if (ActionType != EPSLDinoAction::None && ActionWeight > ZERO_ANIMWEIGHT_THRESH)
+        {
+            ActionNodes[static_cast<int32>(ActionType) - 1].Update_AnyThread(InContext.FractionalWeight(ActionWeight));
         }
     }
 
@@ -129,7 +212,24 @@ struct FPSLDinoAnimProxy : public FAnimInstanceProxy
         {
             Output.ResetToRefPose();
         }
+
+        if (ActionType != EPSLDinoAction::None && ActionWeight > ZERO_ANIMWEIGHT_THRESH)
+        {
+            FPoseContext ActionPose(Output);
+            ActionNodes[static_cast<int32>(ActionType) - 1].Evaluate_AnyThread(ActionPose);
+            FAnimationPoseData OutData(Output);
+            const FAnimationPoseData ActionData(ActionPose);
+            FAnimationRuntime::BlendTwoPosesTogetherInPlace(OutData, ActionData, 1.0f - ActionWeight);
+        }
         return true;
+    }
+
+    virtual void PostUpdate(UAnimInstance* InAnimInstance) const override
+    {
+        FAnimInstanceProxy::PostUpdate(InAnimInstance);
+        UPSLDinoAnimInstance* Dino = CastChecked<UPSLDinoAnimInstance>(InAnimInstance);
+        Dino->ActiveAction = ActionType;
+        Dino->ActionWeight = ActionWeight;
     }
 };
 }
@@ -138,6 +238,10 @@ UPSLDinoAnimInstance::UPSLDinoAnimInstance()
 {
     SpeedInterpRate = 8.0f;
     RootMotionMode = ERootMotionMode::NoRootMotionExtraction;
+    ActiveAction = EPSLDinoAction::None;
+    ActionWeight = 0.0f;
+    RequestedAction = EPSLDinoAction::None;
+    ActionRequestId = 0;
 }
 
 FAnimInstanceProxy* UPSLDinoAnimInstance::CreateAnimInstanceProxy()

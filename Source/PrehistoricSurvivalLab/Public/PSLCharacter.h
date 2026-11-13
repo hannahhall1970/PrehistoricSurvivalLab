@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "Engine/TimerHandle.h"
 #include "PSLCharacter.generated.h"
 
 class UCameraComponent;
@@ -44,11 +45,38 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
     TObjectPtr<UInputAction> SprintAction;
 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
+    TObjectPtr<UInputAction> BiteAction;
+
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Movement", meta=(ClampMin="0.0", UIMin="0.0"))
     float WalkSpeed;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Movement", meta=(ClampMin="0.0", UIMin="0.0"))
     float SprintSpeed;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat", meta=(ClampMin="0.0", UIMin="0.0"))
+    float BiteCooldown;
+
+    // Delay between pressing bite and the damage sphere, so it lines up with the Attack clip.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat", meta=(ClampMin="0.0", UIMin="0.0"))
+    float BiteHitDelay;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat", meta=(ClampMin="0.0", UIMin="0.0"))
+    float BiteReach;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat", meta=(ClampMin="0.0", UIMin="0.0"))
+    float BiteRadius;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat", meta=(ClampMin="0.0", UIMin="0.0"))
+    float BiteDamage;
+
+    // Accepted bites so far.
+    UPROPERTY(BlueprintReadOnly, Category="Combat")
+    int32 BiteCount;
+
+    // Distinct other pawns damaged by the most recent bite hit resolution.
+    UPROPERTY(BlueprintReadOnly, Category="Combat")
+    int32 LastBiteHitCount;
 
     // Biped capsule + mesh placement for the Quaternius T-Rex (mesh faces +Y in the FBX, so yaw -90).
     static constexpr float DinoCapsuleRadius = 60.0f;
@@ -72,15 +100,29 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dino")
     TSoftObjectPtr<UAnimSequence> DinoRunAnim;
 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dino")
+    TSoftObjectPtr<UAnimSequence> DinoAttackAnim;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dino")
+    TSoftObjectPtr<UAnimSequence> DinoDeathAnim;
+
     UFUNCTION(BlueprintPure, Category="Components")
     UPSLStatsComponent* GetStatsComponent() const { return StatsComponent; }
 
     UFUNCTION(BlueprintPure, Category="Components")
     UPSLSurvivalComponent* GetSurvivalComponent() const { return SurvivalComponent; }
 
+    // Pure gate for TryBite: never while dead, otherwise once Cooldown seconds have passed since LastBite.
+    static bool CanBite(double Now, double LastBite, double Cooldown, bool bDead);
+
+    // Returns true when the bite was accepted (animation started, damage scheduled after BiteHitDelay).
+    UFUNCTION(BlueprintCallable, Category="Combat")
+    bool TryBite();
+
 protected:
     virtual void BeginPlay() override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual float TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
 
 private:
@@ -90,6 +132,10 @@ private:
     void StopJump(const FInputActionValue& Value);
     void StartSprint(const FInputActionValue& Value);
     void StopSprint(const FInputActionValue& Value);
+    void StartBite(const FInputActionValue& Value);
+
+    // Sphere overlap in front of the dino; damages each other pawn once.
+    void ResolveBiteHit();
 
     // Loads the soft dino assets; warns and keeps the capsule if any are missing.
     void ApplyDinoVisuals();
@@ -104,4 +150,6 @@ private:
     void HandleDeath();
 
     bool bDeathHandled;
+    double LastBiteTime;
+    FTimerHandle BiteHitTimer;
 };

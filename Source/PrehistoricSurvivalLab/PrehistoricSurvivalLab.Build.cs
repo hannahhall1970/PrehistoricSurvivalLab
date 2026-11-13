@@ -12,7 +12,10 @@ public class PrehistoricSurvivalLab : ModuleRules
             "CoreUObject",
             "Engine",
             "InputCore",
-            "EnhancedInput"
+            "EnhancedInput",
+            "AIModule",
+            "NavigationSystem",
+            "GameplayTasks"
         });
 
         if (Target.bBuildEditor)
