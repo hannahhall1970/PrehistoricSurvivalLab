@@ -103,7 +103,7 @@ Manual PIE checklist (`/Game/Maps/L_TestArena`; record engine version and result
 - [ ] MANUAL-PENDING: Tail and head do not clip through or poke far outside the capsule (r=60).
 - [ ] MANUAL-PENDING: Camera framing is correct for the dinosaur's size.
 
-## Task 003 hunt arena (status: script WRITTEN, NOT RUN; nothing below is verified)
+## Task 003 hunt arena (status: script RUN by the trusted parent, hunt-arena.json exit 0; in-editor behaviour covered by the PSL.PIE tests below)
 
 `scripts/setup_hunt_arena.py` adds `PSL_NavBounds` (NavMeshBoundsVolume, scale `(25,25,3)`), `PSL_Prey_01` (`PSLPreyCharacter` at `(1800,600,100)`) and cover cubes `PSL_Cover_01..04` (`(±1200,±1200,100)`, scale `(2,2,2)`) to `/Game/Maps/L_TestArena`. It is non-destructive and idempotent by label (full set: validate only; partial set: fails listing missing labels). It saves, reloads and re-validates. Run once by the trusted parent under `.harness/ue-build.lock`:
 
@@ -113,5 +113,31 @@ Manual PIE checklist (`/Game/Maps/L_TestArena`; record engine version and result
   -ScriptErrorsAreFatal -unattended -nullrhi -nosplash
 ```
 
-- [ ] MANUAL-PENDING: log contains `PSL setup_hunt_arena: done` (first run) or `already present` (re-run), exit 0.
-- [ ] MANUAL-PENDING: `git lfs ls-files` still lists `Content/Maps/L_TestArena.umap` after the run.
+- [x] `Saved/PSL/hunt-arena.json` records the trusted-parent run with exit 0.
+- [x] `git lfs ls-files` still lists `Content/Maps/L_TestArena.umap` after the run.
+
+## Task 003 tests (prey AI + bite; status: written, results come from the harness gate only)
+
+Automated (`PSL.` prefix; `scripts/run_tests.sh`). Gate rule: `succeeded` + `succeededWithWarnings` (every `PSL.PIE.*` test, 13 in the last gate run, carries the known warnings `LogAudioMixerAudioUnit` + `LogCrowdFollowing`) must equal the full PSL test count; `PSL_REPORT succeeded` alone excludes the warning tests.
+
+- `PSL.AI.PreyDecision`: pure `DecidePreyState` transitions (dead dominates, flee hysteresis, idle/wander).
+- `PSL.Combat.BiteCooldown`: `CanBite` gate (cooldown, never while dead).
+- `PSL.Combat.PreyDamageDeath`: default prey stats (60 HP, AI controller class) plus `UPSLStatsComponent::ApplyDamage(25)` on a transient component: three hits kill exactly once (the third is clamped to 10). It does not exercise a bite or `APSLPreyCharacter::TakeDamage`; bites are covered by `PSL.PIE.BiteCombat`.
+- `PSL.PIE.PreyWander`: within 12 s prey is in `Wander` and moves more than 150 uu.
+- `PSL.PIE.PreyFlee`: player teleported 500 uu from the prey (clear of the covers at +-1200,+-1200); samples until the prey-player distance is > 900 uu (max 6 s) and asserts the state is still `Flee` then.
+- `PSL.PIE.PreyReacquire`: regression for `Threat` clearing while the player stays sensed. Prey held still and facing the player; player at 1400 uu for 1 s (sensed, outside FleeRadius 900), then 1750 uu for 1 s (beyond SafeRadius 1600, inside LoseSightRadius 2000), then prey released and player at 600 uu: expects `Flee` within 3 s.
+- `PSL.PIE.BiteCombat`: player 180 uu from a held-still prey facing it; LeftMouseButton via `SendKey`: after 0.5 s health 60 -> 35, `BiteCount` 1, anim `ActiveAction` Attack; immediate second press ignored (cooldown); after cooldown two more bites -> `IsDead`, state `Dead`, prey `MovementMode == MOVE_None`, capsule object type `ECC_WorldDynamic`. Screenshots `after_bite`, `prey_dead` are requested only when rendering (`FApp::CanEverRender()`); the `-nullrhi` gate skips them, so screenshots come only from a rendered run.
+- `PSL.PIE.BiteMiss`: no pawn in reach -> `BiteCount` 1, `LastBiteHitCount` 0 after the hit delay (`TryBite` sets it to -1 while pending, so 0 proves resolution ran), prey health unchanged.
+
+Each PIE test reports `AddError` (and stops) when the prey is missing, not possessed by `APSLPreyAIController`, or `UNavigationSystemV1` has no nav data. `PSL.PIE.StaminaExhaustion` / `SprintRelease` fixture start moved to `(-2300,-1800)` yaw 45 because `PSL_Cover_03` at `(-1200,-1200)` blocks the old diagonal.
+
+Map: `scripts/setup_hunt_arena.py` is run by the trusted parent, evidence in `Saved/PSL/hunt-arena.json` (gitignored). `Content/Maps/L_TestArena.umap` stays under Git LFS.
+
+MANUAL-PENDING PIE checks (`/Game/Maps/L_TestArena`; not claimed by automation):
+
+- [ ] MANUAL-PENDING: bite feel and reach (BiteReach 220, radius 120, hit delay 0.35 s lines up with the Attack clip).
+- [ ] MANUAL-PENDING: prey flee readability (player can see and follow the fleeing prey; speed 450 vs sprint 600).
+- [ ] MANUAL-PENDING: prey death pose (body cube rotated 90 deg reads as dead; corpse not a bite target).
+- [ ] MANUAL-PENDING: nav coverage around the cover cubes (prey does not get stuck or leave the floor).
+- [ ] MANUAL-PENDING: capsule clipping (dino mesh vs prey capsule at bite range).
+- [ ] MANUAL-PENDING: camera framing during bite and chase.

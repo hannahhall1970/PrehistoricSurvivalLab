@@ -283,6 +283,7 @@ bool APSLCharacter::TryBite()
 
     LastBiteTime = World->GetTimeSeconds();
     ++BiteCount;
+    LastBiteHitCount = -1;
     if (UPSLDinoAnimInstance* DinoAnim = Cast<UPSLDinoAnimInstance>(GetMesh()->GetAnimInstance()))
     {
         DinoAnim->PlayAction(EPSLDinoAction::Attack);

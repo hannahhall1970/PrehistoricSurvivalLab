@@ -100,13 +100,11 @@ void APSLPreyAIController::HandleTargetPerceptionUpdated(AActor* Actor, FAIStimu
         return;
     }
 
+    // Losing sight does not end the threat: the prey turns away while fleeing and sight drops at once.
+    // Think() clears Threat once the player is beyond SafeRadius.
     if (Stimulus.WasSuccessfullySensed())
     {
         Threat = Actor;
-    }
-    else if (Threat.Get() == Actor)
-    {
-        Threat.Reset();
     }
 }
 
@@ -139,7 +137,36 @@ void APSLPreyAIController::Think()
         return;
     }
 
-    const AActor* ThreatActor = Threat.Get();
+    // OnTargetPerceptionUpdated does not re-fire for a target that stays visible, so Threat is synced with the
+    // live sight set here: cleared only when far away AND no longer sensed, re-acquired when empty.
+    TArray<AActor*> Sensed;
+    if (PreyPerception)
+    {
+        PreyPerception->GetCurrentlyPerceivedActors(UAISense_Sight::StaticClass(), Sensed);
+    }
+    AActor* ThreatActor = Threat.Get();
+    if (ThreatActor && FVector::Dist(ControlledPawn->GetActorLocation(), ThreatActor->GetActorLocation()) >= SafeRadius && !Sensed.Contains(ThreatActor))
+    {
+        Threat.Reset();
+        ThreatActor = nullptr;
+    }
+    if (!ThreatActor)
+    {
+        float Best = TNumericLimits<float>::Max();
+        for (AActor* Candidate : Sensed)
+        {
+            const float D = FVector::Dist(ControlledPawn->GetActorLocation(), Candidate->GetActorLocation());
+            if (Cast<APSLCharacter>(Candidate) && D < Best)
+            {
+                Best = D;
+                ThreatActor = Candidate;
+            }
+        }
+        if (ThreatActor)
+        {
+            Threat = ThreatActor;
+        }
+    }
     const float Distance = ThreatActor ? FVector::Dist(ControlledPawn->GetActorLocation(), ThreatActor->GetActorLocation()) : 0.0f;
     const bool bIdleExpired = World->GetTimeSeconds() >= IdleUntil;
     const EPSLPreyState Next = DecidePreyState(false, ThreatActor != nullptr, Distance, FleeRadius, SafeRadius, PreyState, bIdleExpired);

@@ -74,7 +74,7 @@ public:
     UPROPERTY(BlueprintReadOnly, Category="Combat")
     int32 BiteCount;
 
-    // Distinct other pawns damaged by the most recent bite hit resolution.
+    // Pawns overlapped by the last resolved bite; -1 while a bite is pending (stays -1 if the player dies before it resolves).
     UPROPERTY(BlueprintReadOnly, Category="Combat")
     int32 LastBiteHitCount;
 
