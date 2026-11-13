@@ -122,17 +122,37 @@ def edge_anchors(poly, tree_xy, rng):
     return anchors + list(tree_xy)
 
 
-def rock_spot(poly, start_xy):
-    """Left of the first path bend (poly[0]->(0,0) direction turns at PATH_POINTS[1]), >= 600 uu from the path and
-    the PlayerStart; returns (x, y, yaw) of the cluster centre."""
+ROCK_R, ROCK_SCALE, ROCK_CLEAR = 220.0, (3.0, 4.5), 600.0  # rock radius per unit scale; min gap to path/PlayerStart
+
+
+def rock_spot(poly, start_xy, clear):
+    """Left of the first path bend (poly[0]->(0,0) direction turns at PATH_POINTS[1]), >= `clear` uu from the path and
+    the PlayerStart; returns (x, y) of the cluster centre."""
     bx, by = B.PATH_POINTS[1]
     tx, ty = bx - B.PATH_POINTS[0][0], by - B.PATH_POINTS[0][1]
     n = math.hypot(tx, ty)
-    for off in range(900, 2400, 100):
+    for off in range(900, 3600, 100):
         x, y = bx - ty / n * off, by + tx / n * off  # left of travel direction
-        if B.path_distance(x, y, poly) >= 600.0 and math.hypot(x - start_xy[0], y - start_xy[1]) >= 600.0:
+        if B.path_distance(x, y, poly) >= clear and math.hypot(x - start_xy[0], y - start_xy[1]) >= clear:
             return x, y
     raise ValueError("no spawn-rock spot found")
+
+
+def place_rocks(poly, start_xy, rng):
+    """3 rocks (x, y, yaw, scale) around the cluster centre; each has >= ROCK_CLEAR uu from the path and the
+    PlayerStart measured at centre - ROCK_R * scale."""
+    cx, cy = rock_spot(poly, start_xy, ROCK_CLEAR + ROCK_R * ROCK_SCALE[0] + ROCK_R)
+    out = []
+    for k in range(3):
+        for _ in range(100):
+            ang = k * 2 * math.pi / 3 + 0.4 + rng.uniform(-0.3, 0.3)
+            x, y, s = cx + ROCK_R * math.cos(ang), cy + ROCK_R * math.sin(ang), rng.uniform(*ROCK_SCALE)
+            if min(B.path_distance(x, y, poly), math.hypot(x - start_xy[0], y - start_xy[1])) - ROCK_R * s >= ROCK_CLEAR:
+                out.append((x, y, rng.uniform(0, 360), s))
+                break
+        else:
+            raise ValueError("no clear spot for spawn rock %d" % k)
+    return out
 
 
 def selftest():
@@ -153,8 +173,10 @@ def selftest():
     assert len(pts) == 600 and all(free(x, y) for x, y in pts), "clustered points invalid"
     assert len(set(pts)) == len(pts)
     sx, sy = B.PATH_POINTS[0][0] + 400.0, B.PATH_POINTS[0][1] + 300.0
-    rx, ry = rock_spot(poly, (sx, sy))
-    assert B.path_distance(rx, ry, poly) >= 600.0 and math.hypot(rx - sx, ry - sy) >= 600.0
+    rocks = place_rocks(poly, (sx, sy), rng)
+    for rx, ry, _, s in rocks:
+        assert min(B.path_distance(rx, ry, poly), math.hypot(rx - sx, ry - sy)) - ROCK_R * s >= ROCK_CLEAR
+    rx, ry = rocks[0][:2]
     for pal in (TREX_PALETTE, {"x": TREX_DEFAULT}):
         assert all(luminance(c) >= 0.15 for c in pal.values()), "T-Rex albedo too dark"
     assert palette_color(TREX_PALETTE, TREX_DEFAULT, "Light Green") == TREX_PALETTE["lightgreen"]
@@ -214,12 +236,17 @@ def fresh_material(name, dest):
 
 def build_character_material():
     mat = fresh_material("M_PSL_Character", CHAR_DEST)
+    mat.set_editor_property("used_with_skeletal_mesh", True)
     color = node(mat, unreal.MaterialExpressionVectorParameter, -900, 0, parameter_name="Color",
                  default_value=unreal.LinearColor(*TREX_DEFAULT, 1.0))
     dead = scalar_param(mat, "Dead", 0.0, -900, 200)
     flash = scalar_param(mat, "HitFlash", 0.0, -900, 500)
     rim = scalar_param(mat, "Rim", 0.12, -900, 350)
-    dark = mul(mat, color, const(mat, 0.25, -900, 120), -650, 60)
+    one = const(mat, 1.0, -900, 90)
+    desat = node(mat, unreal.MaterialExpressionDesaturation, -800, 100)
+    link(color, "", desat, "")
+    link(one, "", desat, "Fraction")
+    dark = mul(mat, desat, const(mat, 0.3, -900, 120), -650, 60)
     base = node(mat, unreal.MaterialExpressionLinearInterpolate, -450, 60)
     link(color, "", base, "A")
     link(dark, "", base, "B")
@@ -320,11 +347,42 @@ def build_terrain_material(mask):
     def tex_at(name, k, py):
         return tex_sample(mat, asset_or_fail(B.TEX_DEST + "/" + name), scaled_uv(k, py), -1700, py)
 
-    grass = tex_at("Grass", 1.0 / 400.0, -600)
-    dirt = mul(mat, tex_at("PathRocks_Diffuse", 1.0 / 500.0, -300),
-               node(mat, unreal.MaterialExpressionConstant3Vector, -1700, -150, constant=unreal.LinearColor(1.0, 0.82, 0.62, 1.0)),
-               -1450, -300)
-    rock = tex_at("Rocks_Diffuse", 1.0 / 600.0, 0)
+    def noise(scale, lo, hi, py):
+        n = node(mat, unreal.MaterialExpressionNoise, -1700, py, scale=scale, output_min=lo, output_max=hi)
+        link(wpos, "", n, "Position")
+        return n
+
+    def vec3(r, g, b, py):
+        return node(mat, unreal.MaterialExpressionConstant3Vector, -1700, py, constant=unreal.LinearColor(r, g, b, 1.0))
+
+    def tinted(lo, hi, scale, py):
+        t = node(mat, unreal.MaterialExpressionLinearInterpolate, -1450, py)
+        link(vec3(*lo, py), "", t, "A")
+        link(vec3(*hi, py + 60), "", t, "B")
+        link(noise(scale, 0.0, 1.0, py + 120), "", t, "Alpha")
+        return t
+
+    # shared micro-variation: luminance of Rocks_Diffuse at 1/300, remapped to 0.85..1.10
+    lum = node(mat, unreal.MaterialExpressionDotProduct, -1450, -900)
+    link(tex_at("Rocks_Diffuse", 1.0 / 300.0, -900), "RGB", lum, "A")
+    link(vec3(0.3, 0.59, 0.11, -800), "", lum, "B")
+    detail = node(mat, unreal.MaterialExpressionAdd, -1250, -900)
+    link(const(mat, 0.85, -1450, -820), "", detail, "A")
+    link(mul(mat, lum, const(mat, 0.25, -1450, -760), -1250, -800), "", detail, "B")
+
+    def one_plus_noise(scale, amp, py):
+        s = node(mat, unreal.MaterialExpressionAdd, -1250, py)
+        link(const(mat, 1.0, -1450, py), "", s, "A")
+        link(noise(scale, -amp, amp, py + 60), "", s, "B")
+        return s
+
+    grass = mul(mat, mul(mat, tinted((0.085, 0.16, 0.035), (0.20, 0.27, 0.07), 0.0015, -700), detail, -1100, -700),
+                one_plus_noise(0.006, 0.1, -600), -950, -650)
+    dirt = mul(mat, tinted((0.24, 0.17, 0.10), (0.36, 0.27, 0.16), 0.004, -450), detail, -1100, -450)
+    desat = node(mat, unreal.MaterialExpressionDesaturation, -1450, 0)
+    link(tex_at("Rocks_Diffuse", 1.0 / 600.0, 0), "RGB", desat, "")
+    link(const(mat, 0.6, -1700, 100), "", desat, "Fraction")
+    rock = mul(mat, desat, vec3(0.95, 0.9, 0.85, 150), -1250, 0)
 
     # path/clearing mask, sampled at (xy - LAND_ORIGIN) / LAND_SIZE
     off = node(mat, unreal.MaterialExpressionAdd, -2000, 300)
@@ -348,7 +406,7 @@ def build_terrain_material(mask):
     link(sum_a, "", dirt_a, "")
 
     ground = node(mat, unreal.MaterialExpressionLinearInterpolate, -600, -300)
-    link(grass, "RGB", ground, "A")
+    link(grass, "", ground, "A")
     link(dirt, "", ground, "B")
     link(dirt_a, "", ground, "Alpha")
 
@@ -363,7 +421,7 @@ def build_terrain_material(mask):
     link(mul(mat, sdiff, const(mat, 20.0, -1000, 900), -800, 800), "", slope, "")
     surface = node(mat, unreal.MaterialExpressionLinearInterpolate, -400, -200)
     link(ground, "", surface, "A")
-    link(rock, "RGB", surface, "B")
+    link(rock, "", surface, "B")
     link(slope, "", surface, "Alpha")
 
     # macro brightness variation: 1 + 0.08 * noise(worldpos * 0.002), noise in [-1, 1]
@@ -400,14 +458,14 @@ def need(found, label):
 
 def polish_lighting(found):
     sky = need(found, "PSL_SkyLight").get_component_by_class(unreal.SkyLightComponent)
-    sky.set_editor_property("intensity", 1.5)
+    sky.set_editor_property("intensity", 1.3)
     sun = need(found, "PSL_Sun").get_component_by_class(unreal.DirectionalLightComponent)
     sun.set_editor_property("intensity", 7.0)
     sun.set_editor_property("contact_shadow_length", 0.05)
     pp = need(found, "PSL_PostProcess")
     s = pp.get_editor_property("settings")
     s.set_editor_property("override_auto_exposure_bias", True)
-    s.set_editor_property("auto_exposure_bias", 0.3)
+    s.set_editor_property("auto_exposure_bias", 0.0)
     pp.set_editor_property("settings", s)
 
 
@@ -441,16 +499,14 @@ def replace_vegetation(found, grid, poly, stems):
     }
     if counts["grass"] > GRASS_MAX or counts["bushes"] > BUSH_MAX:
         B.fail("vegetation over budget: %r" % (counts,))
-    sx, sy = B.PATH_POINTS[0][0] + 400.0, B.PATH_POINTS[0][1] + 300.0
-    cx, cy = rock_spot(poly, (sx, sy))
+    start = need(found, "PSL_PlayerStart").get_actor_location()
+    rocks = place_rocks(poly, (start.x, start.y), rng)
     rock = B.pick(stems, r"^Rock_Medium_1$")[0]
     actor = B.spawn(unreal.Actor, SPAWN_ROCKS)
     mesh = asset_or_fail(B.NATURE_DEST + "/SM_" + rock)
     ts = []
-    for k in range(3):
-        ang = k * 2 * math.pi / 3 + 0.4
-        rx, ry = cx + 220.0 * math.cos(ang), cy + 220.0 * math.sin(ang)
-        ts.append(B.transform(rx, ry, z_of(rx, ry), rng.uniform(0, 360), rng.uniform(3.0, 4.5)))
+    for rx, ry, yaw, s in rocks:
+        ts.append(B.transform(rx, ry, z_of(rx, ry), yaw, s))
     if unreal.PSLLevelBuildLibrary.add_mesh_instances(actor, mesh, ts, True, 0.0) is None:
         B.fail("spawn rocks failed")
     return counts
@@ -472,6 +528,19 @@ def verify(counts):
         mi = sm.get_editor_property("material_interface")
         if mi is None or not mi.get_name().startswith("MI_Trex_"):
             problems.append("SK_Trex slot %s not using MI_Trex_*" % sm.get_editor_property("material_slot_name"))
+    chars = unreal.load_asset(CHAR_DEST + "/M_PSL_Character")
+    if not chars.get_editor_property("used_with_skeletal_mesh"):
+        problems.append("M_PSL_Character lacks used_with_skeletal_mesh")
+    for d in (TREX_MI_DEST, PARA_MI_DEST):
+        for p in unreal.EditorAssetLibrary.list_assets(d, False, False):
+            mi = unreal.load_asset(p)
+            par = mi.get_editor_property("parent")
+            if par is None or par.get_name() != "M_PSL_Character":
+                problems.append("%s parent is not M_PSL_Character" % mi.get_name())
+    used = [t.get_name() for t in mel().get_used_textures(unreal.load_asset(B.MAT_DEST + "/M_PSL_Terrain"))]
+    for bad in ("Grass", "PathRocks_Diffuse"):
+        if bad in used:
+            problems.append("M_PSL_Terrain still samples " + bad)
     if problems:
         B.fail("; ".join(problems))
 
