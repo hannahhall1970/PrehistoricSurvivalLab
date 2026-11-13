@@ -111,12 +111,45 @@ double Dist2D(const AActor& A, const AActor& B)
     return FVector::Dist2D(A.GetActorLocation(), B.GetActorLocation());
 }
 
+// Physical mouse input reaches the GUI PIE window and rotates the camera mid-capture; ignore look input for the whole test.
+// Steps that call SetControlRotation are unaffected. The lock is taken once the pawn is usable and always released at the end.
+bool QueueLostValleyStart(FAutomationTestBase& Test, const TSharedRef<FPSLPieCtx>& Context)
+{
+    if (!QueuePieStart(Test, Context, LostValleyMap))
+    {
+        return false;
+    }
+    AddPieStep(Context, TEXT("IgnoreLookInput"), 2.0f, [](FPSLPieCtx& Ctx)
+    {
+        if (Ctx.IsUsable())
+        {
+            Ctx.PC->SetIgnoreLookInput(true);
+        }
+        return true;
+    });
+    return true;
+}
+
+void QueueLostValleyEnd(const TSharedRef<FPSLPieCtx>& Context)
+{
+    // HasObjects, not IsUsable: also release after a failed or timed-out step.
+    AddPieStep(Context, TEXT("RestoreLookInput"), 1.0f, [](FPSLPieCtx& Ctx)
+    {
+        if (Ctx.HasObjects())
+        {
+            Ctx.PC->ResetIgnoreLookInput();
+        }
+        return true;
+    });
+    QueuePieEnd(Context);
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLLostValleyLoadsTest, "PSL.PIE.LostValley.Loads", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FPSLLostValleyLoadsTest::RunTest(const FString& Parameters)
 {
     const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("LostValley_Loads"));
-    if (!QueuePieStart(*this, Context, LostValleyMap))
+    if (!QueueLostValleyStart(*this, Context))
     {
         return false;
     }
@@ -184,7 +217,7 @@ bool FPSLLostValleyLoadsTest::RunTest(const FString& Parameters)
         Record(Ctx, TEXT("loads"));
         return true;
     });
-    QueuePieEnd(Context);
+    QueueLostValleyEnd(Context);
     return true;
 }
 
@@ -193,7 +226,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLLostValleySpawnTest, "PSL.PIE.LostValley.Sp
 bool FPSLLostValleySpawnTest::RunTest(const FString& Parameters)
 {
     const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("LostValley_Spawn"));
-    if (!QueuePieStart(*this, Context, LostValleyMap))
+    if (!QueueLostValleyStart(*this, Context))
     {
         return false;
     }
@@ -279,7 +312,7 @@ bool FPSLLostValleySpawnTest::RunTest(const FString& Parameters)
         }
         return true;
     });
-    QueuePieEnd(Context);
+    QueueLostValleyEnd(Context);
     return true;
 }
 
@@ -288,7 +321,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLLostValleyExploreTest, "PSL.PIE.LostValley.
 bool FPSLLostValleyExploreTest::RunTest(const FString& Parameters)
 {
     const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("LostValley_Explore"));
-    if (!QueuePieStart(*this, Context, LostValleyMap))
+    if (!QueueLostValleyStart(*this, Context))
     {
         return false;
     }
@@ -391,7 +424,7 @@ bool FPSLLostValleyExploreTest::RunTest(const FString& Parameters)
         }
         return true;
     });
-    QueuePieEnd(Context);
+    QueueLostValleyEnd(Context);
     return true;
 }
 
@@ -400,7 +433,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLLostValleyHuntTest, "PSL.PIE.LostValley.Hun
 bool FPSLLostValleyHuntTest::RunTest(const FString& Parameters)
 {
     const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("LostValley_Hunt"));
-    if (!QueuePieStart(*this, Context, LostValleyMap))
+    if (!QueueLostValleyStart(*this, Context))
     {
         return false;
     }
@@ -453,7 +486,7 @@ bool FPSLLostValleyHuntTest::RunTest(const FString& Parameters)
         return true;
     });
     QueueAwaitScreenshot(Context, TEXT("after_hunt"));
-    QueuePieEnd(Context);
+    QueueLostValleyEnd(Context);
     return true;
 }
 
@@ -462,7 +495,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLLostValleyMoveAndBiteTest, "PSL.PIE.LostVal
 bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
 {
     const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("LostValley_MoveAndBite"));
-    if (!QueuePieStart(*this, Context, LostValleyMap))
+    if (!QueueLostValleyStart(*this, Context))
     {
         return false;
     }
@@ -551,9 +584,10 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
         return false;
     });
     QueueAwaitScreenshot(Context, TEXT("after_bite"));
-    // death_side: stand 450 uu from the corpse on the far side from the player, control yaw corpse+20 deg and pitch -25 so the
+    // death_side: stand 350 uu from the corpse on the far side from the player, control yaw corpse+20 deg and pitch -30 so the
     // pawn is off to one side and the camera looks down past it. Asserts the corpse is within 30 deg of camera forward and
-    // not occluded (camera -> corpse bounds centre, ECC_Visibility); a trace that hits the player pawn gets one retry at yaw -20 deg.
+    // not occluded (camera -> corpse bounds centre, ECC_Visibility). Pawn occlusion is a line trace against the real bodies
+    // (mesh physics-asset bodies and the capsule, not an AABB); a hit gets one retry at yaw -20 deg.
     AddPieStep(Context, TEXT("DeathSide"), 8.0f, [Phase = 0, StartTime = -1.0, CorpseYaw = 0.0, YawOffset = 20.0, bRetried = false](FPSLPieCtx& Ctx) mutable
     {
         if (!Ctx.IsUsable() || !FApp::CanEverRender())
@@ -574,10 +608,10 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
             const FVector Away = (Corpse - Player).GetSafeNormal2D();
             // Yaw is set after the teleport, from the real standing point.
             FVector Ground;
-            if (!GroundAt(Ctx.World, Corpse.X + Away.X * 450.0, Corpse.Y + Away.Y * 450.0, Ground)
-                && !GroundAt(Ctx.World, Corpse.X - Away.X * 450.0, Corpse.Y - Away.Y * 450.0, Ground))
+            if (!GroundAt(Ctx.World, Corpse.X + Away.X * 350.0, Corpse.Y + Away.Y * 350.0, Ground)
+                && !GroundAt(Ctx.World, Corpse.X - Away.X * 350.0, Corpse.Y - Away.Y * 350.0, Ground))
             {
-                Ctx.MarkInvalid(TEXT("No ground 450 uu from the corpse for death_side"));
+                Ctx.MarkInvalid(TEXT("No ground 350 uu from the corpse for death_side"));
                 return true;
             }
             TeleportTo(Ctx, Ground);
@@ -587,7 +621,7 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
             StartTime = Now;
         }
         const double Yaw = FRotator::NormalizeAxis(CorpseYaw + YawOffset);
-        Ctx.PC->SetControlRotation(FRotator(-25.0, Yaw, 0.0));
+        Ctx.PC->SetControlRotation(FRotator(-30.0, Yaw, 0.0));
         Ctx.Character->SetActorRotation(FRotator(0.0, Yaw, 0.0));
         if (Now - StartTime < 1.0)
         {
@@ -601,14 +635,15 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
         }
         const FVector CameraLocation = Camera->GetCameraLocation();
         const FVector Center = Prey[0]->GetComponentsBoundingBox().GetCenter();
-        // The player pawn ignores ECC_Visibility under the default Pawn profile, so pawn occlusion is checked geometrically
-        // (camera -> corpse centre segment vs the pawn bounds); the trace covers world geometry and ignores the pawn.
+        // The player pawn ignores ECC_Visibility under the default Pawn profile, so the world trace ignores it and pawn
+        // occlusion is tested separately against the real bodies (component line traces do not use collision channels).
         FCollisionQueryParams Params(SCENE_QUERY_STAT(PSLDeathSide), false, Ctx.Character);
         FHitResult Hit;
         const bool bHit = Ctx.World->LineTraceSingleByChannel(Hit, CameraLocation, Center, ECC_Visibility, Params);
-        FVector BoxHitLocation, BoxHitNormal;
-        float BoxHitTime = 0.0f;
-        const bool bPawnInTheWay = FMath::LineExtentBoxIntersection(Ctx.Character->GetComponentsBoundingBox(), CameraLocation, Center, FVector::ZeroVector, BoxHitLocation, BoxHitNormal, BoxHitTime);
+        const FCollisionQueryParams PawnParams(SCENE_QUERY_STAT(PSLDeathSidePawn));
+        FHitResult PawnHit;
+        const bool bPawnInTheWay = Ctx.Character->GetMesh()->LineTraceComponent(PawnHit, CameraLocation, Center, PawnParams)
+            || Ctx.Character->GetCapsuleComponent()->LineTraceComponent(PawnHit, CameraLocation, Center, PawnParams);
         if (bPawnInTheWay && !bRetried)
         {
             bRetried = true;
@@ -682,7 +717,7 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
         }
         return false;
     });
-    QueuePieEnd(Context);
+    QueueLostValleyEnd(Context);
     return true;
 }
 
@@ -691,7 +726,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLLostValleyPerfTest, "PSL.PIE.LostValley.Per
 bool FPSLLostValleyPerfTest::RunTest(const FString& Parameters)
 {
     const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("LostValley_Perf"));
-    if (!QueuePieStart(*this, Context, LostValleyMap))
+    if (!QueueLostValleyStart(*this, Context))
     {
         return false;
     }
@@ -801,7 +836,7 @@ bool FPSLLostValleyPerfTest::RunTest(const FString& Parameters)
         Ctx.Test->AddInfo(Json);
         return true;
     });
-    QueuePieEnd(Context);
+    QueueLostValleyEnd(Context);
     return true;
 }
 
