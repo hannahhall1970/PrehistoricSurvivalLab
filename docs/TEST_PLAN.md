@@ -102,3 +102,16 @@ Manual PIE checklist (`/Game/Maps/L_TestArena`; record engine version and result
 - [ ] MANUAL-PENDING: Feet rest on the floor (mesh not sunk or floating).
 - [ ] MANUAL-PENDING: Tail and head do not clip through or poke far outside the capsule (r=60).
 - [ ] MANUAL-PENDING: Camera framing is correct for the dinosaur's size.
+
+## Task 003 hunt arena (status: script WRITTEN, NOT RUN; nothing below is verified)
+
+`scripts/setup_hunt_arena.py` adds `PSL_NavBounds` (NavMeshBoundsVolume, scale `(25,25,3)`), `PSL_Prey_01` (`PSLPreyCharacter` at `(1800,600,100)`) and cover cubes `PSL_Cover_01..04` (`(±1200,±1200,100)`, scale `(2,2,2)`) to `/Game/Maps/L_TestArena`. It is non-destructive and idempotent by label (full set: validate only; partial set: fails listing missing labels). It saves, reloads and re-validates. Run once by the trusted parent under `.harness/ue-build.lock`:
+
+```
+"$UE_ROOT/Engine/Binaries/Mac/UnrealEditor-Cmd" PrehistoricSurvivalLab.uproject \
+  -EnablePlugins=PythonScriptPlugin -ExecutePythonScript=<abs>/scripts/setup_hunt_arena.py \
+  -ScriptErrorsAreFatal -unattended -nullrhi -nosplash
+```
+
+- [ ] MANUAL-PENDING: log contains `PSL setup_hunt_arena: done` (first run) or `already present` (re-run), exit 0.
+- [ ] MANUAL-PENDING: `git lfs ls-files` still lists `Content/Maps/L_TestArena.umap` after the run.
