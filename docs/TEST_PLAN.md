@@ -141,3 +141,19 @@ MANUAL-PENDING PIE checks (`/Game/Maps/L_TestArena`; not claimed by automation):
 - [ ] MANUAL-PENDING: nav coverage around the cover cubes (prey does not get stuck or leave the floor).
 - [ ] MANUAL-PENDING: capsule clipping (dino mesh vs prey capsule at bite range).
 - [ ] MANUAL-PENDING: camera framing during bite and chase.
+
+## Task 004 Lost Valley (PSL.PIE.LostValley.*)
+
+Source: `Private/Tests/PSLLostValleyPieTests.cpp` (helpers in `PSLPieTestSupport.h`), map `/Game/Maps/L_LostValley`. Screenshots and real perf numbers come from the rendered parent run; the `-nullrhi` gate does not wait for or produce screenshots and its perf numbers are not representative.
+
+- `PSL.PIE.LostValley.Loads`: map name, 1 landscape / 16 components, >= 5 HISM components with instances, 3 prey with `APSLPreyAIController`, nav data, a PlayerStart, and the `PSL_Sun/SkyLight/Fog/PostProcess/SkyAtmosphere` lighting actors.
+- `PSL.PIE.LostValley.Spawn`: player within 600 uu (2D) of `PSL_PlayerStart` and moving on ground within 3 s; screenshot `after_spawn`.
+- `PSL.PIE.LostValley.Explore`: teleport 2500 uu along the first path segment facing the clearing, on ground after 1 s; screenshot `after_explore`.
+- `PSL.PIE.LostValley.Hunt`: player placed on ground 600 uu from prey 1 (distance 450..750); screenshot `after_hunt`.
+- `PSL.PIE.LostValley.MoveAndBite`: W moves > 300 uu in 2 s; three bites kill prey A within 6 s; prey B (held still and turned toward the player from a spot with a clear line of sight) flees at 500 uu within 4 s; screenshot `after_bite`.
+- `PSL.PIE.LostValley.Perf`: 2 s settle, 3 s sample; writes `Saved/Automation/PIE/lostvalley-perf.json` (RHI, viewport, frames, avgFps/avgMs, `GAverageFPS/MS`, scalability levels).
+
+Manual visual acceptance (MANUAL-PENDING; not claimed by automation):
+
+- [ ] MANUAL-PENDING: terrain, foliage, path and lighting read as a lost valley at the default camera.
+- [ ] MANUAL-PENDING: prey placement in the meadow and frame rate feel acceptable on the target machine.
