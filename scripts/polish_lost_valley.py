@@ -42,9 +42,11 @@ SPAWN_ROCKS = "PSL_Landmark_SpawnRocks"
 TREX_PALETTE = {"black": (0.24, 0.17, 0.11), "green": (0.30, 0.30, 0.12), "lightgreen": (0.42, 0.38, 0.18),
                 "lightyellow": (0.62, 0.55, 0.38), "red": (0.40, 0.18, 0.09)}
 TREX_DEFAULT = (0.33, 0.30, 0.14)
-PARA_PALETTE = {"green": (0.62, 0.48, 0.30), "lightgreen": (0.72, 0.60, 0.40), "lightyellow": (0.80, 0.70, 0.50),
-                "red": (0.55, 0.25, 0.12), "black": (0.30, 0.20, 0.12)}
-PARA_DEFAULT = (0.62, 0.48, 0.30)
+# R-B >= 0.25 on every entry (selftest) so prey read rust/ochre, not blue-grey, in the valley.
+# black is R=0.38 (spec said 0.36 -> R-B 0.24, fails the spec's own >= 0.25 assert).
+PARA_PALETTE = {"green": (0.70, 0.38, 0.14), "lightgreen": (0.78, 0.50, 0.22), "lightyellow": (0.86, 0.68, 0.40),
+                "red": (0.62, 0.20, 0.08), "black": (0.38, 0.22, 0.12)}
+PARA_DEFAULT = PARA_PALETTE["green"]
 
 
 def luminance(c):
@@ -180,6 +182,8 @@ def selftest():
     for pal in (TREX_PALETTE, {"x": TREX_DEFAULT}):
         assert all(luminance(c) >= 0.15 for c in pal.values()), "T-Rex albedo too dark"
     assert palette_color(TREX_PALETTE, TREX_DEFAULT, "Light Green") == TREX_PALETTE["lightgreen"]
+    for c in list(PARA_PALETTE.values()) + [PARA_DEFAULT]:
+        assert c[0] - c[2] >= 0.25, "prey colour not rust/ochre enough: %r" % (c,)
     print(LOG + "selftest ok (%d mask px, %d cluster pts, rocks at %.0f,%.0f)" % (sum(1 for v in px if v), len(pts), rx, ry))
 
 
@@ -226,7 +230,12 @@ def fresh_material(name, dest):
     path = dest + "/" + name
     if B.exists(path):
         mat = unreal.load_asset(path)
-        mel().delete_all_material_expressions(mat)
+        # Wipe from a snapshot and check the count: delete_all_material_expressions iterates the live expression array
+        # (UE 5.8 MaterialEditingLibrary.cpp:559-568) and left an orphan PathRocks_Diffuse sample in C11 [INFERENCE: skipped entries].
+        for e in list(mel().get_material_expressions(mat)):
+            mel().delete_material_expression(mat, e)
+        if mel().get_num_material_expressions(mat):
+            B.fail("could not wipe %s: %d expressions left" % (path, mel().get_num_material_expressions(mat)))
         return mat
     mat = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, dest, unreal.Material, unreal.MaterialFactoryNew())
     if mat is None:
@@ -242,11 +251,11 @@ def build_character_material():
     dead = scalar_param(mat, "Dead", 0.0, -900, 200)
     flash = scalar_param(mat, "HitFlash", 0.0, -900, 500)
     rim = scalar_param(mat, "Rim", 0.12, -900, 350)
-    one = const(mat, 1.0, -900, 90)
+    frac = const(mat, 0.7, -900, 90)
     desat = node(mat, unreal.MaterialExpressionDesaturation, -800, 100)
     link(color, "", desat, "")
-    link(one, "", desat, "Fraction")
-    dark = mul(mat, desat, const(mat, 0.3, -900, 120), -650, 60)
+    link(frac, "", desat, "Fraction")
+    dark = mul(mat, desat, const(mat, 0.7, -900, 120), -650, 60)  # Dead: readable grey-brown, lighter than its shadow
     base = node(mat, unreal.MaterialExpressionLinearInterpolate, -450, 60)
     link(color, "", base, "A")
     link(dark, "", base, "B")
@@ -466,6 +475,8 @@ def polish_lighting(found):
     s = pp.get_editor_property("settings")
     s.set_editor_property("override_auto_exposure_bias", True)
     s.set_editor_property("auto_exposure_bias", 0.0)
+    s.set_editor_property("override_motion_blur_amount", True)
+    s.set_editor_property("motion_blur_amount", 0.0)
     pp.set_editor_property("settings", s)
 
 
@@ -512,6 +523,24 @@ def replace_vegetation(found, grid, poly, stems):
     return counts
 
 
+def terrain_texture_names(mat):
+    """{texture asset name: source} for every texture the live M_PSL_Terrain graph references: expression walk plus
+    MaterialEditingLibrary.get_material_used_textures (get_used_textures alone is deprecated and was not trusted).
+    The asset registry is not consulted (in C11 a PathRocks_Diffuse hit appeared that may have come from its stored
+    dependencies, unconfirmed); the failure message names the source of any bad hit so it can be diagnosed."""
+    found = {}
+    base = lambda p: str(p).split(".")[0].split("/")[-1]
+    lib = mel()
+    for e in lib.get_material_expressions(mat):
+        t = e.get_editor_property("texture") if isinstance(e, unreal.MaterialExpressionTextureBase) else None
+        if t:
+            found.setdefault(base(t.get_path_name()), "expression:" + e.get_name())
+    for t in lib.get_material_used_textures(mat):
+        if t:
+            found.setdefault(base(t.get_path_name()), "used_textures")
+    return found
+
+
 def verify(counts):
     c, problems = B.check()
     counts.update(c)
@@ -537,10 +566,15 @@ def verify(counts):
             par = mi.get_editor_property("parent")
             if par is None or par.get_name() != "M_PSL_Character":
                 problems.append("%s parent is not M_PSL_Character" % mi.get_name())
-    used = [t.get_name() for t in mel().get_used_textures(unreal.load_asset(B.MAT_DEST + "/M_PSL_Terrain"))]
+    tex = terrain_texture_names(unreal.load_asset(B.MAT_DEST + "/M_PSL_Terrain"))
+    if not tex:
+        problems.append("M_PSL_Terrain references zero textures")
+    for need_tex in ("Rocks_Diffuse", MASK_NAME):
+        if need_tex not in tex:
+            problems.append("M_PSL_Terrain does not sample " + need_tex)
     for bad in ("Grass", "PathRocks_Diffuse"):
-        if bad in used:
-            problems.append("M_PSL_Terrain still samples " + bad)
+        if bad in tex:
+            problems.append("M_PSL_Terrain still samples %s (via %s; all: %s)" % (bad, tex[bad], sorted(tex)))
     if problems:
         B.fail("; ".join(problems))
 
