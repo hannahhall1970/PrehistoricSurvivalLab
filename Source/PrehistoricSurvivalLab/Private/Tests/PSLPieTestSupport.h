@@ -38,6 +38,9 @@
 #include "EngineUtils.h"
 #include "NavigationSystem.h"
 #include "UnrealClient.h"
+#include "GameFramework/SpringArmComponent.h"
+#include "HAL/IConsoleManager.h"
+#include "Widgets/SWindow.h"
 
 // Shared PIE test helpers (moved verbatim from PSLPieTests.cpp; static -> inline).
 namespace PSLPie
@@ -284,11 +287,81 @@ inline void Record(FPSLPieCtx& Context, const TCHAR* Step)
     }
 }
 
+// Default PIE viewport; screenshots at any other size carry a `_WxH` suffix so they never overwrite the default shots.
+inline FString ViewportSizeSuffix(const FPSLPieCtx& Context)
+{
+    const FIntPoint Size = Context.GameViewport && Context.GameViewport->Viewport ? Context.GameViewport->Viewport->GetSizeXY() : FIntPoint::ZeroValue;
+    if (Size.X <= 0 || Size.Y <= 0 || (Size.X == 1280 && Size.Y == 730))
+    {
+        return FString();
+    }
+    return FString::Printf(TEXT("_%dx%d"), Size.X, Size.Y);
+}
+
+// Frame-time distribution of one perf phase (milliseconds per frame).
+struct FPSLFrameStats
+{
+    int32 Frames = 0;
+    double AvgFps = 0.0;
+    double AvgMs = 0.0;
+    double P50Ms = 0.0;
+    double P95Ms = 0.0;
+    double P99Ms = 0.0;
+    double MaxMs = 0.0;
+    int32 Over33 = 0;
+    int32 Over50 = 0;
+};
+
+// Nearest-rank percentile: index = ceil(Percent * N / 100) - 1 clamped to [0, N-1]; integer math avoids 0.95 * 100 rounding.
+inline double PercentileMs(const TArray<double>& Sorted, int32 Percent)
+{
+    if (Sorted.IsEmpty())
+    {
+        return 0.0;
+    }
+    const int32 Count = Sorted.Num();
+    return Sorted[FMath::Clamp((Percent * Count + 99) / 100 - 1, 0, Count - 1)];
+}
+
+inline FPSLFrameStats ComputeFrameStats(const TArray<double>& FrameMs)
+{
+    FPSLFrameStats Stats;
+    Stats.Frames = FrameMs.Num();
+    if (FrameMs.IsEmpty())
+    {
+        return Stats;
+    }
+    TArray<double> Sorted = FrameMs;
+    Sorted.Sort();
+    double Sum = 0.0;
+    for (const double Ms : Sorted)
+    {
+        Sum += Ms;
+        Stats.Over33 += Ms > 33.0 ? 1 : 0;
+        Stats.Over50 += Ms > 50.0 ? 1 : 0;
+    }
+    Stats.AvgMs = Sum / Sorted.Num();
+    Stats.AvgFps = Stats.AvgMs > 0.0 ? 1000.0 / Stats.AvgMs : 0.0;
+    Stats.P50Ms = PercentileMs(Sorted, 50);
+    Stats.P95Ms = PercentileMs(Sorted, 95);
+    Stats.P99Ms = PercentileMs(Sorted, 99);
+    Stats.MaxMs = Sorted.Last();
+    return Stats;
+}
+
+// JSON members (no braces) so callers can embed them in an object or at top level.
+inline FString FrameStatsJsonFields(const FPSLFrameStats& Stats)
+{
+    return FString::Printf(
+        TEXT("\"frames\":%d,\"avgFps\":%.3f,\"avgMs\":%.3f,\"p50Ms\":%.3f,\"p95Ms\":%.3f,\"p99Ms\":%.3f,\"maxMs\":%.3f,\"over33ms\":%d,\"over50ms\":%d"),
+        Stats.Frames, Stats.AvgFps, Stats.AvgMs, Stats.P50Ms, Stats.P95Ms, Stats.P99Ms, Stats.MaxMs, Stats.Over33, Stats.Over50);
+}
+
 inline void RequestScreenshot(FPSLPieCtx& Context, const TCHAR* Step)
 {
     const FString Directory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Automation"), TEXT("PIE"));
     IFileManager::Get().MakeDirectory(*Directory, true);
-    const FString Filename = FPaths::Combine(Directory, Context.TestName + TEXT("_") + Step + TEXT(".png"));
+    const FString Filename = FPaths::Combine(Directory, Context.TestName + TEXT("_") + Step + ViewportSizeSuffix(Context) + TEXT(".png"));
     if (!FApp::CanEverRender())
     {
         if (Context.Test)

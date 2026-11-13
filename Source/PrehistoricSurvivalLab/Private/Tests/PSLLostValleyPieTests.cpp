@@ -225,6 +225,49 @@ bool FPSLLostValleySpawnTest::RunTest(const FString& Parameters)
         return true;
     });
     QueueAwaitScreenshot(Context, TEXT("after_spawn"));
+    // 1920x1080 path: resize the PIE window, settle 1 s, shoot hud_1080 (name carries _1920x1080), restore the size.
+    const TSharedRef<FIntPoint> OriginalSize = MakeShared<FIntPoint>(FIntPoint::ZeroValue);
+    AddPieStep(Context, TEXT("Resize1080"), 5.0f, [OriginalSize, StartTime = -1.0](FPSLPieCtx& Ctx) mutable
+    {
+        if (!Ctx.IsUsable() || !FApp::CanEverRender())
+        {
+            return true;
+        }
+        const TSharedPtr<SWindow> Window = Ctx.GameViewport->GetWindow();
+        if (!Window.IsValid() || !Ctx.GameViewport->Viewport)
+        {
+            Ctx.Test->AddInfo(TEXT("hud_1080 skipped: PIE viewport has no window"));
+            return true;
+        }
+        const double Now = Ctx.World->GetTimeSeconds();
+        if (StartTime < 0.0)
+        {
+            StartTime = Now;
+            *OriginalSize = Ctx.GameViewport->Viewport->GetSizeXY();
+            Window->Resize(FVector2D(1920.0, 1080.0));
+            return false;
+        }
+        if (Now - StartTime < 1.0)
+        {
+            return false;
+        }
+        const FIntPoint Size = Ctx.GameViewport->Viewport->GetSizeXY();
+        Ctx.Test->TestTrue(FString::Printf(TEXT("Viewport is 1920x1080 after resize (was %dx%d)"), Size.X, Size.Y), Size.X == 1920 && Size.Y == 1080);
+        RequestScreenshot(Ctx, TEXT("hud_1080"));
+        return true;
+    });
+    QueueAwaitScreenshot(Context, TEXT("hud_1080"));
+    AddPieStep(Context, TEXT("Restore1080"), 2.0f, [OriginalSize](FPSLPieCtx& Ctx)
+    {
+        if (Ctx.IsUsable() && FApp::CanEverRender() && OriginalSize->X > 0)
+        {
+            if (const TSharedPtr<SWindow> Window = Ctx.GameViewport->GetWindow())
+            {
+                Window->Resize(FVector2D(OriginalSize->X, OriginalSize->Y));
+            }
+        }
+        return true;
+    });
     QueuePieEnd(Context);
     return true;
 }
@@ -275,6 +318,68 @@ bool FPSLLostValleyExploreTest::RunTest(const FString& Parameters)
         return true;
     });
     QueueAwaitScreenshot(Context, TEXT("after_explore"));
+    // Camera sweep at the explore spot: arm 450/650/800, 1 s settle each, then restore the default arm length.
+    const TSharedRef<float> DefaultArm = MakeShared<float>(-1.0f);
+    AddPieStep(Context, TEXT("CameraSweep"), 15.0f, [DefaultArm, Index = 0, StartTime = -1.0, bShot = false](FPSLPieCtx& Ctx) mutable
+    {
+        static constexpr float Arms[3] = {450.0f, 650.0f, 800.0f};
+        static const TCHAR* const Names[3] = {TEXT("cam_450"), TEXT("cam_650"), TEXT("cam_800")};
+        if (!Ctx.IsUsable() || !FApp::CanEverRender())
+        {
+            return true;
+        }
+        USpringArmComponent* Arm = Ctx.Character->FindComponentByClass<USpringArmComponent>();
+        if (!Arm)
+        {
+            Ctx.MarkInvalid(TEXT("Player has no USpringArmComponent"));
+            return true;
+        }
+        const double Now = Ctx.World->GetTimeSeconds();
+        if (*DefaultArm < 0.0f)
+        {
+            *DefaultArm = Arm->TargetArmLength;
+        }
+        if (StartTime < 0.0)
+        {
+            StartTime = Now;
+            Arm->TargetArmLength = Arms[Index];
+            return false;
+        }
+        if (!bShot)
+        {
+            if (Now - StartTime < 1.0)
+            {
+                return false;
+            }
+            RequestScreenshot(Ctx, Names[Index]);
+            bShot = true;
+            return false;
+        }
+        if (FScreenshotRequest::IsScreenshotRequested())
+        {
+            return false;
+        }
+        if (++Index < 3)
+        {
+            StartTime = -1.0;
+            bShot = false;
+            return false;
+        }
+        Arm->TargetArmLength = *DefaultArm;
+        return true;
+    });
+    // Also restore on timeout/invalidation paths so later steps see the default camera.
+    AddPieStep(Context, TEXT("CameraRestore"), 1.0f, [DefaultArm](FPSLPieCtx& Ctx)
+    {
+        if (Ctx.HasObjects() && *DefaultArm >= 0.0f)
+        {
+            if (USpringArmComponent* Arm = Ctx.Character->FindComponentByClass<USpringArmComponent>())
+            {
+                Arm->TargetArmLength = *DefaultArm;
+            }
+        }
+        return true;
+    });
     QueuePieEnd(Context);
     return true;
 }
@@ -435,6 +540,50 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
         return false;
     });
     QueueAwaitScreenshot(Context, TEXT("after_bite"));
+    // death_side: stand 350 uu to the side of the player->corpse line so the T-Rex does not occlude the corpse, face it, settle 1 s.
+    AddPieStep(Context, TEXT("DeathSide"), 6.0f, [Phase = 0, StartTime = -1.0](FPSLPieCtx& Ctx) mutable
+    {
+        if (!Ctx.IsUsable() || !FApp::CanEverRender())
+        {
+            return true;
+        }
+        const TArray<APSLPreyCharacter*> Prey = GetPrey(Ctx.World);
+        if (Prey.Num() == 0 || !Prey[0])
+        {
+            Ctx.MarkInvalid(TEXT("Prey A missing for death_side"));
+            return true;
+        }
+        const FVector Corpse = Prey[0]->GetActorLocation();
+        const double Now = Ctx.World->GetTimeSeconds();
+        if (Phase == 0)
+        {
+            const FVector ToCorpse = (Corpse - Ctx.Character->GetActorLocation()).GetSafeNormal2D();
+            const FVector Side(-ToCorpse.Y, ToCorpse.X, 0.0);
+            const FVector Origin = Ctx.Character->GetActorLocation();
+            FVector Ground;
+            if (!GroundAt(Ctx.World, Origin.X + Side.X * 350.0, Origin.Y + Side.Y * 350.0, Ground)
+                && !GroundAt(Ctx.World, Origin.X - Side.X * 350.0, Origin.Y - Side.Y * 350.0, Ground))
+            {
+                Ctx.MarkInvalid(TEXT("No ground 350 uu beside the player for death_side"));
+                return true;
+            }
+            TeleportTo(Ctx, Ground);
+            Phase = 1;
+            StartTime = Now;
+        }
+        FaceYawToward(Ctx, Corpse);
+        if (Now - StartTime < 1.0)
+        {
+            return false;
+        }
+        const double TargetYaw = (Corpse - Ctx.Character->GetActorLocation()).GetSafeNormal2D().Rotation().Yaw;
+        const double YawDiff = FMath::Abs(FRotator::NormalizeAxis(Ctx.PC->GetControlRotation().Yaw - TargetYaw));
+        Ctx.Test->TestTrue(FString::Printf(TEXT("Corpse within 25 deg of camera forward (was %.1f)"), YawDiff), YawDiff <= 25.0);
+        Record(Ctx, TEXT("death_side"));
+        RequestScreenshot(Ctx, TEXT("death_side"));
+        return true;
+    });
+    QueueAwaitScreenshot(Context, TEXT("death_side"));
     // (c) prey B flees when the player stands 500 uu away.
     AddPieStep(Context, TEXT("PreyBFlee"), 8.0f, [Phase = 0, StartTime = -1.0](FPSLPieCtx& Ctx) mutable
     {
@@ -492,46 +641,91 @@ bool FPSLLostValleyPerfTest::RunTest(const FString& Parameters)
     {
         return false;
     }
-    AddPieStep(Context, TEXT("PerfSample"), 15.0f, [Phase = 0, PhaseStart = 0.0, Frames = 0](FPSLPieCtx& Ctx) mutable
+    // Phases: 0 spawn (PlayerStart, no move), 1 explore (-6142,-4328), 2 hunt (600 uu from prey[0], sight line).
+    // Each: 1 s settle, then 3 s of per-frame FApp::GetDeltaTime() samples.
+    AddPieStep(Context, TEXT("PerfSample"), 30.0f, [Phase = 0, Stage = 0, StageStart = 0.0, Samples = TArray<TArray<double>>()](FPSLPieCtx& Ctx) mutable
     {
         if (!Ctx.IsUsable())
         {
             return true;
         }
+        if (Samples.IsEmpty())
+        {
+            Samples.SetNum(3);
+        }
         const double Now = FPlatformTime::Seconds();
-        if (Phase == 0)
+        if (Stage == 0)
         {
-            Phase = 1;
-            PhaseStart = Now;
-            return false;
-        }
-        if (Phase == 1)
-        {
-            if (Now - PhaseStart < 2.0)
+            if (Phase == 1)
             {
-                return false;
+                FVector Ground;
+                if (!GroundAt(Ctx.World, -6142.0, -4328.0, Ground))
+                {
+                    Ctx.MarkInvalid(TEXT("No ground at (-6142,-4328)"));
+                    return true;
+                }
+                TeleportTo(Ctx, Ground);
+                FaceYawToward(Ctx, FVector(0.0, 0.0, Ground.Z));
             }
-            Phase = 2;
-            PhaseStart = Now;
-            Frames = 0;
+            else if (Phase == 2)
+            {
+                const TArray<APSLPreyCharacter*> Prey = GetPrey(Ctx.World);
+                if (Prey.Num() == 0 || !Prey[0] || !PlaceNear(Ctx, Prey[0]->GetActorLocation(), 600.0, Prey[0]))
+                {
+                    Ctx.MarkInvalid(TEXT("No hunt placement 600 uu from prey[0]"));
+                    return true;
+                }
+            }
+            Stage = 1;
+            StageStart = Now;
             return false;
         }
-        ++Frames;
-        const double Seconds = Now - PhaseStart;
-        if (Seconds < 3.0)
+        if (Phase == 2)
         {
+            const TArray<APSLPreyCharacter*> Prey = GetPrey(Ctx.World);
+            if (Prey.Num() > 0 && Prey[0])
+            {
+                HoldPreyStill(Ctx, *Prey[0]);
+            }
+        }
+        if (Stage == 1)
+        {
+            if (Now - StageStart >= 1.0)
+            {
+                Stage = 2;
+                StageStart = Now;
+            }
+            return false;
+        }
+        Samples[Phase].Add(static_cast<double>(FApp::GetDeltaTime()) * 1000.0);
+        if (Now - StageStart < 3.0)
+        {
+            return false;
+        }
+        if (++Phase < 3)
+        {
+            Stage = 0;
             return false;
         }
 
-        const double AvgFps = Seconds > 0.0 ? Frames / Seconds : 0.0;
-        const double AvgMs = Frames > 0 ? Seconds * 1000.0 / Frames : 0.0;
+        static const TCHAR* const PhaseNames[3] = {TEXT("spawn"), TEXT("explore"), TEXT("hunt")};
+        TArray<double> All;
+        FString PhasesJson;
+        for (int32 Index = 0; Index < 3; ++Index)
+        {
+            All.Append(Samples[Index]);
+            PhasesJson += FString::Printf(TEXT("%s\"%s\":{%s}"), Index > 0 ? TEXT(",") : TEXT(""), PhaseNames[Index], *FrameStatsJsonFields(ComputeFrameStats(Samples[Index])));
+        }
+        const FPSLFrameStats Overall = ComputeFrameStats(All);
         const FIntPoint Size = Ctx.GameViewport->Viewport ? Ctx.GameViewport->Viewport->GetSizeXY() : FIntPoint::ZeroValue;
+        const IConsoleVariable* VSync = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VSync"));
         const Scalability::FQualityLevels Q = Scalability::GetQualityLevels();
         const FString Json = FString::Printf(
-            TEXT("{\"map\":\"%s\",\"rhi\":\"%s\",\"canRender\":%s,\"viewport\":[%d,%d],\"frames\":%d,\"seconds\":%.4f,\"avgFps\":%.3f,\"avgMs\":%.3f,\"GAverageFPS\":%.3f,\"GAverageMS\":%.3f,")
+            TEXT("{\"map\":\"%s\",\"rhi\":\"%s\",\"canRender\":%s,\"viewport\":[%d,%d],\"vsync\":%d,%s,\"GAverageFPS\":%.3f,\"GAverageMS\":%.3f,\"phases\":{%s},")
             TEXT("\"quality\":{\"ResolutionQuality\":%.1f,\"ViewDistanceQuality\":%d,\"AntiAliasingQuality\":%d,\"ShadowQuality\":%d,\"GlobalIlluminationQuality\":%d,\"ReflectionQuality\":%d,\"PostProcessQuality\":%d,\"TextureQuality\":%d,\"EffectsQuality\":%d,\"FoliageQuality\":%d,\"ShadingQuality\":%d,\"LandscapeQuality\":%d}}"),
             *JsonEscape(Ctx.World->GetMapName()), *JsonEscape(FApp::GetGraphicsRHI()), JsonBool(FApp::CanEverRender()),
-            Size.X, Size.Y, Frames, Seconds, AvgFps, AvgMs, static_cast<double>(GAverageFPS), static_cast<double>(GAverageMS),
+            Size.X, Size.Y, VSync ? VSync->GetInt() : -1, *FrameStatsJsonFields(Overall),
+            static_cast<double>(GAverageFPS), static_cast<double>(GAverageMS), *PhasesJson,
             static_cast<double>(Q.ResolutionQuality), Q.ViewDistanceQuality, Q.AntiAliasingQuality, Q.ShadowQuality, Q.GlobalIlluminationQuality,
             Q.ReflectionQuality, Q.PostProcessQuality, Q.TextureQuality, Q.EffectsQuality, Q.FoliageQuality, Q.ShadingQuality, Q.LandscapeQuality);
 
@@ -540,14 +734,15 @@ bool FPSLLostValleyPerfTest::RunTest(const FString& Parameters)
         const FString Filename = FPaths::Combine(Directory, TEXT("lostvalley-perf.json"));
         const bool bSaved = FFileHelper::SaveStringToFile(Json, *Filename, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
         Ctx.Test->TestTrue(FString::Printf(TEXT("Perf file saved: %s"), *Filename), bSaved);
-        Ctx.Test->TestTrue(TEXT("Perf frames > 0"), Frames > 0);
-        Ctx.Test->TestTrue(TEXT("Perf avgFps finite and > 0"), FMath::IsFinite(AvgFps) && AvgFps > 0.0);
-        Ctx.Test->TestTrue(TEXT("Perf avgMs finite"), FMath::IsFinite(AvgMs));
+        Ctx.Test->TestTrue(TEXT("Perf frames > 0"), Overall.Frames > 0);
+        Ctx.Test->TestTrue(TEXT("Perf avgFps finite and > 0"), FMath::IsFinite(Overall.AvgFps) && Overall.AvgFps > 0.0);
+        Ctx.Test->TestTrue(TEXT("Perf avgMs finite"), FMath::IsFinite(Overall.AvgMs));
         Ctx.Test->TestTrue(TEXT("Perf GAverageFPS finite"), FMath::IsFinite(GAverageFPS));
         Ctx.Test->TestTrue(TEXT("Perf GAverageMS finite"), FMath::IsFinite(GAverageMS));
         if (FApp::CanEverRender())
         {
-            Ctx.Test->TestTrue(FString::Printf(TEXT("Rendered avgFps >= 20 (was %.1f)"), AvgFps), AvgFps >= 20.0);
+            Ctx.Test->TestTrue(FString::Printf(TEXT("Rendered avgFps >= 20 (was %.1f)"), Overall.AvgFps), Overall.AvgFps >= 20.0);
+            Ctx.Test->TestTrue(FString::Printf(TEXT("Rendered p95Ms <= 50 (was %.1f)"), Overall.P95Ms), Overall.P95Ms <= 50.0);
         }
         Ctx.Test->AddInfo(Json);
         return true;

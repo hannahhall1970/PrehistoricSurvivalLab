@@ -13,7 +13,7 @@
 | `APSLCharacter` | Owns stats, survival, spring arm, and camera; consumes Enhanced Input; maps sprint state to movement speed; routes `TakeDamage`; disables movement/input on death. |
 | `APSLGameMode` | Uses `APSLHUD` and falls back to `APSLCharacter`; Blueprint configuration supplies `BP_PSLCharacter` as the default pawn. |
 | `APSLHUD` | Creates `UPSLHudWidget` in `BeginPlay` and adds it to the viewport; keeps the pure `BarFraction` helper. |
-| `UPSLHudWidget` | UMG HUD built entirely in C++ (no UMG asset): `Initialize()` constructs the widget tree (health/stamina bars, sprint state, DEAD text) when the root is null, so it works without a PlayerContext; `NativeTick` reads the owning `APSLCharacter`. |
+| `UPSLHudWidget` | UMG HUD built entirely in C++ (no UMG asset): `Initialize()` constructs the widget tree (icon + label + `value / max` rows for health/stamina, sprint state, DEAD text, a `PREY DOWN` kill banner and a `HIT` marker) when the root is null, so it works without a PlayerContext; `NativeTick` reads the owning `APSLCharacter` and rebinds `OnBiteHit`; the banner listens to `APSLPreyCharacter::OnAnyPreyKilled`. |
 | `UPSLLevelBuildLibrary` | Editor-only (`WITH_EDITOR`) helpers for level-building scripts: `CreateLandscape` and `AddMeshInstances` (HISM). Not available in packaged builds. |
 
 ## Data flow
@@ -28,3 +28,7 @@
 - Add a combat component whose damage output enters through `TakeDamage`.
 - Add dinosaur AI with Behavior Trees or StateTree after the player loop is stable.
 - For replication, make authoritative health/stamina changes server-owned, replicate state or attributes, and multicast only presentation events; first establish a networking contract before adding infrastructure.
+
+## Level build order
+
+Run the build script first, then the polish script. `scripts/polish_lost_valley.py` does `sys.path.insert(0, HERE)` before `import build_lost_valley`.

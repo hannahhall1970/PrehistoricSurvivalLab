@@ -11,3 +11,5 @@
 | External sample repositories (for patterns only) | Not copied | Verify each repository's license before reuse; do not copy code or assets by assumption. |
 
 Use Git LFS for `.uasset`, `.umap`, `.fbx`, `.png`, `.wav`, and `.exr`. Keep a source/license note when adding external content. Never fabricate or commit generated binary assets as if they were authored or tested.
+
+No new third-party assets were added by the polish pass. `T_PSL_PathMask` is generated (by the build/polish scripts), not imported.

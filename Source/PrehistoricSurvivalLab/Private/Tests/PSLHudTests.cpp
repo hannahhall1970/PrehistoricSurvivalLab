@@ -53,6 +53,12 @@ bool FPSLHudWidgetTest::RunTest(const FString& Parameters)
     Widget->SetValues(25.0f, 100.0f, 50.0f, 100.0f, false, false, false);
     TestEqual(TEXT("Health percent tracks value"), Health->GetPercent(), 0.25f, 1.0e-4f);
     TestEqual(TEXT("Stamina percent tracks value"), Stamina->GetPercent(), 0.5f, 1.0e-4f);
+
+    Widget->SetValues(87.0f, 100.0f, 40.4f, 100.0f, false, false, false);
+    TestEqual(TEXT("Health value text"), Widget->GetHealthValueText()->GetText().ToString(), FString(TEXT("87 / 100")));
+    TestEqual(TEXT("Stamina value text rounds"), Widget->GetStaminaValueText()->GetText().ToString(), FString(TEXT("40 / 100")));
+    TestEqual(TEXT("Kill banner hidden by default"), Widget->GetKillBannerText()->GetVisibility(), ESlateVisibility::Collapsed);
+    TestEqual(TEXT("Hit marker hidden by default"), Widget->GetHitMarkerText()->GetVisibility(), ESlateVisibility::Collapsed);
     TestEqual(TEXT("DEAD hidden while alive"), Widget->GetDeadText()->GetVisibility(), ESlateVisibility::Collapsed);
 
     Widget->SetValues(150.0f, 100.0f, -5.0f, 100.0f, true, true, true);

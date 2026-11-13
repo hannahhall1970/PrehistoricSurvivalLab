@@ -8,7 +8,8 @@ class UProgressBar;
 class UTextBlock;
 
 /**
- * Code-built HUD: bottom-left Health/Stamina bars, sprint state, centered DEAD text.
+ * Code-built HUD: bottom-left rows `[icon] LABEL ... value / max` for Health/Stamina, sprint state, centered DEAD text,
+ * top-centre PREY DOWN kill banner and a HIT marker by the crosshair.
  * No UMG asset; the WidgetTree is built in Initialize(). Reads the owning player's APSLCharacter every tick.
  */
 UCLASS()
@@ -24,15 +25,33 @@ public:
     UProgressBar* GetStaminaBar() const { return StaminaBar; }
     UTextBlock* GetStateText() const { return StateText; }
     UTextBlock* GetDeadText() const { return DeadText; }
+    UTextBlock* GetHealthValueText() const { return HealthValueText; }
+    UTextBlock* GetStaminaValueText() const { return StaminaValueText; }
+    UTextBlock* GetKillBannerText() const { return KillBannerText; }
+    UTextBlock* GetHitMarkerText() const { return HitMarkerText; }
 
     // Builds the widget tree when none exists; NativeOnInitialized would need a PlayerContext.
     virtual bool Initialize() override;
 
 protected:
     virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+    virtual void NativeDestruct() override;
 
+
+    // Banner/marker display times (seconds).
+    static constexpr float KillBannerSeconds = 2.5f;
+    static constexpr float HitMarkerSeconds = 0.4f;
 private:
     void BuildTree();
+    void HandlePreyKilled(class APSLPreyCharacter* Prey, AActor* Killer);
+
+    UFUNCTION()
+    void HandleBiteHit();
+
+    FDelegateHandle PreyKilledHandle;
+    TWeakObjectPtr<class APSLCharacter> BoundCharacter;
+    float KillBannerRemaining = 0.0f;
+    float HitMarkerRemaining = 0.0f;
 
     UPROPERTY(Transient)
     TObjectPtr<UProgressBar> HealthBar;
@@ -45,4 +64,16 @@ private:
 
     UPROPERTY(Transient)
     TObjectPtr<UTextBlock> DeadText;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UTextBlock> HealthValueText;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UTextBlock> StaminaValueText;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UTextBlock> KillBannerText;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UTextBlock> HitMarkerText;
 };

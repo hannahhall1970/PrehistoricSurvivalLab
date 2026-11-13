@@ -43,8 +43,8 @@ APSLCharacter::APSLCharacter()
 
     USpringArmComponent* SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
     SpringArm->SetupAttachment(RootComponent);
-    SpringArm->TargetArmLength = 450.0f;
-    SpringArm->SocketOffset = FVector(0.0f, 60.0f, 90.0f);
+    SpringArm->TargetArmLength = 650.0f;
+    SpringArm->SocketOffset = FVector(0.0f, 70.0f, 110.0f);
     SpringArm->TargetOffset = FVector(0.0f, 0.0f, 40.0f);
     SpringArm->bUsePawnControlRotation = true;
     SpringArm->bDoCollisionTest = true;
@@ -336,4 +336,8 @@ void APSLCharacter::ResolveBiteHit()
         UGameplayStatics::ApplyDamage(Victim, BiteDamage, GetController(), this, UDamageType::StaticClass());
     }
     LastBiteHitCount = Victims.Num();
+    if (Victims.Num() > 0)
+    {
+        OnBiteHit.Broadcast();
+    }
 }

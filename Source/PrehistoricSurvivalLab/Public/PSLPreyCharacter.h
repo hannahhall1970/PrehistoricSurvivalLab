@@ -9,6 +9,12 @@ class UPSLStatsComponent;
 class UStaticMeshComponent;
 class USkeletalMesh;
 class UAnimSequence;
+class UTextRenderComponent;
+class UMaterialInstanceDynamic;
+class APSLPreyCharacter;
+
+// Fired once when any prey dies; Killer is the actor that dealt the killing damage (may be null).
+DECLARE_MULTICAST_DELEGATE_TwoParams(FPSLPreyKilledSignature, APSLPreyCharacter*, AActor*);
 
 /** Small prey animal: wanders, flees from the player dino, dies through UPSLStatsComponent. */
 UCLASS()
@@ -38,11 +44,14 @@ public:
     UFUNCTION(BlueprintPure, Category="Prey")
     bool IsStaggered() const { return bStaggered; }
 
+    static FPSLPreyKilledSignature& OnAnyPreyKilled();
+
     virtual float TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
 
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void Tick(float DeltaSeconds) override;
 
 public:
     // Soft references only: a missing import keeps the cube placeholder (L_TestArena tests rely on that).
@@ -87,4 +96,16 @@ private:
     FTimerHandle StaggerTimer;
     bool bStaggered;
     bool bDeathHandled;
+
+    // Visual only: "!" above the head while fleeing, HitFlash/Dead scalars on the per-slot dynamic materials.
+    void SetMaterialScalar(FName Param, float Value);
+
+    UPROPERTY(VisibleAnywhere, Category="Visual")
+    TObjectPtr<UTextRenderComponent> AlertText;
+
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UMaterialInstanceDynamic>> PreyMaterials;
+
+    TWeakObjectPtr<AActor> LastDamager;
+    float HitFlash;
 };

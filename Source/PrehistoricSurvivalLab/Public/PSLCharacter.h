@@ -16,6 +16,9 @@ class UAnimInstance;
 class UAnimSequence;
 class USkeletalMesh;
 
+// Fired when a resolved bite damaged at least one pawn. Visual feedback only (HUD hit marker).
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FPSLBiteHitSignature);
+
 UCLASS()
 class PREHISTORICSURVIVALLAB_API APSLCharacter : public ACharacter
 {
@@ -73,6 +76,9 @@ public:
     // Accepted bites so far.
     UPROPERTY(BlueprintReadOnly, Category="Combat")
     int32 BiteCount;
+
+    UPROPERTY(BlueprintAssignable, Category="Combat")
+    FPSLBiteHitSignature OnBiteHit;
 
     // Pawns overlapped by the last resolved bite; -1 while a bite is pending (stays -1 if the player dies before it resolves).
     UPROPERTY(BlueprintReadOnly, Category="Combat")
