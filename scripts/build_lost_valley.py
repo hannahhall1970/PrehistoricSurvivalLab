@@ -817,7 +817,9 @@ def log(msg):
     unreal.log(LOG + msg)
 
 
-if "--selftest" in sys.argv:
+if os.environ.get("PSL_BUILD_IMPORT_ONLY") == "1":
+    pass  # imported by polish_lost_valley.py for its helpers
+elif "--selftest" in sys.argv:
     selftest()
 else:
     try:
