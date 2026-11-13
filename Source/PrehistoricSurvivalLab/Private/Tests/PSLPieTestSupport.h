@@ -298,7 +298,7 @@ inline void RequestScreenshot(FPSLPieCtx& Context, const TCHAR* Step)
         return;
     }
 
-    FScreenshotRequest::RequestScreenshot(Filename, false, false);
+    FScreenshotRequest::RequestScreenshot(Filename, true, false, false, FIntRect(), true);
     if (Context.Test)
     {
         Context.Test->AddInfo(FString::Printf(TEXT("Screenshot requested: %s"), *Filename));

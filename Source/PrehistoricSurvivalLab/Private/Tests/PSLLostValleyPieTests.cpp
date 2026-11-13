@@ -300,7 +300,7 @@ bool FPSLLostValleyHuntTest::RunTest(const FString& Parameters)
             Ctx.MarkInvalid(TEXT("No prey in L_LostValley"));
             return true;
         }
-        if (!PlaceNear(Ctx, Prey[0]->GetActorLocation(), 600.0))
+        if (!PlaceNear(Ctx, Prey[0]->GetActorLocation(), 600.0, Prey[0]))
         {
             Ctx.MarkInvalid(TEXT("No ground placement 600 uu from prey"));
             return true;
@@ -308,7 +308,7 @@ bool FPSLLostValleyHuntTest::RunTest(const FString& Parameters)
         HoldPreyStill(Ctx, *Prey[0]);
         return true;
     });
-    AddPieStep(Context, TEXT("HuntAssert"), 2.0f, [](FPSLPieCtx& Ctx)
+    AddPieStep(Context, TEXT("HuntAssert"), 4.0f, [StartTime = -1.0](FPSLPieCtx& Ctx) mutable
     {
         if (!Ctx.IsUsable())
         {
@@ -321,6 +321,15 @@ bool FPSLLostValleyHuntTest::RunTest(const FString& Parameters)
             return true;
         }
         HoldPreyStill(Ctx, *Prey[0]);
+        const double Now = Ctx.World->GetTimeSeconds();
+        if (StartTime < 0.0)
+        {
+            StartTime = Now;
+        }
+        if (Now - StartTime < 1.0)
+        {
+            return false;
+        }
         const double Distance = Dist2D(*Ctx.Character, *Prey[0]);
         Ctx.Test->TestTrue(FString::Printf(TEXT("Player-prey 2D distance in 450..750 (was %.0f)"), Distance), Distance >= 450.0 && Distance <= 750.0);
         Record(Ctx, TEXT("hunt"));
@@ -420,10 +429,12 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
             }
             Ctx.Test->TestTrue(TEXT("Prey A dead within 6 s of biting"), Stats->IsDead());
             Record(Ctx, TEXT("prey_a_dead"));
+            RequestScreenshot(Ctx, TEXT("after_bite"));
             return true;
         }
         return false;
     });
+    QueueAwaitScreenshot(Context, TEXT("after_bite"));
     // (c) prey B flees when the player stands 500 uu away.
     AddPieStep(Context, TEXT("PreyBFlee"), 8.0f, [Phase = 0, StartTime = -1.0](FPSLPieCtx& Ctx) mutable
     {
@@ -453,7 +464,6 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
         if (PreyStateOf(PreyB) == EPSLPreyState::Flee)
         {
             Record(Ctx, TEXT("prey_b_flee"));
-            RequestScreenshot(Ctx, TEXT("after_bite"));
             return true;
         }
         if (AController* AI = PreyB.GetController())
@@ -465,12 +475,10 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
         if (Now - StartTime >= 4.0)
         {
             Ctx.Test->AddError(TEXT("Prey B did not enter Flee within 4 s"));
-            RequestScreenshot(Ctx, TEXT("after_bite"));
             return true;
         }
         return false;
     });
-    QueueAwaitScreenshot(Context, TEXT("after_bite"));
     QueuePieEnd(Context);
     return true;
 }
@@ -537,6 +545,10 @@ bool FPSLLostValleyPerfTest::RunTest(const FString& Parameters)
         Ctx.Test->TestTrue(TEXT("Perf avgMs finite"), FMath::IsFinite(AvgMs));
         Ctx.Test->TestTrue(TEXT("Perf GAverageFPS finite"), FMath::IsFinite(GAverageFPS));
         Ctx.Test->TestTrue(TEXT("Perf GAverageMS finite"), FMath::IsFinite(GAverageMS));
+        if (FApp::CanEverRender())
+        {
+            Ctx.Test->TestTrue(FString::Printf(TEXT("Rendered avgFps >= 20 (was %.1f)"), AvgFps), AvgFps >= 20.0);
+        }
         Ctx.Test->AddInfo(Json);
         return true;
     });
