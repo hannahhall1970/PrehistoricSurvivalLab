@@ -101,6 +101,8 @@ struct FPSLDinoAnimProxy : public FAnimInstanceProxy
         Nodes[0].SetSequence(Dino->IdleSequence);
         Nodes[1].SetSequence(Dino->WalkSequence);
         Nodes[2].SetSequence(Dino->RunSequence);
+        ActionNodes[0].SetSequence(Dino->AttackSequence);
+        ActionNodes[1].SetSequence(Dino->DeathSequence);
         InterpRate = Dino->SpeedInterpRate;
     }
 

@@ -495,6 +495,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLLostValleyMoveAndBiteTest, "PSL.PIE.LostVal
 bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
 {
     const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("LostValley_MoveAndBite"));
+    const TSharedRef<FPSLPreyDeathPose> Death = MakeShared<FPSLPreyDeathPose>();
     if (!QueueLostValleyStart(*this, Context))
     {
         return false;
@@ -526,7 +527,7 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
         return true;
     });
     // (b) three bites on prey A.
-    AddPieStep(Context, TEXT("BitePreyA"), 12.0f, [Phase = 0, StartTime = -1.0, NextBite = 0.0, Bites = 0, bReleasePending = false](FPSLPieCtx& Ctx) mutable
+    AddPieStep(Context, TEXT("BitePreyA"), 12.0f, [Death, Phase = 0, StartTime = -1.0, NextBite = 0.0, Bites = 0, bReleasePending = false](FPSLPieCtx& Ctx) mutable
     {
         if (!Ctx.IsUsable())
         {
@@ -551,7 +552,12 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
             StartTime = Now;
             NextBite = Now;
         }
+        TrackPreyBones(PreyA);
         HoldPreyStill(Ctx, PreyA);
+        if (Death->AliveHeight <= 0.0f && Bites >= 1 && Now - StartTime >= 0.3 && !PreyA.GetStatsComponent()->IsDead())
+        {
+            Death->AliveHeight = PreyBodyHeight(PreyA);
+        }
         if (bReleasePending)
         {
             SendKey(Ctx, EKeys::LeftMouseButton, IE_Released);
@@ -577,6 +583,7 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
                 SendKey(Ctx, EKeys::LeftMouseButton, IE_Released);
             }
             Ctx.Test->TestTrue(TEXT("Prey A dead within 6 s of biting"), Stats->IsDead());
+            Death->DeathTime = Now;
             Record(Ctx, TEXT("prey_a_dead"));
             RequestScreenshot(Ctx, TEXT("after_bite"));
             return true;
@@ -584,6 +591,28 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
         return false;
     });
     QueueAwaitScreenshot(Context, TEXT("after_bite"));
+    // The corpse must lie down before death_side: >= 1.5 s after death, body height <= 0.6 x the standing height.
+    // Not gated on rendering, so the -nullrhi gate runs it too (the bones are refreshed by TrackPreyBones).
+    AddPieStep(Context, TEXT("DeathPose"), 6.0f, [Death](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable())
+        {
+            return true;
+        }
+        const TArray<APSLPreyCharacter*> Prey = GetPrey(Ctx.World);
+        if (Prey.Num() == 0 || !Prey[0])
+        {
+            Ctx.MarkInvalid(TEXT("Prey A missing for death pose"));
+            return true;
+        }
+        if (Ctx.World->GetTimeSeconds() - Death->DeathTime < 1.5)
+        {
+            return false;
+        }
+        Ctx.Test->TestTrue(TEXT("Alive prey A body height measured"), Death->AliveHeight > 0.0f);
+        AssertPreyCollapsed(Ctx, *Prey[0], Death->AliveHeight, TEXT("1.5 s after death"));
+        return true;
+    });
     // death_side: stand 350 uu from the corpse on the far side from the player, control yaw corpse+20 deg and pitch -30 so the
     // pawn is off to one side and the camera looks down past it. Asserts the corpse is within 30 deg of camera forward and
     // not occluded (camera -> corpse bounds centre, ECC_Visibility). Pawn occlusion is a line trace against the real bodies

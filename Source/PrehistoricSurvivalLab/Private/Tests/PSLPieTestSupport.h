@@ -536,6 +536,50 @@ inline EPSLDinoAction PlayerActiveAction(const FPSLPieCtx& Ctx)
     return Anim ? Anim->GetActiveAction() : EPSLDinoAction::None;
 }
 
+// Shared between the steps of a prey-death test: standing height, when the prey died and where its capsule was.
+struct FPSLPreyDeathPose
+{
+    float AliveHeight = 0.0f;
+    double DeathTime = 0.0;
+    FVector DeathLocation = FVector::ZeroVector;
+};
+
+// ACharacter meshes default to AlwaysTickPose, which does not refresh bones while unrendered (-nullrhi gate), so the
+// height below would stay at the reference pose. Test-only: gameplay code is unchanged.
+inline void TrackPreyBones(APSLPreyCharacter& Prey)
+{
+    Prey.GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+}
+
+// Z of bone Hips above the capsule bottom: ~274-300 uu standing, ~110 uu lying; -1 when the mesh has no Hips bone.
+inline float PreyBodyHeight(const APSLPreyCharacter& Prey)
+{
+    const USkeletalMeshComponent* Mesh = Prey.GetMesh();
+    const FName Hips(TEXT("Hips"));
+    if (!Mesh || Mesh->GetBoneIndex(Hips) == INDEX_NONE)
+    {
+        return -1.0f;
+    }
+    const double CapsuleBottom = Prey.GetActorLocation().Z - Prey.GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+    return static_cast<float>(Mesh->GetBoneLocation(Hips, EBoneSpaces::WorldSpace).Z - CapsuleBottom);
+}
+
+inline EPSLDinoAction PreyActiveAction(const APSLPreyCharacter& Prey)
+{
+    const UPSLDinoAnimInstance* Anim = Cast<UPSLDinoAnimInstance>(Prey.GetMesh()->GetAnimInstance());
+    return Anim ? Anim->GetActiveAction() : EPSLDinoAction::None;
+}
+
+// A dead prey must have collapsed: body height <= 0.6 x the standing height.
+inline void AssertPreyCollapsed(FPSLPieCtx& Ctx, const APSLPreyCharacter& Prey, float AliveHeight, const TCHAR* When)
+{
+    const float Height = PreyBodyHeight(Prey);
+    Ctx.Test->AddInfo(FString::Printf(TEXT("%s: prey body height %.1f, alive %.1f"), When, Height, AliveHeight));
+    Ctx.Test->TestTrue(
+        FString::Printf(TEXT("Dead prey collapsed %s (height %.1f <= 0.6 x alive %.1f)"), When, Height, AliveHeight),
+        Height >= 0.0f && Height <= 0.6f * AliveHeight);
+}
+
 } // namespace PSLPie
 
 #endif

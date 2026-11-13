@@ -933,6 +933,7 @@ bool FPSLPiePreyFleeTest::RunTest(const FString& Parameters)
 struct FPSLBiteSeq
 {
     double LastPress = -1000.0;
+    FPSLPreyDeathPose Death;
 };
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLPieBiteCombatTest, "PSL.PIE.BiteCombat", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
@@ -968,6 +969,7 @@ bool FPSLPieBiteCombatTest::RunTest(const FString& Parameters)
             Ctx.Test->TestEqual(TEXT("Prey starts at 60 health"), Prey->GetStatsComponent()->GetHealth(), 60.0f, 0.01f);
             Ctx.Test->TestEqual(TEXT("Bite count starts at 0"), Ctx.Character->BiteCount, 0);
             HoldPreyStill(Ctx, *Prey);
+            TrackPreyBones(*Prey);
             T0 = Now;
             Seq->LastPress = Now;
             SendKey(Ctx, EKeys::LeftMouseButton, IE_Pressed);
@@ -1028,6 +1030,11 @@ bool FPSLPieBiteCombatTest::RunTest(const FString& Parameters)
             }
             return false;
         }
+        if (Seq->Death.AliveHeight <= 0.0f)
+        {
+            Seq->Death.AliveHeight = PreyBodyHeight(*Prey);
+            Ctx.Test->TestTrue(TEXT("Alive prey body height measured"), Seq->Death.AliveHeight > 0.0f);
+        }
         if (Ctx.Character->BiteCount < 3)
         {
             if (Now - Seq->LastPress >= Ctx.Character->BiteCooldown + 0.1)
@@ -1049,11 +1056,67 @@ bool FPSLPieBiteCombatTest::RunTest(const FString& Parameters)
         Ctx.Test->TestTrue(TEXT("Prey AI state is Dead"), AI && AI->GetPreyState() == EPSLPreyState::Dead);
         Ctx.Test->TestTrue(TEXT("Dead prey movement mode is MOVE_None"), Prey->GetCharacterMovement()->MovementMode == MOVE_None);
         Ctx.Test->TestTrue(TEXT("Dead prey capsule object type is ECC_WorldDynamic"), Prey->GetCapsuleComponent()->GetCollisionObjectType() == ECC_WorldDynamic);
+        Seq->Death.DeathTime = Now;
+        Seq->Death.DeathLocation = Prey->GetActorLocation();
         Record(Ctx, TEXT("prey_dead"));
         RequestScreenshot(Ctx, TEXT("prey_dead"));
         return true;
     });
     QueueAwaitScreenshot(Context, TEXT("dead_captured"));
+
+    // Frame sequence of the fall: up to 16 frames, one every >= 0.1 s while no capture is pending, within 2.5 s of death.
+    AddPieStep(Context, TEXT("DeathFrames"), 8.0f, [Seq, Frame = 0, LastFrame = -1000.0](FPSLPieCtx& Ctx) mutable
+    {
+        if (!Ctx.IsUsable())
+        {
+            return true;
+        }
+        const double Now = Ctx.World->GetTimeSeconds();
+        if (Frame >= 16 || Now - Seq->Death.DeathTime >= 2.5)
+        {
+            return true;
+        }
+        if (Now - LastFrame >= 0.1 && !FScreenshotRequest::IsScreenshotRequested())
+        {
+            const FString Name = FString::Printf(TEXT("death_f%02d"), Frame++);
+            LastFrame = Now;
+            Record(Ctx, *Name);
+            RequestScreenshot(Ctx, *Name);
+        }
+        return false;
+    });
+    QueueAwaitScreenshot(Context, TEXT("death_frames_captured"));
+
+    // The corpse must stay collapsed: checked >= 1.5 s and again >= 3.5 s after death.
+    AddPieStep(Context, TEXT("DeathHold"), 8.0f, [Seq, Checks = 0](FPSLPieCtx& Ctx) mutable
+    {
+        if (!Ctx.IsUsable())
+        {
+            return true;
+        }
+        const APSLPreyCharacter* Prey = RequirePrey(Ctx);
+        if (!Prey)
+        {
+            return true;
+        }
+        const double Since = Ctx.World->GetTimeSeconds() - Seq->Death.DeathTime;
+        if (Since < (Checks == 0 ? 1.5 : 3.5))
+        {
+            return false;
+        }
+        AssertPreyCollapsed(Ctx, *Prey, Seq->Death.AliveHeight, Checks == 0 ? TEXT("1.5 s after death") : TEXT("3.5 s after death"));
+        Ctx.Test->TestTrue(TEXT("Dead prey anim ActiveAction is Death"), PreyActiveAction(*Prey) == EPSLDinoAction::Death);
+        const float Moved = FVector::Dist(Prey->GetActorLocation(), Seq->Death.DeathLocation);
+        Ctx.Test->TestTrue(FString::Printf(TEXT("Dead prey capsule moved < 5 uu (was %.2f)"), Moved), Moved < 5.0f);
+        if (++Checks < 2)
+        {
+            return false;
+        }
+        Record(Ctx, TEXT("prey_dead_hold"));
+        RequestScreenshot(Ctx, TEXT("prey_dead_hold"));
+        return true;
+    });
+    QueueAwaitScreenshot(Context, TEXT("dead_hold_captured"));
     QueuePieEnd(Context);
     return true;
 }
