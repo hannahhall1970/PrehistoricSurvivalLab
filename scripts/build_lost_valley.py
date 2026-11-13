@@ -288,7 +288,7 @@ def import_nature():
     if not os.path.isdir(NATURE_SRC):
         fail("missing " + NATURE_SRC + " (is Git LFS content pulled?)")
     fbx = sorted(f for f in os.listdir(NATURE_SRC) if f.lower().endswith(".fbx"))
-    pngs = sorted(f for f in os.listdir(NATURE_SRC) if f.lower().endswith(".png"))
+    pngs = sorted(f for f in os.listdir(os.path.join(NATURE_SRC, "Textures")) if f.lower().endswith(".png"))
     if not fbx:
         fail("no FBX files in " + NATURE_SRC)
     for f in fbx:
@@ -311,7 +311,7 @@ def import_nature():
     for f in pngs:
         stem = os.path.splitext(f)[0]
         if not exists(TEX_DEST + "/" + stem):
-            import_task(os.path.join(NATURE_SRC, f), TEX_DEST, None, stem)
+            import_task(os.path.join(NATURE_SRC, "Textures", f), TEX_DEST, None, stem)
     return [os.path.splitext(f)[0] for f in fbx], [os.path.splitext(f)[0] for f in pngs]
 
 
@@ -512,7 +512,7 @@ def assign_materials(meshes, textures):
     del terrain  # created for the landscape; loaded by path later
     flat_mis = {k: material_instance("MI_PSL_" + k.capitalize(), flat, vector=v) for k, v in PALETTE.items()}
     leaf_mis = {}
-    for t in textures:
+    for t in (t for t in textures if re.match(r"(?i)leaf", t)):
         tex = unreal.load_asset(TEX_DEST + "/" + t)
         if tex is None:
             fail("cannot load texture " + t)

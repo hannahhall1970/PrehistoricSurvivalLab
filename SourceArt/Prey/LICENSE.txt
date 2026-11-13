@@ -1,0 +1,5 @@
+Parasaurolophus.fbx - Quaternius "Dinosaur Animated Pack" (Dec 2018), same archive as SourceArt/Dino/Trex.fbx
+License: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication, https://creativecommons.org/publicdomain/zero/1.0/
+Source: https://quaternius.itch.io/animated-lowpoly-dinosaurs
+Archive sha256 d9ca7d3568bd98b323b0be9a82b546af66d77c2a18e355c1bee5c50061b8931c; file unmodified.
+Clips: Parasaurolophus_Idle/Walk/Run/Attack/Death.
