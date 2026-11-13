@@ -12,6 +12,7 @@
 #include "Engine/PostProcessVolume.h"
 #include "GameFramework/PlayerStart.h"
 #include "Scalability.h"
+#include "Framework/Docking/TabManager.h"
 #include "Misc/App.h"
 
 extern ENGINE_API float GAverageFPS;
@@ -225,45 +226,55 @@ bool FPSLLostValleySpawnTest::RunTest(const FString& Parameters)
         return true;
     });
     QueueAwaitScreenshot(Context, TEXT("after_spawn"));
-    // 1920x1080 path: resize the PIE window, settle 1 s, shoot hud_1080 (name carries _1920x1080), restore the size.
-    const TSharedRef<FIntPoint> OriginalSize = MakeShared<FIntPoint>(FIntPoint::ZeroValue);
-    AddPieStep(Context, TEXT("Resize1080"), 5.0f, [OriginalSize, StartTime = -1.0](FPSLPieCtx& Ctx) mutable
+    // 1920x1080 path: only when the PIE viewport has its own window; resize the client area iteratively until the viewport
+    // is exactly 1920x1080, shoot hud_1080, then always restore the stored client size.
+    const TSharedRef<FVector2D> OriginalClient = MakeShared<FVector2D>(FVector2D::ZeroVector);
+    AddPieStep(Context, TEXT("Resize1080"), 8.0f, [OriginalClient, Pass = 0, StepTime = -1.0](FPSLPieCtx& Ctx) mutable
     {
         if (!Ctx.IsUsable() || !FApp::CanEverRender())
         {
             return true;
         }
         const TSharedPtr<SWindow> Window = Ctx.GameViewport->GetWindow();
-        if (!Window.IsValid() || !Ctx.GameViewport->Viewport)
+        if (!Window.IsValid() || !Ctx.GameViewport->Viewport || Window == FGlobalTabmanager::Get()->GetRootWindow())
         {
-            Ctx.Test->AddInfo(TEXT("hud_1080 skipped: PIE viewport has no window"));
+            Ctx.Test->AddInfo(TEXT("hud_1080 skipped: PIE not in new window"));
             return true;
         }
         const double Now = Ctx.World->GetTimeSeconds();
-        if (StartTime < 0.0)
+        if (StepTime >= 0.0 && Now - StepTime < 0.5)
         {
-            StartTime = Now;
-            *OriginalSize = Ctx.GameViewport->Viewport->GetSizeXY();
-            Window->Resize(FVector2D(1920.0, 1080.0));
             return false;
         }
-        if (Now - StartTime < 1.0)
+        if (StepTime < 0.0)
         {
-            return false;
+            *OriginalClient = FVector2D(Window->GetClientSizeInScreen());
         }
         const FIntPoint Size = Ctx.GameViewport->Viewport->GetSizeXY();
-        Ctx.Test->TestTrue(FString::Printf(TEXT("Viewport is 1920x1080 after resize (was %dx%d)"), Size.X, Size.Y), Size.X == 1920 && Size.Y == 1080);
-        RequestScreenshot(Ctx, TEXT("hud_1080"));
+        const bool bExact = Size.X == 1920 && Size.Y == 1080;
+        if (!bExact && Pass < 3)
+        {
+            ++Pass;
+            StepTime = Now;
+            Window->Resize(FVector2D(Window->GetClientSizeInScreen()) + FVector2D(1920 - Size.X, 1080 - Size.Y));
+            return false;
+        }
+        Ctx.Test->TestTrue(FString::Printf(TEXT("Viewport is 1920x1080 after %d resize passes (was %dx%d)"), Pass, Size.X, Size.Y), bExact);
+        if (bExact)
+        {
+            RequestScreenshot(Ctx, TEXT("hud_1080"));
+        }
         return true;
     });
     QueueAwaitScreenshot(Context, TEXT("hud_1080"));
-    AddPieStep(Context, TEXT("Restore1080"), 2.0f, [OriginalSize](FPSLPieCtx& Ctx)
+    AddPieStep(Context, TEXT("Restore1080"), 2.0f, [OriginalClient](FPSLPieCtx& Ctx)
     {
-        if (Ctx.IsUsable() && FApp::CanEverRender() && OriginalSize->X > 0)
+        // HasObjects, not IsUsable: restore also after a failed or timed-out resize.
+        if (OriginalClient->X > 0.0 && Ctx.HasObjects() && FApp::CanEverRender())
         {
             if (const TSharedPtr<SWindow> Window = Ctx.GameViewport->GetWindow())
             {
-                Window->Resize(FVector2D(OriginalSize->X, OriginalSize->Y));
+                Window->Resize(*OriginalClient);
             }
         }
         return true;
@@ -540,8 +551,10 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
         return false;
     });
     QueueAwaitScreenshot(Context, TEXT("after_bite"));
-    // death_side: stand 350 uu to the side of the player->corpse line so the T-Rex does not occlude the corpse, face it, settle 1 s.
-    AddPieStep(Context, TEXT("DeathSide"), 6.0f, [Phase = 0, StartTime = -1.0](FPSLPieCtx& Ctx) mutable
+    // death_side: stand 450 uu from the corpse on the far side from the player, control yaw corpse+20 deg and pitch -25 so the
+    // pawn is off to one side and the camera looks down past it. Asserts the corpse is within 30 deg of camera forward and
+    // not occluded (camera -> corpse bounds centre, ECC_Visibility); a trace that hits the player pawn gets one retry at yaw -20 deg.
+    AddPieStep(Context, TEXT("DeathSide"), 8.0f, [Phase = 0, StartTime = -1.0, CorpseYaw = 0.0, YawOffset = 20.0, bRetried = false](FPSLPieCtx& Ctx) mutable
     {
         if (!Ctx.IsUsable() || !FApp::CanEverRender())
         {
@@ -557,33 +570,74 @@ bool FPSLLostValleyMoveAndBiteTest::RunTest(const FString& Parameters)
         const double Now = Ctx.World->GetTimeSeconds();
         if (Phase == 0)
         {
-            const FVector ToCorpse = (Corpse - Ctx.Character->GetActorLocation()).GetSafeNormal2D();
-            const FVector Side(-ToCorpse.Y, ToCorpse.X, 0.0);
-            const FVector Origin = Ctx.Character->GetActorLocation();
+            const FVector Player = Ctx.Character->GetActorLocation();
+            const FVector Away = (Corpse - Player).GetSafeNormal2D();
+            // Yaw is set after the teleport, from the real standing point.
             FVector Ground;
-            if (!GroundAt(Ctx.World, Origin.X + Side.X * 350.0, Origin.Y + Side.Y * 350.0, Ground)
-                && !GroundAt(Ctx.World, Origin.X - Side.X * 350.0, Origin.Y - Side.Y * 350.0, Ground))
+            if (!GroundAt(Ctx.World, Corpse.X + Away.X * 450.0, Corpse.Y + Away.Y * 450.0, Ground)
+                && !GroundAt(Ctx.World, Corpse.X - Away.X * 450.0, Corpse.Y - Away.Y * 450.0, Ground))
             {
-                Ctx.MarkInvalid(TEXT("No ground 350 uu beside the player for death_side"));
+                Ctx.MarkInvalid(TEXT("No ground 450 uu from the corpse for death_side"));
                 return true;
             }
             TeleportTo(Ctx, Ground);
+            // Both ground branches (far or near side) then face the corpse.
+            CorpseYaw = (Corpse - Ground).GetSafeNormal2D().Rotation().Yaw;
             Phase = 1;
             StartTime = Now;
         }
-        FaceYawToward(Ctx, Corpse);
+        const double Yaw = FRotator::NormalizeAxis(CorpseYaw + YawOffset);
+        Ctx.PC->SetControlRotation(FRotator(-25.0, Yaw, 0.0));
+        Ctx.Character->SetActorRotation(FRotator(0.0, Yaw, 0.0));
         if (Now - StartTime < 1.0)
         {
             return false;
         }
-        const double TargetYaw = (Corpse - Ctx.Character->GetActorLocation()).GetSafeNormal2D().Rotation().Yaw;
-        const double YawDiff = FMath::Abs(FRotator::NormalizeAxis(Ctx.PC->GetControlRotation().Yaw - TargetYaw));
-        Ctx.Test->TestTrue(FString::Printf(TEXT("Corpse within 25 deg of camera forward (was %.1f)"), YawDiff), YawDiff <= 25.0);
+        const APlayerCameraManager* Camera = Ctx.PC->PlayerCameraManager;
+        if (!Camera)
+        {
+            Ctx.MarkInvalid(TEXT("No camera manager for death_side"));
+            return true;
+        }
+        const FVector CameraLocation = Camera->GetCameraLocation();
+        const FVector Center = Prey[0]->GetComponentsBoundingBox().GetCenter();
+        // The player pawn ignores ECC_Visibility under the default Pawn profile, so pawn occlusion is checked geometrically
+        // (camera -> corpse centre segment vs the pawn bounds); the trace covers world geometry and ignores the pawn.
+        FCollisionQueryParams Params(SCENE_QUERY_STAT(PSLDeathSide), false, Ctx.Character);
+        FHitResult Hit;
+        const bool bHit = Ctx.World->LineTraceSingleByChannel(Hit, CameraLocation, Center, ECC_Visibility, Params);
+        FVector BoxHitLocation, BoxHitNormal;
+        float BoxHitTime = 0.0f;
+        const bool bPawnInTheWay = FMath::LineExtentBoxIntersection(Ctx.Character->GetComponentsBoundingBox(), CameraLocation, Center, FVector::ZeroVector, BoxHitLocation, BoxHitNormal, BoxHitTime);
+        if (bPawnInTheWay && !bRetried)
+        {
+            bRetried = true;
+            YawOffset = -20.0;
+            StartTime = Now;
+            return false;
+        }
+        const double AngleDeg = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(
+            FVector::DotProduct(Camera->GetCameraRotation().Vector(), (Center - CameraLocation).GetSafeNormal()), -1.0, 1.0)));
+        Ctx.Test->TestTrue(FString::Printf(TEXT("Corpse within 30 deg of camera forward (was %.1f)"), AngleDeg), AngleDeg <= 30.0);
+        Ctx.Test->TestTrue(TEXT("Player pawn does not cover the corpse"), !bPawnInTheWay);
+        Ctx.Test->TestTrue(FString::Printf(TEXT("Corpse not occluded from the camera (hit %s)"), bHit ? *GetNameSafe(Hit.GetActor()) : TEXT("nothing")),
+            !bHit || Hit.GetActor() == Prey[0]);
         Record(Ctx, TEXT("death_side"));
         RequestScreenshot(Ctx, TEXT("death_side"));
         return true;
     });
     QueueAwaitScreenshot(Context, TEXT("death_side"));
+    // The capture is served on a later draw, so the pitch goes back to 0 only after it.
+    AddPieStep(Context, TEXT("DeathSideRestore"), 2.0f, [](FPSLPieCtx& Ctx)
+    {
+        if (Ctx.HasObjects())
+        {
+            FRotator Rotation = Ctx.PC->GetControlRotation();
+            Rotation.Pitch = 0.0;
+            Ctx.PC->SetControlRotation(Rotation);
+        }
+        return true;
+    });
     // (c) prey B flees when the player stands 500 uu away.
     AddPieStep(Context, TEXT("PreyBFlee"), 8.0f, [Phase = 0, StartTime = -1.0](FPSLPieCtx& Ctx) mutable
     {

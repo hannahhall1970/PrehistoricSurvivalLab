@@ -13,7 +13,7 @@
 | `APSLCharacter` | Owns stats, survival, spring arm, and camera; consumes Enhanced Input; maps sprint state to movement speed; routes `TakeDamage`; disables movement/input on death. |
 | `APSLGameMode` | Uses `APSLHUD` and falls back to `APSLCharacter`; Blueprint configuration supplies `BP_PSLCharacter` as the default pawn. |
 | `APSLHUD` | Creates `UPSLHudWidget` in `BeginPlay` and adds it to the viewport; keeps the pure `BarFraction` helper. |
-| `UPSLHudWidget` | UMG HUD built entirely in C++ (no UMG asset): `Initialize()` constructs the widget tree (icon + label + `value / max` rows for health/stamina, sprint state, DEAD text, a `PREY DOWN` kill banner and a `HIT` marker) when the root is null, so it works without a PlayerContext; `NativeTick` reads the owning `APSLCharacter` and rebinds `OnBiteHit`; the banner listens to `APSLPreyCharacter::OnAnyPreyKilled`. |
+| `UPSLHudWidget` | UMG HUD built entirely in C++ (no UMG asset): `Initialize()` constructs the widget tree (icon + label + `value / max` rows for health/stamina, sprint state, DEAD text, a `PREY DOWN` kill banner and a `HIT` marker) when the root is null, so it works without a PlayerContext; `NativeTick` reads the owning `APSLCharacter` and rebinds `OnBiteHit`; the banner binds `APSLPreyCharacter::OnAnyPreyKilled` in `NativeConstruct` (after removing any earlier handle) and unbinds in `NativeDestruct`. |
 | `UPSLLevelBuildLibrary` | Editor-only (`WITH_EDITOR`) helpers for level-building scripts: `CreateLandscape` and `AddMeshInstances` (HISM). Not available in packaged builds. |
 
 ## Data flow

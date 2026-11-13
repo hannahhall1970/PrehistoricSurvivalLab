@@ -287,17 +287,6 @@ inline void Record(FPSLPieCtx& Context, const TCHAR* Step)
     }
 }
 
-// Default PIE viewport; screenshots at any other size carry a `_WxH` suffix so they never overwrite the default shots.
-inline FString ViewportSizeSuffix(const FPSLPieCtx& Context)
-{
-    const FIntPoint Size = Context.GameViewport && Context.GameViewport->Viewport ? Context.GameViewport->Viewport->GetSizeXY() : FIntPoint::ZeroValue;
-    if (Size.X <= 0 || Size.Y <= 0 || (Size.X == 1280 && Size.Y == 730))
-    {
-        return FString();
-    }
-    return FString::Printf(TEXT("_%dx%d"), Size.X, Size.Y);
-}
-
 // Frame-time distribution of one perf phase (milliseconds per frame).
 struct FPSLFrameStats
 {
@@ -361,7 +350,7 @@ inline void RequestScreenshot(FPSLPieCtx& Context, const TCHAR* Step)
 {
     const FString Directory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Automation"), TEXT("PIE"));
     IFileManager::Get().MakeDirectory(*Directory, true);
-    const FString Filename = FPaths::Combine(Directory, Context.TestName + TEXT("_") + Step + ViewportSizeSuffix(Context) + TEXT(".png"));
+    const FString Filename = FPaths::Combine(Directory, Context.TestName + TEXT("_") + Step + TEXT(".png"));
     if (!FApp::CanEverRender())
     {
         if (Context.Test)

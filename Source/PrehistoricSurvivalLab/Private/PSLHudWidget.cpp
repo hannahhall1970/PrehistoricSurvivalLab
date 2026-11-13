@@ -141,7 +141,13 @@ void UPSLHudWidget::BuildTree()
     HitSlot->SetAlignment(FVector2D(0.0f, 0.0f));
     HitSlot->SetAutoSize(true);
     HitSlot->SetPosition(FVector2D(24.0f, 16.0f));
+}
 
+void UPSLHudWidget::NativeConstruct()
+{
+    Super::NativeConstruct();
+    // Re-adding to the viewport re-runs NativeConstruct; drop any earlier binding first.
+    APSLPreyCharacter::OnAnyPreyKilled().Remove(PreyKilledHandle);
     PreyKilledHandle = APSLPreyCharacter::OnAnyPreyKilled().AddUObject(this, &UPSLHudWidget::HandlePreyKilled);
 }
 
