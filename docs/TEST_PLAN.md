@@ -72,7 +72,7 @@ Import (one-shot; run only under `.harness/ue-build.lock`, one Unreal process at
   -ScriptErrorsAreFatal -unattended -nullrhi -nosplash
 ```
 
-`<abs>` is the absolute repository path. `-EnablePlugins=PythonScriptPlugin` is required (plugin is not enabled in the `.uproject`). The import has not been run by this task; no imported asset is claimed.
+`<abs>` is the absolute repository path. `-EnablePlugins=PythonScriptPlugin` is required (plugin is not enabled in the `.uproject`). See "Task 002 D3" below for the import result.
 
 Manual PIE checklist (`/Game/Maps/L_TestArena`; record engine version and result per line):
 
@@ -84,3 +84,21 @@ Manual PIE checklist (`/Game/Maps/L_TestArena`; record engine version and result
 - [ ] MANUAL-PENDING: Camera framing is correct for the dinosaur's size.
 - [ ] MANUAL-PENDING: Stamina, health and HUD behave unchanged versus A7.
 - [ ] MANUAL-PENDING: On death, movement stops (no locomotion animation while dead).
+
+### Task 002 D3: imported T-Rex assets (status: import AUTOMATED-RUN, in-editor behaviour MANUAL-PENDING)
+
+Import command: the `UnrealEditor-Cmd` line above with `scripts/import_dino.py`, import scale `0.16`. It was run once by the trusted parent under `.harness/ue-build.lock` (exit 0, repo HEAD `449190782644a34c2ac24d42df52cf06d4a62ca6`); evidence in `Saved/PSL/dino-import.json` (gitignored) and `.harness/evidence/task002-dino/d3/import-trusted.log`. Existence, non-zero size and `git check-attr filter` = `lfs` were checked for every file below; nothing was opened in the Editor and nothing is claimed PASS.
+
+Content/Characters/Dino (13 `.uasset`, all `filter: lfs`):
+
+- Required: `SK_Trex`, `SKEL_Trex`, `A_Trex_Idle` (2.500 s), `A_Trex_Walk` (1.375 s), `A_Trex_Run` (0.917 s).
+- Extra: materials `Black`, `Green`, `LightGreen`, `LightYellow`, `Red`; clips `TrexArmature_TRex_Attack`, `TrexArmature_TRex_Death`, `TrexArmature_TRex_Jump`.
+
+Import log reports mesh bounds: origin `(0, -17.4, 121.7)`, box extent `(63.6, 248.2, 121.8)`. Use it as input for the capsule-clipping and framing checks below (capsule radius 60).
+
+Manual PIE checklist (`/Game/Maps/L_TestArena`; record engine version and result per line):
+
+- [ ] MANUAL-PENDING: Idle/Walk/sprint-run blend plays correctly (Idle at rest, Walk ~300, Run ~600, no pops or T-pose).
+- [ ] MANUAL-PENDING: Feet rest on the floor (mesh not sunk or floating).
+- [ ] MANUAL-PENDING: Tail and head do not clip through or poke far outside the capsule (r=60).
+- [ ] MANUAL-PENDING: Camera framing is correct for the dinosaur's size.
