@@ -13,6 +13,7 @@
 #include "EngineUtils.h"
 #include "Engine/World.h"
 #include "InputCoreTypes.h"
+#include "Internationalization/Internationalization.h"
 #include "PSLDinoSpecies.h"
 #include "PSLGameInstance.h"
 #include "PSLMenuPreviewActor.h"
@@ -65,8 +66,8 @@ void UPSLSpeciesSelectWidget::BuildTree()
     UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("Column"));
     Panel->SetContent(Column);
 
-    UTextBlock* Heading = FPSLUiStyle::MakeText(WidgetTree, LOCTEXT("Species_Heading", "CHOOSE YOUR DINO"), FPSLUiStyle::HeadingSize, FPSLUiStyle::Accent(), true);
-    Column->AddChildToVerticalBox(Heading)->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 12.0f));
+    HeadingText = FPSLUiStyle::MakeText(WidgetTree, LOCTEXT("Species_Heading", "CHOOSE YOUR DINO"), FPSLUiStyle::HeadingSize, FPSLUiStyle::Accent(), true);
+    Column->AddChildToVerticalBox(HeadingText)->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 12.0f));
 
     // < Name >
     UHorizontalBox* NameRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
@@ -103,6 +104,7 @@ void UPSLSpeciesSelectWidget::BuildTree()
         BarSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
         BarSlot->SetVerticalAlignment(VAlign_Center);
         StatBars.Add(Bar);
+        StatLabels.Add(Label);
     }
 
     ConfirmButton = UPSLUiButton::Make(WidgetTree, LOCTEXT("Species_Confirm", "Confirm"));
@@ -121,6 +123,46 @@ void UPSLSpeciesSelectWidget::NativeConstruct()
 {
     Super::NativeConstruct();
     SetIsFocusable(true);
+    if (!CultureHandle.IsValid())
+    {
+        CultureHandle = FInternationalization::Get().OnCultureChanged().AddUObject(this, &UPSLSpeciesSelectWidget::HandleCultureChanged);
+    }
+    RefreshTexts();
+}
+
+void UPSLSpeciesSelectWidget::NativeDestruct()
+{
+    if (CultureHandle.IsValid())
+    {
+        FInternationalization::Get().OnCultureChanged().Remove(CultureHandle);
+        CultureHandle.Reset();
+    }
+    Super::NativeDestruct();
+}
+
+void UPSLSpeciesSelectWidget::HandleCultureChanged()
+{
+    RefreshTexts();
+}
+
+void UPSLSpeciesSelectWidget::RefreshTexts()
+{
+    if (!HeadingText)
+    {
+        return;
+    }
+    HeadingText->SetText(LOCTEXT("Species_Heading", "CHOOSE YOUR DINO"));
+    PrevButton->GetLabel()->SetText(LOCTEXT("Species_Prev", "<"));
+    NextButton->GetLabel()->SetText(LOCTEXT("Species_Next", ">"));
+    const FText StatNames[StatCount] = {
+        LOCTEXT("Stat_Health", "Health"), LOCTEXT("Stat_Stamina", "Stamina"), LOCTEXT("Stat_Speed", "Speed"),
+        LOCTEXT("Stat_Bite", "Bite"), LOCTEXT("Stat_Hunger", "Hunger endurance"), LOCTEXT("Stat_Diet", "Diet")};
+    for (int32 Index = 0; Index < StatCount; ++Index)
+    {
+        StatLabels[Index]->SetText(StatNames[Index]);
+    }
+    ConfirmButton->GetLabel()->SetText(LOCTEXT("Species_Confirm", "Confirm"));
+    BackButton->GetLabel()->SetText(LOCTEXT("Species_Back", "Back"));
     Refresh();
 }
 

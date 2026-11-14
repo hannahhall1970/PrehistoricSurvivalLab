@@ -31,12 +31,17 @@ public:
     // Esc / P: Back inside Settings when it is open, else resumes.
     void HandleCancel();
 
+    // Re-sets every static label from its LOCTEXT (called on construction and when the culture changes).
+    void RefreshTexts();
+
 protected:
     virtual void NativeConstruct() override;
+    virtual void NativeDestruct() override;
     virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 
 private:
     void BuildTree();
+    void HandleCultureChanged();
     void RefreshWarning();
 
     UFUNCTION() void OnResume();
@@ -55,4 +60,6 @@ private:
     UPROPERTY(Transient) TObjectPtr<UTextBlock> WarningText;
     UPROPERTY(Transient) TObjectPtr<UBorder> MenuPanel;
     UPROPERTY(Transient) TObjectPtr<UPSLSettingsWidget> SettingsWidget;
+    UPROPERTY(Transient) TObjectPtr<UTextBlock> TitleText;
+    FDelegateHandle CultureHandle;
 };

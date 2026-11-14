@@ -1,0 +1,708 @@
+﻿# Game Vietnamese translation.
+# Fill out your copyright notice in the Description page of Project Settings.
+# 
+msgid ""
+msgstr ""
+"Project-Id-Version: Game\n"
+"POT-Creation-Date: 2026-11-14 09:10\n"
+"PO-Revision-Date: 2026-11-14 09:10\n"
+"Language-Team: \n"
+"Language: vi\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#. Key:	HintCannotEatPlants
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(516)
+#: Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(516)
+msgctxt "PSL,HintCannotEatPlants"
+msgid "Carnivores can't eat plants. Hunt prey instead."
+msgstr "Thú ăn thịt không ăn được cây cỏ. Hãy đi săn con mồi."
+
+#. Key:	HintCannotEatMeat
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(517)
+#: Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(517)
+msgctxt "PSL,HintCannotEatMeat"
+msgid "Herbivores can't eat meat. Find plants instead."
+msgstr "Thú ăn cỏ không ăn được thịt. Hãy tìm cây cỏ."
+
+#. Key:	SpeciesTRexName
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(32)
+#: Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(32)
+msgctxt "PSL,SpeciesTRexName"
+msgid "Tyrannosaurus Rex"
+msgstr "Khủng long bạo chúa T-Rex"
+
+#. Key:	SpeciesTRexDesc
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(33)
+#: Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(33)
+msgctxt "PSL,SpeciesTRexDesc"
+msgid "Apex carnivore. Hits hard, eats meat from carcasses."
+msgstr "Kẻ săn mồi đỉnh cao. Cắn rất mạnh, ăn thịt từ xác chết."
+
+#. Key:	SpeciesParaName
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(58)
+#: Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(58)
+msgctxt "PSL,SpeciesParaName"
+msgid "Parasaurolophus"
+msgstr "Parasaurolophus"
+
+#. Key:	SpeciesParaDesc
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(59)
+#: Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(59)
+msgctxt "PSL,SpeciesParaDesc"
+msgid "Fast, agile herbivore. Grazes on plants; its bite only wounds."
+msgstr "Loài ăn cỏ nhanh nhẹn, linh hoạt. Gặm cây cỏ; vết cắn chỉ gây thương tích nhẹ."
+
+#. Key:	GameOver_Retry
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(60)
+#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(60)
+msgctxt "PSL,GameOver_Retry"
+msgid "Retry"
+msgstr "Thử lại"
+
+#. Key:	GameOver_Continue
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(61)
+#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(61)
+msgctxt "PSL,GameOver_Continue"
+msgid "Continue"
+msgstr "Tiếp tục"
+
+#. Key:	GameOver_MainMenu
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(62)
+#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(62)
+msgctxt "PSL,GameOver_MainMenu"
+msgid "Main Menu"
+msgstr "Menu chính"
+
+#. Key:	GameOver_Died
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(92)
+#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(92)
+msgctxt "PSL,GameOver_Died"
+msgid "YOU DIED"
+msgstr "BẠN ĐÃ CHẾT"
+
+#. Key:	GameOver_Starved
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(92)
+#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(92)
+msgctxt "PSL,GameOver_Starved"
+msgid "YOU STARVED"
+msgstr "BẠN ĐÃ CHẾT ĐÓI"
+
+#. Key:	GameOver_Stats
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(99)
+#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(99)
+msgctxt "PSL,GameOver_Stats"
+msgid "Survived {0}\nPrey killed: {1}\nFood eaten: {2}"
+msgstr "Sống sót {0}\nCon mồi đã hạ: {1}\nThức ăn đã ăn: {2}"
+
+#. Key:	HudHealth
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(120)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(120)
+msgctxt "PSL,HudHealth"
+msgid "HEALTH"
+msgstr "MÁU"
+
+#. Key:	HudHealthGlyph
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(120)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(120)
+msgctxt "PSL,HudHealthGlyph"
+msgid "+"
+msgstr "+"
+
+#. Key:	HudStamina
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(121)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(121)
+msgctxt "PSL,HudStamina"
+msgid "STAMINA"
+msgstr "THỂ LỰC"
+
+#. Key:	HudStaminaGlyph
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(121)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(121)
+msgctxt "PSL,HudStaminaGlyph"
+msgid ">"
+msgstr ">"
+
+#. Key:	HudHunger
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(123)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(123)
+msgctxt "PSL,HudHunger"
+msgid "HUNGER"
+msgstr "ĐÓI"
+
+#. Key:	HudHungerGlyph
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(123)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(123)
+msgctxt "PSL,HudHungerGlyph"
+msgid "o"
+msgstr "o"
+
+#. Key:	HudDead
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(136)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(136)
+msgctxt "PSL,HudDead"
+msgid "DEAD"
+msgstr "ĐÃ CHẾT"
+
+#. Key:	HudPreyDown
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(145)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(145)
+msgctxt "PSL,HudPreyDown"
+msgid "PREY DOWN"
+msgstr "HẠ CON MỒI"
+
+#. Key:	HudHit
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(154)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(154)
+msgctxt "PSL,HudHit"
+msgid "HIT"
+msgstr "TRÚNG"
+
+#. Key:	HudValueFmt
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(202)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(202)
+msgctxt "PSL,HudValueFmt"
+msgid "{0} / {1}"
+msgstr "{0} / {1}"
+
+#. Key:	HudExhausted
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(230)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(230)
+msgctxt "PSL,HudExhausted"
+msgid "EXHAUSTED"
+msgstr "KIỆT SỨC"
+
+#. Key:	HudSprinting
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(230)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(230)
+msgctxt "PSL,HudSprinting"
+msgid "SPRINTING"
+msgstr "ĐANG CHẠY NƯỚC RÚT"
+
+#. Key:	Menu_Title
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLMainMenuWidget.cpp(53)
+#: Source/PrehistoricSurvivalLab/Private/PSLMainMenuWidget.cpp(53)
+msgctxt "PSL,Menu_Title"
+msgid "PREHISTORIC SURVIVAL"
+msgstr "SINH TỒN TIỀN SỬ"
+
+#. Key:	Menu_Continue
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLMainMenuWidget.cpp(62)
+#: Source/PrehistoricSurvivalLab/Private/PSLMainMenuWidget.cpp(62)
+msgctxt "PSL,Menu_Continue"
+msgid "Continue"
+msgstr "Tiếp tục"
+
+#. Key:	Menu_NewGame
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLMainMenuWidget.cpp(63)
+#: Source/PrehistoricSurvivalLab/Private/PSLMainMenuWidget.cpp(63)
+msgctxt "PSL,Menu_NewGame"
+msgid "New Game"
+msgstr "Trò chơi mới"
+
+#. Key:	Menu_Settings
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLMainMenuWidget.cpp(64)
+#: Source/PrehistoricSurvivalLab/Private/PSLMainMenuWidget.cpp(64)
+msgctxt "PSL,Menu_Settings"
+msgid "Settings"
+msgstr "Cài đặt"
+
+#. Key:	Menu_Quit
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLMainMenuWidget.cpp(65)
+#: Source/PrehistoricSurvivalLab/Private/PSLMainMenuWidget.cpp(65)
+msgctxt "PSL,Menu_Quit"
+msgid "Quit"
+msgstr "Thoát"
+
+#. Key:	Menu_Version
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLMainMenuWidget.cpp(80)
+#: Source/PrehistoricSurvivalLab/Private/PSLMainMenuWidget.cpp(80)
+msgctxt "PSL,Menu_Version"
+msgid "Version {0}"
+msgstr "Phiên bản {0}"
+
+#. Key:	Pause_NeverSaved
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(129)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(129)
+msgctxt "PSL,Pause_NeverSaved"
+msgid "This run has never been saved."
+msgstr "Lượt chơi này chưa từng được lưu."
+
+#. Key:	Pause_UnsavedSince
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(136)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(136)
+msgctxt "PSL,Pause_UnsavedSince"
+msgid "Unsaved progress since {0}."
+msgstr "Tiến trình chưa lưu kể từ {0}."
+
+#. Key:	Pause_Saved
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(195)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(195)
+msgctxt "PSL,Pause_Saved"
+msgid "Saved"
+msgstr "Đã lưu"
+
+#. Key:	Pause_SaveRefused
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(195)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(195)
+msgctxt "PSL,Pause_SaveRefused"
+msgid "Can't save right now: the dino is starving or badly hurt."
+msgstr "Không thể lưu lúc này: khủng long đang đói lả hoặc bị thương nặng."
+
+#. Key:	Pause_Title
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(52)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(52)
+msgctxt "PSL,Pause_Title"
+msgid "PAUSED"
+msgstr "TẠM DỪNG"
+
+#. Key:	Pause_Resume
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(61)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(61)
+msgctxt "PSL,Pause_Resume"
+msgid "Resume"
+msgstr "Tiếp tục"
+
+#. Key:	Pause_Save
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(62)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(62)
+msgctxt "PSL,Pause_Save"
+msgid "Save"
+msgstr "Lưu"
+
+#. Key:	Pause_Settings
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(63)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(63)
+msgctxt "PSL,Pause_Settings"
+msgid "Settings"
+msgstr "Cài đặt"
+
+#. Key:	Pause_MainMenu
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(64)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(64)
+msgctxt "PSL,Pause_MainMenu"
+msgid "Main Menu"
+msgstr "Menu chính"
+
+#. Key:	Pause_Quit
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(65)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(65)
+msgctxt "PSL,Pause_Quit"
+msgid "Quit"
+msgstr "Thoát"
+
+#. Key:	SaveMissing
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(171)
+#: Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(171)
+msgctxt "PSL,SaveMissing"
+msgid "There is no saved game."
+msgstr "Không có trò chơi nào đã lưu."
+
+#. Key:	SaveUnreadable
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(177)
+#: Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(177)
+msgctxt "PSL,SaveUnreadable"
+msgid "The save file could not be read."
+msgstr "Không thể đọc tệp lưu."
+
+#. Key:	SaveBadChecksum
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(62)
+#: Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(62)
+msgctxt "PSL,SaveBadChecksum"
+msgid "The save file is corrupted."
+msgstr "Tệp lưu bị hỏng."
+
+#. Key:	SaveTooNew
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(71)
+#: Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(71)
+msgctxt "PSL,SaveTooNew"
+msgid "The save was made by a newer version ({0})."
+msgstr "Bản lưu được tạo bởi phiên bản mới hơn ({0})."
+
+#. Key:	SaveTooOld
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(72)
+#: Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(72)
+msgctxt "PSL,SaveTooOld"
+msgid "The save version {0} is not supported."
+msgstr "Phiên bản bản lưu {0} không được hỗ trợ."
+
+#. Key:	SaveBadSpecies
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(77)
+#: Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(77)
+msgctxt "PSL,SaveBadSpecies"
+msgid "The save refers to an unknown species."
+msgstr "Bản lưu tham chiếu đến một loài không xác định."
+
+#. Key:	SaveBadMap
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(81)
+#: Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(81)
+msgctxt "PSL,SaveBadMap"
+msgid "The save belongs to a different map."
+msgstr "Bản lưu thuộc về một bản đồ khác."
+
+#. Key:	SaveBadTransform
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(89)
+#: Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(89)
+msgctxt "PSL,SaveBadTransform"
+msgid "The saved position is invalid."
+msgstr "Vị trí đã lưu không hợp lệ."
+
+#. Key:	SaveBadHealth
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(95)
+#: Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(95)
+msgctxt "PSL,SaveBadHealth"
+msgid "The saved health is invalid."
+msgstr "Máu đã lưu không hợp lệ."
+
+#. Key:	SaveBadStats
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(99)
+#: Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(99)
+msgctxt "PSL,SaveBadStats"
+msgid "The saved stats are invalid."
+msgstr "Chỉ số đã lưu không hợp lệ."
+
+#. Key:	Settings_Title
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(111)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(111)
+msgctxt "PSL,Settings_Title"
+msgid "SETTINGS"
+msgstr "CÀI ĐẶT"
+
+#. Key:	Settings_TabAudio
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(121)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(121)
+msgctxt "PSL,Settings_TabAudio"
+msgid "Audio"
+msgstr "Âm thanh"
+
+#. Key:	Settings_TabGraphics
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(121)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(121)
+msgctxt "PSL,Settings_TabGraphics"
+msgid "Graphics"
+msgstr "Đồ họa"
+
+#. Key:	Settings_TabControls
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(122)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(122)
+msgctxt "PSL,Settings_TabControls"
+msgid "Controls"
+msgstr "Điều khiển"
+
+#. Key:	Settings_TabLanguage
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(122)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(122)
+msgctxt "PSL,Settings_TabLanguage"
+msgid "Language"
+msgstr "Ngôn ngữ"
+
+#. Key:	Settings_Quality
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(178)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(178)
+msgctxt "PSL,Settings_Quality"
+msgid "Quality preset"
+msgstr "Mức chất lượng"
+
+#. Key:	Settings_ResolutionScale
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(180)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(180)
+msgctxt "PSL,Settings_ResolutionScale"
+msgid "Resolution scale"
+msgstr "Tỷ lệ độ phân giải"
+
+#. Key:	Settings_VSync
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(182)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(182)
+msgctxt "PSL,Settings_VSync"
+msgid "VSync"
+msgstr "VSync"
+
+#. Key:	Settings_FrameCap
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(185)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(185)
+msgctxt "PSL,Settings_FrameCap"
+msgid "Frame rate cap"
+msgstr "Giới hạn khung hình"
+
+#. Key:	Settings_WindowMode
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(188)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(188)
+msgctxt "PSL,Settings_WindowMode"
+msgid "Window mode"
+msgstr "Chế độ cửa sổ"
+
+#. Key:	Settings_Master
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(192)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(192)
+msgctxt "PSL,Settings_Master"
+msgid "Master volume"
+msgstr "Âm lượng chính"
+
+#. Key:	Settings_Music
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(194)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(194)
+msgctxt "PSL,Settings_Music"
+msgid "Music volume"
+msgstr "Âm lượng nhạc"
+
+#. Key:	Settings_Sfx
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(196)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(196)
+msgctxt "PSL,Settings_Sfx"
+msgid "Effects volume"
+msgstr "Âm lượng hiệu ứng"
+
+#. Key:	Settings_Sensitivity
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(200)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(200)
+msgctxt "PSL,Settings_Sensitivity"
+msgid "Mouse sensitivity"
+msgstr "Độ nhạy chuột"
+
+#. Key:	Settings_InvertY
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(202)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(202)
+msgctxt "PSL,Settings_InvertY"
+msgid "Invert Y axis"
+msgstr "Đảo trục Y"
+
+#. Key:	Settings_English
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(205)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(205)
+msgctxt "PSL,Settings_English"
+msgid "English"
+msgstr "English"
+
+#. Key:	Settings_Vietnamese
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(209)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(209)
+msgctxt "PSL,Settings_Vietnamese"
+msgid "Tiếng Việt"
+msgstr "Tiếng Việt"
+
+#. Key:	Settings_Apply
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(218)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(218)
+msgctxt "PSL,Settings_Apply"
+msgid "Apply"
+msgstr "Áp dụng"
+
+#. Key:	Settings_Revert
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(219)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(219)
+msgctxt "PSL,Settings_Revert"
+msgid "Revert"
+msgstr "Hoàn tác"
+
+#. Key:	Settings_Back
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(220)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(220)
+msgctxt "PSL,Settings_Back"
+msgid "Back"
+msgstr "Quay lại"
+
+#. Key:	Settings_Unavailable
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(268)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(268)
+msgctxt "PSL,Settings_Unavailable"
+msgid "Settings are unavailable."
+msgstr "Không thể dùng cài đặt."
+
+#. Key:	Settings_QualityLow
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(32)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(32)
+msgctxt "PSL,Settings_QualityLow"
+msgid "Low"
+msgstr "Thấp"
+
+#. Key:	Settings_QualityMedium
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(33)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(33)
+msgctxt "PSL,Settings_QualityMedium"
+msgid "Medium"
+msgstr "Trung bình"
+
+#. Key:	Settings_QualityHigh
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(34)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(34)
+msgctxt "PSL,Settings_QualityHigh"
+msgid "High"
+msgstr "Cao"
+
+#. Key:	Settings_QualityEpic
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(35)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(35)
+msgctxt "PSL,Settings_QualityEpic"
+msgid "Epic"
+msgstr "Cực cao"
+
+#. Key:	Settings_Applied
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(352)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(352)
+msgctxt "PSL,Settings_Applied"
+msgid "Settings applied."
+msgstr "Đã áp dụng cài đặt."
+
+#. Key:	Settings_QualityCustom
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(36)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(36)
+msgctxt "PSL,Settings_QualityCustom"
+msgid "Custom"
+msgstr "Tùy chỉnh"
+
+#. Key:	Settings_ConfirmDiscard
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(377)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(377)
+msgctxt "PSL,Settings_ConfirmDiscard"
+msgid "You have unapplied changes. Press Back again to discard them."
+msgstr "Bạn có thay đổi chưa áp dụng. Nhấn Quay lại lần nữa để bỏ chúng."
+
+#. Key:	Settings_PercentValue
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(394)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(394)
+msgctxt "PSL,Settings_PercentValue"
+msgid "{0}%"
+msgstr "{0}%"
+
+#. Key:	Settings_Fps30
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(44)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(44)
+msgctxt "PSL,Settings_Fps30"
+msgid "30 FPS"
+msgstr "30 FPS"
+
+#. Key:	Settings_Fps60
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(45)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(45)
+msgctxt "PSL,Settings_Fps60"
+msgid "60 FPS"
+msgstr "60 FPS"
+
+#. Key:	Settings_Fps120
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(46)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(46)
+msgctxt "PSL,Settings_Fps120"
+msgid "120 FPS"
+msgstr "120 FPS"
+
+#. Key:	Settings_FpsUnlimited
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(47)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(47)
+msgctxt "PSL,Settings_FpsUnlimited"
+msgid "Unlimited"
+msgstr "Không giới hạn"
+
+#. Key:	Settings_WindowFullscreen
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(55)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(55)
+msgctxt "PSL,Settings_WindowFullscreen"
+msgid "Fullscreen"
+msgstr "Toàn màn hình"
+
+#. Key:	Settings_WindowBorderless
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(56)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(56)
+msgctxt "PSL,Settings_WindowBorderless"
+msgid "Borderless"
+msgstr "Không viền"
+
+#. Key:	Settings_WindowWindowed
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(57)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(57)
+msgctxt "PSL,Settings_WindowWindowed"
+msgid "Windowed"
+msgstr "Cửa sổ"
+
+#. Key:	Species_Confirm
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(110)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(110)
+msgctxt "PSL,Species_Confirm"
+msgid "Confirm"
+msgstr "Xác nhận"
+
+#. Key:	Species_Back
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(112)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(112)
+msgctxt "PSL,Species_Back"
+msgid "Back"
+msgstr "Quay lại"
+
+#. Key:	Diet_Carnivore
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(195)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(195)
+msgctxt "PSL,Diet_Carnivore"
+msgid "CARNIVORE"
+msgstr "ĂN THỊT"
+
+#. Key:	Diet_Herbivore
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(195)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(195)
+msgctxt "PSL,Diet_Herbivore"
+msgid "HERBIVORE"
+msgstr "ĂN CỎ"
+
+#. Key:	Species_Heading
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(69)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(69)
+msgctxt "PSL,Species_Heading"
+msgid "CHOOSE YOUR DINO"
+msgstr "CHỌN KHỦNG LONG"
+
+#. Key:	Species_Prev
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(75)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(75)
+msgctxt "PSL,Species_Prev"
+msgid "<"
+msgstr "<"
+
+#. Key:	Species_Next
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(81)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(81)
+msgctxt "PSL,Species_Next"
+msgid ">"
+msgstr ">"
+
+#. Key:	Stat_Health
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(91)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(91)
+msgctxt "PSL,Stat_Health"
+msgid "Health"
+msgstr "Máu"
+
+#. Key:	Stat_Speed
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(91)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(91)
+msgctxt "PSL,Stat_Speed"
+msgid "Speed"
+msgstr "Tốc độ"
+
+#. Key:	Stat_Stamina
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(91)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(91)
+msgctxt "PSL,Stat_Stamina"
+msgid "Stamina"
+msgstr "Thể lực"
+
+#. Key:	Stat_Bite
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
+msgctxt "PSL,Stat_Bite"
+msgid "Bite"
+msgstr "Cú cắn"
+
+#. Key:	Stat_Diet
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
+msgctxt "PSL,Stat_Diet"
+msgid "Diet"
+msgstr "Chế độ ăn"
+
+#. Key:	Stat_Hunger
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
+msgctxt "PSL,Stat_Hunger"
+msgid "Hunger endurance"
+msgstr "Độ chịu đói"
+

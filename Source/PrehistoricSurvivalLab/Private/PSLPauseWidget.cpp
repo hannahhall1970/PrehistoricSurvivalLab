@@ -15,6 +15,7 @@
 #include "PSLSaveSubsystem.h"
 #include "PSLSettingsWidget.h"
 #include "PSLUiButton.h"
+#include "Internationalization/Internationalization.h"
 #include "PSLUiStyle.h"
 
 #define LOCTEXT_NAMESPACE "PSL"
@@ -48,8 +49,8 @@ void UPSLPauseWidget::BuildTree()
     UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("Column"));
     Panel->SetContent(Column);
 
-    UTextBlock* Title = FPSLUiStyle::MakeText(WidgetTree, LOCTEXT("Pause_Title", "PAUSED"), FPSLUiStyle::HeadingSize, FPSLUiStyle::Accent(), true);
-    Column->AddChildToVerticalBox(Title)->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 16.0f));
+    TitleText = FPSLUiStyle::MakeText(WidgetTree, LOCTEXT("Pause_Title", "PAUSED"), FPSLUiStyle::HeadingSize, FPSLUiStyle::Accent(), true);
+    Column->AddChildToVerticalBox(TitleText)->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 16.0f));
 
     auto AddButton = [this, Column](const FText& Text) -> UPSLUiButton*
     {
@@ -88,9 +89,39 @@ void UPSLPauseWidget::NativeConstruct()
 {
     Super::NativeConstruct();
     SetIsFocusable(true);
+    if (!CultureHandle.IsValid())
+    {
+        CultureHandle = FInternationalization::Get().OnCultureChanged().AddUObject(this, &UPSLPauseWidget::HandleCultureChanged);
+    }
     ToastText->SetText(FText::GetEmpty());
-    RefreshWarning();
+    RefreshTexts();
     SetKeyboardFocus();
+}
+
+void UPSLPauseWidget::NativeDestruct()
+{
+    if (CultureHandle.IsValid())
+    {
+        FInternationalization::Get().OnCultureChanged().Remove(CultureHandle);
+        CultureHandle.Reset();
+    }
+    Super::NativeDestruct();
+}
+
+void UPSLPauseWidget::HandleCultureChanged()
+{
+    RefreshTexts();
+}
+
+void UPSLPauseWidget::RefreshTexts()
+{
+    TitleText->SetText(LOCTEXT("Pause_Title", "PAUSED"));
+    ResumeButton->GetLabel()->SetText(LOCTEXT("Pause_Resume", "Resume"));
+    SaveButton->GetLabel()->SetText(LOCTEXT("Pause_Save", "Save"));
+    SettingsButton->GetLabel()->SetText(LOCTEXT("Pause_Settings", "Settings"));
+    MainMenuButton->GetLabel()->SetText(LOCTEXT("Pause_MainMenu", "Main Menu"));
+    QuitButton->GetLabel()->SetText(LOCTEXT("Pause_Quit", "Quit"));
+    RefreshWarning();
 }
 
 void UPSLPauseWidget::RefreshWarning()

@@ -30,16 +30,21 @@ public:
     // Re-reads the save slot: Continue is active only when a valid save exists.
     void RefreshContinue();
 
+    // Re-sets every static label from its LOCTEXT (called on construction and when the culture changes).
+    void RefreshTexts();
+
     // Called by the species screen's Back button.
     void ShowMain();
 
 protected:
     virtual void NativeConstruct() override;
+    virtual void NativeDestruct() override;
     // P / Escape while Settings is open = Settings Back.
     virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 
 private:
     void BuildTree();
+    void HandleCultureChanged();
 
     UFUNCTION() void OnContinue();
     UFUNCTION() void OnNewGame();
@@ -56,4 +61,7 @@ private:
     UPROPERTY(Transient) TObjectPtr<UPSLSpeciesSelectWidget> SpeciesWidget;
     UPROPERTY(Transient) TObjectPtr<UPSLSettingsWidget> SettingsWidget;
     UPROPERTY(Transient) TObjectPtr<UWidget> MainPanel;
+    UPROPERTY(Transient) TObjectPtr<UTextBlock> TitleText;
+    FString ProjectVersionString;
+    FDelegateHandle CultureHandle;
 };

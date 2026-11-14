@@ -190,3 +190,21 @@ Sources: `Private/Tests/PSLSpeciesHungerTests.cpp`, `PSLSaveTests.cpp`, `PSLFlow
 - `PSL.PIE.Menu.PauseGameOver`: `P` (never Escape) shows the Pause widget; clicking Resume returns to Playing and removes it; lethal starvation shows the Game Over widget titled `YOU STARVED`; clicking Retry loads `L_LostValley` with a live pawn at full hunger.
 
 Prey respawner (`APSLGameMode`): in a world that placed prey, 45 s after a carcass is destroyed a replacement spawns on the NavMesh 3000-6000 uu from the player, so the living count returns to the placed count. `L_TestArena` PIE tests are unaffected: no carcass is destroyed within 47 s there. Not covered by an automated test (a 45 s wait); MANUAL-PENDING.
+
+## Task 004 M2b3 (localization EN/VI + FullFlow; results come from the harness gate only)
+
+Source: `Private/Tests/PSLLocalizationTests.cpp` and `Private/Tests/PSLMenuFlowPieTests.cpp`.
+
+- `PSL.Loc.PoComplete`: parses `Content/Localization/Game/{vi,en}/Game.po`; every vi entry has a non-empty msgstr with the msgid's `{..}` placeholders, vi and en context sets are equal, pinned keys (Menu_Title, Menu_NewGame, Species_Heading, Pause_Title, Pause_Save, GameOver_Died, HudHealth, Settings_Title) carry the expected English msgid; compiled `vi/Game.locres`, `en/Game.locres`, `Game.manifest`, `en|vi/Game.archive` exist.
+- `PSL.UI.Localization`: sets `Localization.ForceLoadGameLocalizationInEditor`, builds the six screens (Slate refs held so `OnCultureChanged` stays bound), overwrites each probed label (static labels, HUD EXHAUSTED state, species diet) with a culture-invariant sentinel, switches to `vi` and asserts each label equals the vi msgstr (only `RefreshTexts` can replace the sentinel), then the same back to `en`. Culture and CVar are restored on every path.
+- `PSL.Settings.CultureApplies`: `CultureName="vi"` + `ApplyCulture()` switches the current culture; `SaveSettings` then a fresh `LoadSettings(true)` reads `vi`; original value and culture restored.
+- `PSL.UI.VietnameseGlyphs`: every Vietnamese codepoint is checked with `FSlateFontCache::CanLoadCodepoint` for regular and bold `FPSLUiStyle::Font`; `FF_NoFallback` first, `FF_LastResortFallback` if the primary face lacks a glyph (AddInfo states which level was needed). Errors when Slate or the renderer is unavailable.
+- `PSL.PIE.Menu.FullFlow`: opens L_MainMenu, isolates slot `PSL_Test_FullFlow`, clicks New Game -> Next until Parasaurolophus -> Confirm -> L_LostValley; damages, sprints, drains hunger and moves the pawn off spawn; P -> Pause Save button -> Main Menu -> Continue; asserts map, species, position (<= 50 uu) and health/hunger/stamina restored; deletes the test slot and restores the slot name.
+
+### Editor-only limitations
+
+- (a) `Internationalization.Culture` is not written in the editor (`KismetInternationalizationLibrary.cpp:16`, `!GIsEditor`); persistence relies on `UPSLGameUserSettings::CultureName`.
+- (b) The editor needs `Localization.ForceLoadGameLocalizationInEditor` to load non-native locres.
+- (c) The final font BeVietnamPro is M2c; the glyph test currently runs on the engine default font.
+- (d) `-nullrhi` `ClickWidget` uses the `OnClicked` fallback.
+- (e) Packaged-build verification is pending: staged cultures (`InternationalizationPreset=All` for vi ICU data), locres in the pak, L_MainMenu cooked (`GameDefaultMap`/`MapsToCook` switch is M2c).

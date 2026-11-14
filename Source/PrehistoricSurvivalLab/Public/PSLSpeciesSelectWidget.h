@@ -35,13 +35,18 @@ public:
     void SelectNext();
     void SelectPrevious();
 
+    // Re-sets every static label and the per-species name/diet/description from their LOCTEXT (construction and culture change).
+    void RefreshTexts();
+
 protected:
     virtual void NativeConstruct() override;
+    virtual void NativeDestruct() override;
     virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 
 private:
     void BuildTree();
     void Refresh();
+    void HandleCultureChanged();
 
     UFUNCTION() void OnPrev();
     UFUNCTION() void OnNext();
@@ -58,4 +63,7 @@ private:
     UPROPERTY(Transient) TObjectPtr<UTextBlock> DescriptionText;
     UPROPERTY(Transient) TObjectPtr<UTextBlock> DietText;
     UPROPERTY(Transient) TArray<TObjectPtr<UProgressBar>> StatBars;
+    UPROPERTY(Transient) TObjectPtr<UTextBlock> HeadingText;
+    UPROPERTY(Transient) TArray<TObjectPtr<UTextBlock>> StatLabels;
+    FDelegateHandle CultureHandle;
 };

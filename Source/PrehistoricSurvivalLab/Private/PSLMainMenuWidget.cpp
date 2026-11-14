@@ -16,6 +16,7 @@
 #include "PSLSettingsWidget.h"
 #include "PSLSpeciesSelectWidget.h"
 #include "PSLUiButton.h"
+#include "Internationalization/Internationalization.h"
 #include "PSLUiStyle.h"
 
 #define LOCTEXT_NAMESPACE "PSL"
@@ -49,8 +50,8 @@ void UPSLMainMenuWidget::BuildTree()
     UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("Column"));
     Panel->SetContent(Column);
 
-    UTextBlock* Title = FPSLUiStyle::MakeText(WidgetTree, LOCTEXT("Menu_Title", "PREHISTORIC SURVIVAL"), FPSLUiStyle::TitleSize, FPSLUiStyle::Accent(), true);
-    Column->AddChildToVerticalBox(Title)->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 24.0f));
+    TitleText = FPSLUiStyle::MakeText(WidgetTree, LOCTEXT("Menu_Title", "PREHISTORIC SURVIVAL"), FPSLUiStyle::TitleSize, FPSLUiStyle::Accent(), true);
+    Column->AddChildToVerticalBox(TitleText)->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 24.0f));
 
     auto AddButton = [this, Column](const FText& Text) -> UPSLUiButton*
     {
@@ -74,6 +75,7 @@ void UPSLMainMenuWidget::BuildTree()
     {
         ProjectVersion = TEXT("1.0.0.0"); // engine BaseGame.ini default
     }
+    ProjectVersionString = ProjectVersion;
     VersionText = FPSLUiStyle::MakeText(WidgetTree,
         FText::Format(LOCTEXT("Menu_Version", "Version {0}"), FText::AsCultureInvariant(ProjectVersion)),
         FPSLUiStyle::BodySize, FPSLUiStyle::Disabled());
@@ -102,7 +104,37 @@ void UPSLMainMenuWidget::NativeConstruct()
 {
     Super::NativeConstruct();
     SetIsFocusable(true);
+    if (!CultureHandle.IsValid())
+    {
+        CultureHandle = FInternationalization::Get().OnCultureChanged().AddUObject(this, &UPSLMainMenuWidget::HandleCultureChanged);
+    }
+    RefreshTexts();
     RefreshContinue();
+}
+
+void UPSLMainMenuWidget::NativeDestruct()
+{
+    if (CultureHandle.IsValid())
+    {
+        FInternationalization::Get().OnCultureChanged().Remove(CultureHandle);
+        CultureHandle.Reset();
+    }
+    Super::NativeDestruct();
+}
+
+void UPSLMainMenuWidget::HandleCultureChanged()
+{
+    RefreshTexts();
+}
+
+void UPSLMainMenuWidget::RefreshTexts()
+{
+    TitleText->SetText(LOCTEXT("Menu_Title", "PREHISTORIC SURVIVAL"));
+    ContinueButton->GetLabel()->SetText(LOCTEXT("Menu_Continue", "Continue"));
+    NewGameButton->GetLabel()->SetText(LOCTEXT("Menu_NewGame", "New Game"));
+    SettingsButton->GetLabel()->SetText(LOCTEXT("Menu_Settings", "Settings"));
+    QuitButton->GetLabel()->SetText(LOCTEXT("Menu_Quit", "Quit"));
+    VersionText->SetText(FText::Format(LOCTEXT("Menu_Version", "Version {0}"), FText::AsCultureInvariant(ProjectVersionString)));
 }
 
 void UPSLMainMenuWidget::RefreshContinue()

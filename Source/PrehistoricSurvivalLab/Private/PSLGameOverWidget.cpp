@@ -10,6 +10,7 @@
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "InputCoreTypes.h"
+#include "Internationalization/Internationalization.h"
 #include "PSLGameInstance.h"
 #include "PSLGameMode.h"
 #include "PSLSaveSubsystem.h"
@@ -81,10 +82,13 @@ FString UPSLGameOverWidget::FormatSurvivalTime(float Seconds)
 
 void UPSLGameOverWidget::RefreshTexts()
 {
-    if (!TitleText || !StatsText)
+    if (!TitleText || !StatsText || !RetryButton || !ContinueButton || !MainMenuButton)
     {
         return;
     }
+    RetryButton->GetLabel()->SetText(LOCTEXT("GameOver_Retry", "Retry"));
+    ContinueButton->GetLabel()->SetText(LOCTEXT("GameOver_Continue", "Continue"));
+    MainMenuButton->GetLabel()->SetText(LOCTEXT("GameOver_MainMenu", "Main Menu"));
     TitleText->SetText(bStarved ? LOCTEXT("GameOver_Starved", "YOU STARVED") : LOCTEXT("GameOver_Died", "YOU DIED"));
 
     const UPSLGameInstance* Session = GetWorld() ? Cast<UPSLGameInstance>(GetWorld()->GetGameInstance()) : nullptr;
@@ -100,12 +104,31 @@ void UPSLGameOverWidget::NativeConstruct()
 {
     Super::NativeConstruct();
     SetIsFocusable(true);
+    if (!CultureHandle.IsValid())
+    {
+        CultureHandle = FInternationalization::Get().OnCultureChanged().AddUObject(this, &UPSLGameOverWidget::HandleCultureChanged);
+    }
     RefreshTexts();
 
     const UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
     const UPSLSaveSubsystem* Saves = GI ? GI->GetSubsystem<UPSLSaveSubsystem>() : nullptr;
     ContinueButton->SetActive(Saves && Saves->HasValidSave());
     SetKeyboardFocus();
+}
+
+void UPSLGameOverWidget::NativeDestruct()
+{
+    if (CultureHandle.IsValid())
+    {
+        FInternationalization::Get().OnCultureChanged().Remove(CultureHandle);
+        CultureHandle.Reset();
+    }
+    Super::NativeDestruct();
+}
+
+void UPSLGameOverWidget::HandleCultureChanged()
+{
+    RefreshTexts();
 }
 
 FReply UPSLGameOverWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)

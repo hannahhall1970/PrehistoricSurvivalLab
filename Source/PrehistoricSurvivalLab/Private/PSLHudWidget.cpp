@@ -9,6 +9,7 @@
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Fonts/SlateFontInfo.h"
+#include "Internationalization/Internationalization.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/SizeBox.h"
@@ -36,7 +37,7 @@ namespace
     }
 
     // 22x22 rounded icon in the bar colour with a centred glyph.
-    UWidget* MakeIcon(UWidgetTree* Tree, const FText& Glyph, const FLinearColor& Color)
+    UWidget* MakeIcon(UWidgetTree* Tree, const FText& Glyph, const FLinearColor& Color, UTextBlock*& OutGlyph)
     {
         USizeBox* Box = Tree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
         Box->SetWidthOverride(22.0f);
@@ -51,18 +52,24 @@ namespace
         Icon->SetBrush(Brush);
         Icon->SetHorizontalAlignment(HAlign_Center);
         Icon->SetVerticalAlignment(VAlign_Center);
-        Icon->SetContent(MakeLabel(Tree, Glyph, 16, FLinearColor::White));
+        OutGlyph = MakeLabel(Tree, Glyph, 16, FLinearColor::White);
+        Icon->SetContent(OutGlyph);
         Box->SetContent(Icon);
         return Box;
     }
 
     // Row `[icon] LABEL ... value / max` plus its bar; returns the bar and the value text.
-    UProgressBar* MakeBar(UWidgetTree* Tree, UVerticalBox* Parent, const FText& Caption, const FText& Glyph, const FLinearColor& Fill, UTextBlock*& OutValue)
+    UProgressBar* MakeBar(UWidgetTree* Tree, UVerticalBox* Parent, const FText& Caption, const FText& Glyph, const FLinearColor& Fill, UTextBlock*& OutValue,
+        TArray<TObjectPtr<UTextBlock>>& OutCaptions, TArray<TObjectPtr<UTextBlock>>& OutGlyphs)
     {
         UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
-        Row->AddChildToHorizontalBox(MakeIcon(Tree, Glyph, Fill))->SetVerticalAlignment(VAlign_Center);
+        UTextBlock* GlyphLabel = nullptr;
+        Row->AddChildToHorizontalBox(MakeIcon(Tree, Glyph, Fill, GlyphLabel))->SetVerticalAlignment(VAlign_Center);
+        OutGlyphs.Add(GlyphLabel);
 
-        UHorizontalBoxSlot* LabelSlot = Row->AddChildToHorizontalBox(MakeLabel(Tree, Caption, 16, FLinearColor::White));
+        UTextBlock* CaptionLabel = MakeLabel(Tree, Caption, 16, FLinearColor::White);
+        OutCaptions.Add(CaptionLabel);
+        UHorizontalBoxSlot* LabelSlot = Row->AddChildToHorizontalBox(CaptionLabel);
         LabelSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
         LabelSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
         LabelSlot->SetVerticalAlignment(VAlign_Center);
@@ -110,10 +117,10 @@ void UPSLHudWidget::BuildTree()
 
     UTextBlock* HealthValue = nullptr;
     UTextBlock* StaminaValue = nullptr;
-    HealthBar = MakeBar(WidgetTree, Column, LOCTEXT("HudHealth", "HEALTH"), LOCTEXT("HudHealthGlyph", "+"), FLinearColor(0.8f, 0.1f, 0.1f, 1.0f), HealthValue);
-    StaminaBar = MakeBar(WidgetTree, Column, LOCTEXT("HudStamina", "STAMINA"), LOCTEXT("HudStaminaGlyph", ">"), FLinearColor(0.2f, 0.8f, 0.3f, 1.0f), StaminaValue);
+    HealthBar = MakeBar(WidgetTree, Column, LOCTEXT("HudHealth", "HEALTH"), LOCTEXT("HudHealthGlyph", "+"), FLinearColor(0.8f, 0.1f, 0.1f, 1.0f), HealthValue, CaptionTexts, GlyphTexts);
+    StaminaBar = MakeBar(WidgetTree, Column, LOCTEXT("HudStamina", "STAMINA"), LOCTEXT("HudStaminaGlyph", ">"), FLinearColor(0.2f, 0.8f, 0.3f, 1.0f), StaminaValue, CaptionTexts, GlyphTexts);
     UTextBlock* HungerValue = nullptr;
-    HungerBar = MakeBar(WidgetTree, Column, LOCTEXT("HudHunger", "HUNGER"), LOCTEXT("HudHungerGlyph", "o"), FPSLUiStyle::Accent(), HungerValue);
+    HungerBar = MakeBar(WidgetTree, Column, LOCTEXT("HudHunger", "HUNGER"), LOCTEXT("HudHungerGlyph", "o"), FPSLUiStyle::Accent(), HungerValue, CaptionTexts, GlyphTexts);
     HealthValueText = HealthValue;
     StaminaValueText = StaminaValue;
     HungerValueText = HungerValue;
@@ -159,6 +166,41 @@ void UPSLHudWidget::NativeConstruct()
     // Re-adding to the viewport re-runs NativeConstruct; drop any earlier binding first.
     APSLPreyCharacter::OnAnyPreyKilled().Remove(PreyKilledHandle);
     PreyKilledHandle = APSLPreyCharacter::OnAnyPreyKilled().AddUObject(this, &UPSLHudWidget::HandlePreyKilled);
+    if (!CultureHandle.IsValid())
+    {
+        CultureHandle = FInternationalization::Get().OnCultureChanged().AddUObject(this, &UPSLHudWidget::HandleCultureChanged);
+    }
+}
+
+void UPSLHudWidget::HandleCultureChanged()
+{
+    RefreshTexts();
+}
+
+void UPSLHudWidget::RefreshTexts()
+{
+    if (!HealthBar || !HungerBar || !DeadText || !KillBannerText || !HitMarkerText || CaptionTexts.Num() != 3 || GlyphTexts.Num() != 3)
+    {
+        return;
+    }
+    CaptionTexts[0]->SetText(LOCTEXT("HudHealth", "HEALTH"));
+    CaptionTexts[1]->SetText(LOCTEXT("HudStamina", "STAMINA"));
+    CaptionTexts[2]->SetText(LOCTEXT("HudHunger", "HUNGER"));
+    GlyphTexts[0]->SetText(LOCTEXT("HudHealthGlyph", "+"));
+    GlyphTexts[1]->SetText(LOCTEXT("HudStaminaGlyph", ">"));
+    GlyphTexts[2]->SetText(LOCTEXT("HudHungerGlyph", "o"));
+    DeadText->SetText(LOCTEXT("HudDead", "DEAD"));
+    KillBannerText->SetText(LOCTEXT("HudPreyDown", "PREY DOWN"));
+    HitMarkerText->SetText(LOCTEXT("HudHit", "HIT"));
+    // The food hint is passed in by the HUD every tick, so only the value/state texts need replaying.
+    if (bHaveValues)
+    {
+        SetValues(LastHealth, LastMaxHealth, LastStamina, LastMaxStamina, bLastSprinting, bLastExhausted, bLastDead);
+    }
+    if (bHaveHunger)
+    {
+        HungerValueText->SetText(FText::Format(LOCTEXT("HudValueFmt", "{0} / {1}"), FText::AsNumber(FMath::RoundToInt(LastHunger)), FText::AsNumber(FMath::RoundToInt(LastMaxHunger))));
+    }
 }
 
 void UPSLHudWidget::SetValues(float Health, float MaxHealth, float Stamina, float MaxStamina, bool bSprinting, bool bExhausted, bool bDead)
@@ -167,6 +209,15 @@ void UPSLHudWidget::SetValues(float Health, float MaxHealth, float Stamina, floa
     {
         return;
     }
+
+    bHaveValues = true;
+    LastHealth = Health;
+    LastMaxHealth = MaxHealth;
+    LastStamina = Stamina;
+    LastMaxStamina = MaxStamina;
+    bLastSprinting = bSprinting;
+    bLastExhausted = bExhausted;
+    bLastDead = bDead;
 
     HealthBar->SetPercent(APSLHUD::BarFraction(Health, MaxHealth));
     StaminaBar->SetPercent(APSLHUD::BarFraction(Stamina, MaxStamina));
@@ -187,6 +238,9 @@ void UPSLHudWidget::SetHunger(float Hunger, float MaxHunger, bool bStarving, con
     {
         return;
     }
+    bHaveHunger = true;
+    LastHunger = Hunger;
+    LastMaxHunger = MaxHunger;
     HungerBar->SetPercent(APSLHUD::BarFraction(Hunger, MaxHunger));
     HungerValueText->SetText(FText::Format(LOCTEXT("HudValueFmt", "{0} / {1}"), FText::AsNumber(FMath::RoundToInt(Hunger)), FText::AsNumber(FMath::RoundToInt(MaxHunger))));
     bStarvingFlash = bStarving;
@@ -217,6 +271,11 @@ void UPSLHudWidget::HandleBiteHit()
 
 void UPSLHudWidget::NativeDestruct()
 {
+    if (CultureHandle.IsValid())
+    {
+        FInternationalization::Get().OnCultureChanged().Remove(CultureHandle);
+        CultureHandle.Reset();
+    }
     APSLPreyCharacter::OnAnyPreyKilled().Remove(PreyKilledHandle);
     if (APSLCharacter* Bound = BoundCharacter.Get())
     {

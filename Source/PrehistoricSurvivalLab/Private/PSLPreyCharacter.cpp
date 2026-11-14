@@ -65,7 +65,7 @@ APSLPreyCharacter::APSLPreyCharacter()
     AlertText = CreateDefaultSubobject<UTextRenderComponent>(TEXT("AlertText"));
     AlertText->SetupAttachment(GetCapsuleComponent());
     AlertText->SetRelativeLocation(FVector(0.0f, 0.0f, 100.0f));
-    AlertText->SetText(FText::FromString(TEXT("!")));
+    AlertText->SetText(FText::AsCultureInvariant(TEXT("!"))); // symbol, not language
     AlertText->SetTextRenderColor(FColor(255, 170, 0));
     AlertText->SetWorldSize(48.0f);
     AlertText->SetHorizontalAlignment(EHTA_Center);

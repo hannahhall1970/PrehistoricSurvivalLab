@@ -40,6 +40,9 @@ public:
     // Builds the widget tree when none exists; NativeOnInitialized would need a PlayerContext.
     virtual bool Initialize() override;
 
+    // Re-sets every static label (HEALTH, DEAD, PREY DOWN, HIT...) and replays the last value/state texts (culture change).
+    void RefreshTexts();
+
 protected:
     virtual void NativeConstruct() override;
     virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
@@ -52,9 +55,25 @@ protected:
 private:
     void BuildTree();
     void HandlePreyKilled(class APSLPreyCharacter* Prey, AActor* Killer);
+    void HandleCultureChanged();
 
     UFUNCTION()
     void HandleBiteHit();
+    FDelegateHandle CultureHandle;
+
+    // Last pushed values, replayed by RefreshTexts so value/state texts follow a culture change without waiting for a tick.
+    bool bHaveValues = false;
+    float LastHealth = 0.0f, LastMaxHealth = 0.0f, LastStamina = 0.0f, LastMaxStamina = 0.0f;
+    bool bLastSprinting = false, bLastExhausted = false, bLastDead = false;
+    bool bHaveHunger = false;
+    float LastHunger = 0.0f, LastMaxHunger = 0.0f;
+
+    // Caption and icon-glyph labels in Health, Stamina, Hunger order.
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UTextBlock>> CaptionTexts;
+
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UTextBlock>> GlyphTexts;
 
     FDelegateHandle PreyKilledHandle;
     TWeakObjectPtr<class APSLCharacter> BoundCharacter;

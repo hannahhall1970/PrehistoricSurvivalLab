@@ -28,13 +28,17 @@ public:
     // Formats seconds as mm:ss (minutes are not capped at 59).
     static FString FormatSurvivalTime(float Seconds);
 
+    // Re-sets title, stats and button labels from their LOCTEXT (called on construction and when the culture changes).
+    void RefreshTexts();
+
 protected:
     virtual void NativeConstruct() override;
+    virtual void NativeDestruct() override;
     virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 
 private:
     void BuildTree();
-    void RefreshTexts();
+    void HandleCultureChanged();
 
     UFUNCTION() void OnRetry();
     UFUNCTION() void OnContinue();
@@ -47,4 +51,5 @@ private:
     UPROPERTY(Transient) TObjectPtr<UPSLUiButton> MainMenuButton;
     UPROPERTY(Transient) TObjectPtr<UTextBlock> TitleText;
     UPROPERTY(Transient) TObjectPtr<UTextBlock> StatsText;
+    FDelegateHandle CultureHandle;
 };
