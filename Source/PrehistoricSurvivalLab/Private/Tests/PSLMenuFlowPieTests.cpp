@@ -103,7 +103,7 @@ void ResetForMapChange(FPSLPieCtx& Ctx, const TCHAR* NextMap)
 }
 
 template <typename T>
-T* FindScreen(FPSLPieCtx& Ctx)
+T* FindFlowScreen(FPSLPieCtx& Ctx)
 {
     TArray<UUserWidget*> Found;
     UWidgetBlueprintLibrary::GetAllWidgetsOfClass(Ctx.World, Found, T::StaticClass(), true);
@@ -239,7 +239,7 @@ bool FPSLMenuFullFlowPieTest::RunTest(const FString& Parameters)
             SendKey(Ctx, EKeys::P, IE_Pressed);
             SendKey(Ctx, EKeys::P, IE_Released);
         }
-        if (GameMode->GetGameState() != EPSLGameState::Paused || !FindScreen<UPSLPauseWidget>(Ctx))
+        if (GameMode->GetGameState() != EPSLGameState::Paused || !FindFlowScreen<UPSLPauseWidget>(Ctx))
         {
             return false;
         }
@@ -260,7 +260,7 @@ bool FPSLMenuFullFlowPieTest::RunTest(const FString& Parameters)
     });
     AddPieStep(Context, TEXT("ClickSave"), 4.0f, [Flow](FPSLPieCtx& Ctx)
     {
-        UPSLPauseWidget* Pause = Ctx.IsUsable() ? FindScreen<UPSLPauseWidget>(Ctx) : nullptr;
+        UPSLPauseWidget* Pause = Ctx.IsUsable() ? FindFlowScreen<UPSLPauseWidget>(Ctx) : nullptr;
         if (!Ctx.Test->TestNotNull(TEXT("Pause widget"), Pause))
         {
             return true;
@@ -273,7 +273,7 @@ bool FPSLMenuFullFlowPieTest::RunTest(const FString& Parameters)
     });
     AddPieStep(Context, TEXT("ClickMainMenu"), 4.0f, [Flow](FPSLPieCtx& Ctx)
     {
-        UPSLPauseWidget* Pause = Ctx.IsUsable() ? FindScreen<UPSLPauseWidget>(Ctx) : nullptr;
+        UPSLPauseWidget* Pause = Ctx.IsUsable() ? FindFlowScreen<UPSLPauseWidget>(Ctx) : nullptr;
         if (!Ctx.Test->TestNotNull(TEXT("Pause widget"), Pause))
         {
             return true;
