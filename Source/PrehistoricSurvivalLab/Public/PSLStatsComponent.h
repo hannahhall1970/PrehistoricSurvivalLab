@@ -30,6 +30,9 @@ public:
     UFUNCTION(BlueprintCallable, Category="Stats")
     float ApplyDamage(float Amount);
 
+    // Restores health (save load): clamped to [0, MaxHealth], broadcasts OnHealthChanged on change. Never revives or kills.
+    void SetHealth(float NewHealth);
+
     UFUNCTION(BlueprintPure, Category="Stats")
     bool IsDead() const { return bIsDead; }
 

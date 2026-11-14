@@ -1,5 +1,9 @@
 #include "PSLGameMode.h"
 
+#include "Blueprint/UserWidget.h"
+#include "Camera/CameraComponent.h"
+#include "PSLGameOverWidget.h"
+#include "PSLPauseWidget.h"
 #include "EngineUtils.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
@@ -50,6 +54,7 @@ void APSLGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
     {
         UGameplayStatics::SetGamePaused(this, false);
     }
+    CloseScreen();
     Super::EndPlay(EndPlayReason);
 }
 
@@ -107,7 +112,7 @@ void APSLGameMode::RestoreFromSave(APlayerController* PC)
 
     Character->SetActorTransform(Data.PlayerTransform, false, nullptr, ETeleportType::TeleportPhysics);
     PC->SetControlRotation(Data.ControlRotation);
-    Character->GetStatsComponent()->Health = Data.Health;
+    Character->GetStatsComponent()->SetHealth(Data.Health);
     Character->GetSurvivalComponent()->RestoreState(Data.Stamina, Data.Hunger);
 }
 
@@ -139,6 +144,7 @@ void APSLGameMode::PauseGame()
     State = EPSLGameState::Paused;
     UGameplayStatics::SetGamePaused(this, true);
     SetInputForState();
+    OpenScreen(UPSLPauseWidget::StaticClass());
 }
 
 void APSLGameMode::ResumeGame()
@@ -150,6 +156,7 @@ void APSLGameMode::ResumeGame()
     State = EPSLGameState::Playing;
     UGameplayStatics::SetGamePaused(this, false);
     SetInputForState();
+    CloseScreen();
 }
 
 void APSLGameMode::TogglePause()
@@ -178,10 +185,56 @@ void APSLGameMode::EnterGameOver()
     State = EPSLGameState::GameOver;
     UGameplayStatics::SetGamePaused(this, true);
     SetInputForState();
+
+    // Cause is read now: the title must not depend on the pawn later.
+    bool bStarved = false;
+    if (const APSLCharacter* Character = Player.Get())
+    {
+        bStarved = Character->GetSurvivalComponent() && Character->GetSurvivalComponent()->DiedOfStarvation();
+        // Desaturate the world behind the screen through the pawn camera's own post-process settings.
+        if (UCameraComponent* Camera = Character->FindComponentByClass<UCameraComponent>())
+        {
+            Camera->PostProcessBlendWeight = 1.0f;
+            Camera->PostProcessSettings.bOverride_ColorSaturation = true;
+            Camera->PostProcessSettings.ColorSaturation = FVector4(0.2, 0.2, 0.2, 1.0);
+        }
+    }
+    OpenScreen(UPSLGameOverWidget::StaticClass());
+    if (UPSLGameOverWidget* GameOver = Cast<UPSLGameOverWidget>(ScreenWidget))
+    {
+        GameOver->SetStarved(bStarved);
+    }
+}
+
+void APSLGameMode::OpenScreen(TSubclassOf<UUserWidget> WidgetClass)
+{
+    CloseScreen();
+    APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0);
+    if (!PC || !WidgetClass)
+    {
+        return;
+    }
+    ScreenWidget = CreateWidget<UUserWidget>(PC, WidgetClass);
+    if (ScreenWidget)
+    {
+        ScreenWidget->AddToViewport();
+        ScreenWidget->SetUserFocus(PC);
+        ScreenWidget->SetKeyboardFocus();
+    }
+}
+
+void APSLGameMode::CloseScreen()
+{
+    if (ScreenWidget)
+    {
+        ScreenWidget->RemoveFromParent();
+        ScreenWidget = nullptr;
+    }
 }
 
 void APSLGameMode::Retry()
 {
+    CloseScreen();
     UGameplayStatics::SetGamePaused(this, false);
     State = EPSLGameState::Playing;
     UPSLGameInstance* Session = Cast<UPSLGameInstance>(GetGameInstance());

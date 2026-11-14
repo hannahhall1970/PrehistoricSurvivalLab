@@ -21,6 +21,13 @@ public:
     // Pushes values into the widgets; bar percent uses APSLHUD::BarFraction (clamped to [0,1]).
     void SetValues(float Health, float MaxHealth, float Stamina, float MaxStamina, bool bSprinting, bool bExhausted, bool bDead);
 
+    // Hunger row and diet hint. Starving flashes the bar rust; Hint is the localized food hint (may be empty).
+    void SetHunger(float Hunger, float MaxHunger, bool bStarving, const FText& Hint);
+
+    UProgressBar* GetHungerBar() const { return HungerBar; }
+    UTextBlock* GetHungerValueText() const { return HungerValueText; }
+    UTextBlock* GetHintText() const { return HintText; }
+
     UProgressBar* GetHealthBar() const { return HealthBar; }
     UProgressBar* GetStaminaBar() const { return StaminaBar; }
     UTextBlock* GetStateText() const { return StateText; }
@@ -53,6 +60,17 @@ private:
     TWeakObjectPtr<class APSLCharacter> BoundCharacter;
     float KillBannerRemaining = 0.0f;
     float HitMarkerRemaining = 0.0f;
+    bool bStarvingFlash = false;
+    float FlashTime = 0.0f;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UProgressBar> HungerBar;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UTextBlock> HungerValueText;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UTextBlock> HintText;
 
     UPROPERTY(Transient)
     TObjectPtr<UProgressBar> HealthBar;

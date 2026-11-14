@@ -41,6 +41,9 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "HAL/IConsoleManager.h"
 #include "Widgets/SWindow.h"
+#include "Components/Button.h"
+#include "Components/Widget.h"
+#include "Framework/Application/SlateApplication.h"
 
 // Shared PIE test helpers (moved verbatim from PSLPieTests.cpp; static -> inline).
 namespace PSLPie
@@ -599,6 +602,64 @@ inline void AssertPreyCollapsed(FPSLPieCtx& Ctx, const APSLPreyCharacter& Prey, 
     Ctx.Test->TestTrue(
         FString::Printf(TEXT("Dead prey collapsed %s (height %.1f <= 0.6 x alive %.1f)"), When, Height, AliveHeight),
         Height >= 0.0f && Height <= 0.6f * AliveHeight);
+}
+
+// Clicks a widget. With a rendered viewport (non-zero cached geometry) this is a real Slate left click at the widget's
+// centre; under -nullrhi geometry is zero and synthetic Slate input is not routed, so a UButton's OnClicked is
+// broadcast instead and the fallback is logged. bOutRealInput reports which path ran.
+inline bool ClickWidget(FPSLPieCtx& Context, UWidget* Widget, bool* bOutRealInput = nullptr)
+{
+    if (bOutRealInput)
+    {
+        *bOutRealInput = false;
+    }
+    if (!Widget || !Widget->GetIsEnabled() || !Widget->IsVisible())
+    {
+        return false;
+    }
+
+    const FGeometry Geometry = Widget->GetCachedGeometry();
+    const FVector2f Size = Geometry.GetLocalSize();
+    if (FApp::CanEverRender() && FSlateApplication::IsInitialized() && Size.X > 0.0f && Size.Y > 0.0f)
+    {
+        const FVector2f Center = Geometry.LocalToAbsolute(Size * 0.5f);
+        FSlateApplication& Slate = FSlateApplication::Get();
+        const FModifierKeysState NoModifiers;
+        const TSet<FKey> NoButtons;
+        TSet<FKey> LeftDown;
+        LeftDown.Add(EKeys::LeftMouseButton);
+        Slate.ProcessMouseMoveEvent(FPointerEvent(0, 0, Center, Center, NoButtons, FKey(), 0.0f, NoModifiers));
+        Slate.ProcessMouseButtonDownEvent(nullptr, FPointerEvent(0, 0, Center, Center, LeftDown, EKeys::LeftMouseButton, 0.0f, NoModifiers));
+        Slate.ProcessMouseButtonUpEvent(FPointerEvent(0, 0, Center, Center, NoButtons, EKeys::LeftMouseButton, 0.0f, NoModifiers));
+        if (bOutRealInput)
+        {
+            *bOutRealInput = true;
+        }
+        return true;
+    }
+
+    if (UButton* Button = Cast<UButton>(Widget))
+    {
+        UE_LOG(LogTemp, Log, TEXT("[fallback] ClickWidget %s: no geometry/renderer, broadcasting OnClicked"), *Widget->GetName());
+        Button->OnClicked.Broadcast();
+        return true;
+    }
+    return false;
+}
+
+// Sends a key press + release to the Slate focus path (UI-only screens: Pause, Game Over, Species). Under -nullrhi
+// Slate may not route it; callers must then fall back to the widget's own methods.
+inline bool PressKeyUI(FPSLPieCtx& Context, const FKey& Key)
+{
+    if (!FSlateApplication::IsInitialized())
+    {
+        return false;
+    }
+    FSlateApplication& Slate = FSlateApplication::Get();
+    const FKeyEvent Event(Key, FModifierKeysState(), 0, false, 0, 0);
+    const bool bDown = Slate.ProcessKeyDownEvent(Event);
+    Slate.ProcessKeyUpEvent(Event);
+    return bDown;
 }
 
 } // namespace PSLPie

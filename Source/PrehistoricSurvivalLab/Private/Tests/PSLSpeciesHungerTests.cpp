@@ -12,6 +12,7 @@
 #include "PSLStatsComponent.h"
 #include "PSLSurvivalComponent.h"
 #include "UObject/UObjectGlobals.h"
+#include "PSLVitalsListener.h"
 
 namespace
 {
@@ -243,6 +244,44 @@ bool FPSLSurvivalRestoreTest::RunTest(const FString& Parameters)
     Restored->RestoreState(5000.0f, -3.0f);
     TestEqual(TEXT("Stamina clamped to max"), Restored->GetStamina(), Restored->GetMaxStamina());
     TestEqual(TEXT("Hunger clamped to zero"), Restored->GetHunger(), 0.0f);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLRestoreBroadcastsTest, "PSL.Hunger.RestoreBroadcasts", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPSLRestoreBroadcastsTest::RunTest(const FString& Parameters)
+{
+    // A loaded save must reach the HUD through the normal change events, not only through the next poll.
+    UPSLVitalsListener* Listener = NewObject<UPSLVitalsListener>();
+
+    UPSLSurvivalComponent* Survival = NewObject<UPSLSurvivalComponent>();
+    Survival->OnStaminaChanged.AddDynamic(Listener, &UPSLVitalsListener::OnStamina);
+    Survival->OnHungerChanged.AddDynamic(Listener, &UPSLVitalsListener::OnHunger);
+    Survival->RestoreState(33.0f, 44.0f);
+    TestEqual(TEXT("Stamina broadcast once"), Listener->StaminaCalls, 1);
+    TestEqual(TEXT("Stamina broadcast carries the restored value"), Listener->LastStamina, 33.0f);
+    TestEqual(TEXT("Hunger broadcast once"), Listener->HungerCalls, 1);
+    TestEqual(TEXT("Hunger broadcast carries the restored value"), Listener->LastHunger, 44.0f);
+
+    Survival->RestoreState(5000.0f, -3.0f);
+    TestEqual(TEXT("Broadcast stamina is the clamped value"), Listener->LastStamina, Survival->GetMaxStamina());
+    TestEqual(TEXT("Broadcast hunger is the clamped value"), Listener->LastHunger, 0.0f);
+
+    UPSLStatsComponent* Stats = NewObject<UPSLStatsComponent>();
+    Stats->OnHealthChanged.AddDynamic(Listener, &UPSLVitalsListener::OnHealth);
+    const float Full = Stats->GetHealth();
+    Stats->SetHealth(37.0f);
+    TestEqual(TEXT("Health restored"), Stats->GetHealth(), 37.0f);
+    TestEqual(TEXT("Health broadcast once"), Listener->HealthCalls, 1);
+    TestEqual(TEXT("Health broadcast carries the value"), Listener->LastHealth, 37.0f);
+    TestEqual(TEXT("Health broadcast carries the delta"), Listener->LastHealthDelta, 37.0f - Full);
+    Stats->SetHealth(37.0f);
+    TestEqual(TEXT("Unchanged health does not broadcast"), Listener->HealthCalls, 1);
+    Stats->SetHealth(99999.0f);
+    TestEqual(TEXT("Health clamps to max"), Stats->GetHealth(), Stats->GetMaxHealth());
+    Stats->SetHealth(-5.0f);
+    TestEqual(TEXT("Health clamps to zero"), Stats->GetHealth(), 0.0f);
+    TestFalse(TEXT("SetHealth never marks the owner dead"), Stats->IsDead());
     return true;
 }
 

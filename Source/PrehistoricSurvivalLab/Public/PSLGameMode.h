@@ -7,6 +7,7 @@
 
 class APSLCharacter;
 class APSLPreyCharacter;
+class UUserWidget;
 
 UENUM(BlueprintType)
 enum class EPSLGameState : uint8
@@ -70,6 +71,8 @@ private:
     void OnCarcassDestroyed();
     void HandlePreyKilled(APSLPreyCharacter* Prey, AActor* Killer);
     int32 CountLivingPrey() const;
+    void OpenScreen(TSubclassOf<UUserWidget> WidgetClass);
+    void CloseScreen();
 
     UFUNCTION()
     void SpawnReplacementPrey();
@@ -89,4 +92,7 @@ private:
     FDelegateHandle PreyKilledHandle;
     FDelegateHandle CarcassHandle;
     TWeakObjectPtr<APSLCharacter> Player;
+    // Pause / Game Over screens. Created on entry to the state, removed on leaving it or on EndPlay.
+    UPROPERTY(Transient)
+    TObjectPtr<UUserWidget> ScreenWidget;
 };

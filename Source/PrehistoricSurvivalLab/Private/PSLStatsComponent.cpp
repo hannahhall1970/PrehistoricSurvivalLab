@@ -41,3 +41,13 @@ float UPSLStatsComponent::ApplyDamage(float Amount)
 
     return AppliedDamage;
 }
+
+void UPSLStatsComponent::SetHealth(float NewHealth)
+{
+    const float PreviousHealth = Health;
+    Health = FMath::Clamp(NewHealth, 0.0f, MaxHealth);
+    if (Health != PreviousHealth)
+    {
+        OnHealthChanged.Broadcast(Health, Health - PreviousHealth);
+    }
+}

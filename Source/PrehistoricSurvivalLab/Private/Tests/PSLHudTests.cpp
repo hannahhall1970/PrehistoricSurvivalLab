@@ -41,14 +41,17 @@ bool FPSLHudWidgetTest::RunTest(const FString& Parameters)
     {
         Bars += Child->IsA<UProgressBar>() ? 1 : 0;
     }
-    TestEqual(TEXT("Widget tree has 2 progress bars"), Bars, 2);
+    TestEqual(TEXT("Widget tree has 3 progress bars (health, stamina, hunger)"), Bars, 3);
 
     UProgressBar* Health = Widget->GetHealthBar();
     UProgressBar* Stamina = Widget->GetStaminaBar();
-    if (!TestNotNull(TEXT("Health bar"), Health) || !TestNotNull(TEXT("Stamina bar"), Stamina))
+    UProgressBar* Hunger = Widget->GetHungerBar();
+    if (!TestNotNull(TEXT("Health bar"), Health) || !TestNotNull(TEXT("Stamina bar"), Stamina) || !TestNotNull(TEXT("Hunger bar"), Hunger)
+        || !TestNotNull(TEXT("Hunger value text"), Widget->GetHungerValueText()))
     {
         return false;
     }
+    TestTrue(TEXT("Health, stamina and hunger are three distinct bars"), Health != Stamina && Stamina != Hunger && Health != Hunger);
 
     Widget->SetValues(25.0f, 100.0f, 50.0f, 100.0f, false, false, false);
     TestEqual(TEXT("Health percent tracks value"), Health->GetPercent(), 0.25f, 1.0e-4f);
@@ -65,6 +68,17 @@ bool FPSLHudWidgetTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Health clamps to 1"), Health->GetPercent(), 1.0f, 1.0e-4f);
     TestEqual(TEXT("Stamina clamps to 0"), Stamina->GetPercent(), 0.0f, 1.0e-4f);
     TestNotEqual(TEXT("DEAD shown when dead"), Widget->GetDeadText()->GetVisibility(), ESlateVisibility::Collapsed);
+
+    // Hunger is driven separately and must not disturb health/stamina.
+    Widget->SetHunger(30.0f, 100.0f, false, FText::GetEmpty());
+    TestEqual(TEXT("Hunger percent tracks value"), Hunger->GetPercent(), 0.3f, 1.0e-4f);
+    TestEqual(TEXT("Hunger value text"), Widget->GetHungerValueText()->GetText().ToString(), FString(TEXT("30 / 100")));
+    TestEqual(TEXT("Health untouched by SetHunger"), Health->GetPercent(), 1.0f, 1.0e-4f);
+    TestEqual(TEXT("Stamina untouched by SetHunger"), Stamina->GetPercent(), 0.0f, 1.0e-4f);
+    Widget->SetHunger(-5.0f, 100.0f, true, FText::GetEmpty());
+    TestEqual(TEXT("Hunger clamps to 0"), Hunger->GetPercent(), 0.0f, 1.0e-4f);
+    Widget->SetHunger(250.0f, 100.0f, false, FText::GetEmpty());
+    TestEqual(TEXT("Hunger clamps to 1"), Hunger->GetPercent(), 1.0f, 1.0e-4f);
     return true;
 }
 

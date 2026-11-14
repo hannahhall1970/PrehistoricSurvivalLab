@@ -43,6 +43,8 @@ void UPSLSurvivalComponent::RestoreState(float InStamina, float InHunger)
     MaxHunger = FMath::Max(MaxHunger, 1.0f);
     Stamina = FMath::Clamp(InStamina, 0.0f, MaxStamina);
     Hunger = FMath::Clamp(InHunger, 0.0f, MaxHunger);
+    OnStaminaChanged.Broadcast(Stamina);
+    OnHungerChanged.Broadcast(Hunger);
     bStateRestored = true;
 }
 
@@ -108,6 +110,7 @@ void UPSLSurvivalComponent::UpdateHunger(float DeltaSeconds)
     }
     if (IsStarving() && Stats)
     {
+        bStarvationDamageDealt = true;
         Stats->ApplyDamage(StarveDamagePerSecond * DeltaSeconds);
     }
 }

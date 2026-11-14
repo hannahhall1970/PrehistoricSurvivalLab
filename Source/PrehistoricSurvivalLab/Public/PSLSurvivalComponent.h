@@ -99,5 +99,12 @@ private:
     bool bSprintRequested;
     bool bSprintLocked;
     bool bIsSprinting;
+
+public:
+    // True once starvation has damaged the owner; the Game Over screen uses it for the death cause.
+    bool DiedOfStarvation() const { return bStarvationDamageDealt; }
+
+private:
+    bool bStarvationDamageDealt = false;
     bool bStateRestored = false;
 };
