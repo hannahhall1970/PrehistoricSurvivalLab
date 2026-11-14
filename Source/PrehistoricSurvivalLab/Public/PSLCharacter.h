@@ -159,6 +159,9 @@ public:
     UFUNCTION(BlueprintCallable, Category="Combat")
     bool TryBite();
 
+    // Pure look-input transform used by Look(): scaled by Sensitivity, Y negated when bInvertY.
+    static FVector2D ScaleLookInput(FVector2D Raw, float Sensitivity, bool bInvertY);
+
 protected:
     virtual void BeginPlay() override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;

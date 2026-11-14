@@ -13,6 +13,7 @@
 #include "PSLGameInstance.h"
 #include "PSLGameMode.h"
 #include "PSLSaveSubsystem.h"
+#include "PSLSettingsWidget.h"
 #include "PSLUiButton.h"
 #include "PSLUiStyle.h"
 
@@ -42,6 +43,7 @@ void UPSLPauseWidget::BuildTree()
     PanelSlot->SetAlignment(FVector2D(0.5f, 0.5f));
     PanelSlot->SetAutoSize(true);
     PanelSlot->SetPosition(FVector2D::ZeroVector);
+    MenuPanel = Panel;
 
     UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("Column"));
     Panel->SetContent(Column);
@@ -63,8 +65,7 @@ void UPSLPauseWidget::BuildTree()
 
     ResumeButton->OnClicked.AddDynamic(this, &UPSLPauseWidget::OnResume);
     SaveButton->OnClicked.AddDynamic(this, &UPSLPauseWidget::OnSave);
-    // Settings screen arrives with M2b2; hidden and unbound until then.
-    SettingsButton->SetVisibility(ESlateVisibility::Collapsed);
+    SettingsButton->OnClicked.AddDynamic(this, &UPSLPauseWidget::OnSettings);
     MainMenuButton->OnClicked.AddDynamic(this, &UPSLPauseWidget::OnMainMenu);
     QuitButton->OnClicked.AddDynamic(this, &UPSLPauseWidget::OnQuit);
 
@@ -72,6 +73,15 @@ void UPSLPauseWidget::BuildTree()
     Column->AddChildToVerticalBox(ToastText)->SetPadding(FMargin(0.0f, 12.0f, 0.0f, 0.0f));
     WarningText = FPSLUiStyle::MakeText(WidgetTree, FText::GetEmpty(), FPSLUiStyle::BodySize, FPSLUiStyle::Danger());
     Column->AddChildToVerticalBox(WarningText)->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 0.0f));
+
+    // Settings replaces the pause panel while open. NewObject + Initialize: the tree must build outside a world (unit tests).
+    SettingsWidget = NewObject<UPSLSettingsWidget>(WidgetTree, UPSLSettingsWidget::StaticClass());
+    SettingsWidget->Initialize();
+    SettingsWidget->SetVisibility(ESlateVisibility::Collapsed);
+    SettingsWidget->OnClosed.AddDynamic(this, &UPSLPauseWidget::OnSettingsClosed);
+    UCanvasPanelSlot* SettingsSlot = Root->AddChildToCanvas(SettingsWidget);
+    SettingsSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+    SettingsSlot->SetOffsets(FMargin(0.0f));
 }
 
 void UPSLPauseWidget::NativeConstruct()
@@ -97,9 +107,35 @@ void UPSLPauseWidget::RefreshWarning()
     WarningText->SetText(Warning);
 }
 
+bool UPSLPauseWidget::IsSettingsOpen() const
+{
+    return SettingsWidget && SettingsWidget->GetVisibility() != ESlateVisibility::Collapsed;
+}
+
 void UPSLPauseWidget::HandleCancel()
 {
+    if (IsSettingsOpen())
+    {
+        SettingsWidget->RequestBack();
+        return;
+    }
     OnResume();
+}
+
+void UPSLPauseWidget::OnSettings()
+{
+    SettingsWidget->LoadFromSettings();
+    SettingsWidget->SelectTab(UPSLSettingsWidget::ETab::Graphics);
+    MenuPanel->SetVisibility(ESlateVisibility::Collapsed);
+    SettingsWidget->SetVisibility(ESlateVisibility::Visible);
+    SettingsWidget->SetKeyboardFocus();
+}
+
+void UPSLPauseWidget::OnSettingsClosed()
+{
+    SettingsWidget->SetVisibility(ESlateVisibility::Collapsed);
+    MenuPanel->SetVisibility(ESlateVisibility::Visible);
+    SetKeyboardFocus();
 }
 
 FReply UPSLPauseWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)

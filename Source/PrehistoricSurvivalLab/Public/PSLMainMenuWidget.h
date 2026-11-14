@@ -4,6 +4,7 @@
 #include "Blueprint/UserWidget.h"
 #include "PSLMainMenuWidget.generated.h"
 
+class UPSLSettingsWidget;
 class UPSLSpeciesSelectWidget;
 class UPSLUiButton;
 class UWidget;
@@ -24,6 +25,7 @@ public:
     UPSLUiButton* GetQuitButton() const { return QuitButton; }
     UTextBlock* GetVersionText() const { return VersionText; }
     UPSLSpeciesSelectWidget* GetSpeciesWidget() const { return SpeciesWidget; }
+    UPSLSettingsWidget* GetSettingsWidget() const { return SettingsWidget; }
 
     // Re-reads the save slot: Continue is active only when a valid save exists.
     void RefreshContinue();
@@ -33,6 +35,8 @@ public:
 
 protected:
     virtual void NativeConstruct() override;
+    // P / Escape while Settings is open = Settings Back.
+    virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 
 private:
     void BuildTree();
@@ -41,6 +45,8 @@ private:
     UFUNCTION() void OnNewGame();
     UFUNCTION() void OnSpeciesBack();
     UFUNCTION() void OnQuit();
+    UFUNCTION() void OnSettings();
+    UFUNCTION() void OnSettingsClosed();
 
     UPROPERTY(Transient) TObjectPtr<UPSLUiButton> ContinueButton;
     UPROPERTY(Transient) TObjectPtr<UPSLUiButton> NewGameButton;
@@ -48,5 +54,6 @@ private:
     UPROPERTY(Transient) TObjectPtr<UPSLUiButton> QuitButton;
     UPROPERTY(Transient) TObjectPtr<UTextBlock> VersionText;
     UPROPERTY(Transient) TObjectPtr<UPSLSpeciesSelectWidget> SpeciesWidget;
+    UPROPERTY(Transient) TObjectPtr<UPSLSettingsWidget> SettingsWidget;
     UPROPERTY(Transient) TObjectPtr<UWidget> MainPanel;
 };

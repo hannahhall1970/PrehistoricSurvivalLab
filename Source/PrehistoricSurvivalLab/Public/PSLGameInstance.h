@@ -36,4 +36,7 @@ public:
     void QuitGame();
 
     TFunction<void()> OnQuitRequested;
+
+    // D3: audio mix and culture are per-world / reset on travel, so re-apply the saved settings on every map load.
+    virtual void OnWorldChanged(UWorld* OldWorld, UWorld* NewWorld) override;
 };

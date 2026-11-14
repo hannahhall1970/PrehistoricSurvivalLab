@@ -4,6 +4,8 @@
 #include "Blueprint/UserWidget.h"
 #include "PSLPauseWidget.generated.h"
 
+class UBorder;
+class UPSLSettingsWidget;
 class UPSLUiButton;
 class UTextBlock;
 
@@ -23,8 +25,10 @@ public:
     UPSLUiButton* GetQuitButton() const { return QuitButton; }
     UTextBlock* GetToastText() const { return ToastText; }
     UTextBlock* GetWarningText() const { return WarningText; }
+    UPSLSettingsWidget* GetSettingsWidget() const { return SettingsWidget; }
+    bool IsSettingsOpen() const;
 
-    // Esc / P: resumes.
+    // Esc / P: Back inside Settings when it is open, else resumes.
     void HandleCancel();
 
 protected:
@@ -39,6 +43,8 @@ private:
     UFUNCTION() void OnSave();
     UFUNCTION() void OnMainMenu();
     UFUNCTION() void OnQuit();
+    UFUNCTION() void OnSettings();
+    UFUNCTION() void OnSettingsClosed();
 
     UPROPERTY(Transient) TObjectPtr<UPSLUiButton> ResumeButton;
     UPROPERTY(Transient) TObjectPtr<UPSLUiButton> SaveButton;
@@ -47,4 +53,6 @@ private:
     UPROPERTY(Transient) TObjectPtr<UPSLUiButton> QuitButton;
     UPROPERTY(Transient) TObjectPtr<UTextBlock> ToastText;
     UPROPERTY(Transient) TObjectPtr<UTextBlock> WarningText;
+    UPROPERTY(Transient) TObjectPtr<UBorder> MenuPanel;
+    UPROPERTY(Transient) TObjectPtr<UPSLSettingsWidget> SettingsWidget;
 };

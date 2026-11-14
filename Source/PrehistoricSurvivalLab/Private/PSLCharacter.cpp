@@ -27,6 +27,7 @@
 #include "PSLPreyCharacter.h"
 #include "PSLGameMode.h"
 #include "Sound/SoundBase.h"
+#include "PSLGameUserSettings.h"
 
 APSLCharacter::APSLCharacter()
 {
@@ -279,9 +280,22 @@ void APSLCharacter::Move(const FInputActionValue& Value)
     AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y), MovementVector.X);
 }
 
+FVector2D APSLCharacter::ScaleLookInput(FVector2D Raw, float Sensitivity, bool bInvertY)
+{
+    Raw *= Sensitivity;
+    if (bInvertY)
+    {
+        Raw.Y = -Raw.Y;
+    }
+    return Raw;
+}
+
 void APSLCharacter::Look(const FInputActionValue& Value)
 {
-    const FVector2D LookAxisVector = Value.Get<FVector2D>();
+    const UPSLGameUserSettings* Settings = UPSLGameUserSettings::Get();
+    const FVector2D LookAxisVector = Settings
+        ? ScaleLookInput(Value.Get<FVector2D>(), Settings->MouseSensitivity, Settings->bInvertY)
+        : Value.Get<FVector2D>();
     AddControllerYawInput(LookAxisVector.X);
     AddControllerPitchInput(LookAxisVector.Y);
 }

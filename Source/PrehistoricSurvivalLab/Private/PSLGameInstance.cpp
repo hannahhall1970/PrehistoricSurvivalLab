@@ -3,6 +3,7 @@
 #include "HAL/PlatformMisc.h"
 #include "Kismet/GameplayStatics.h"
 #include "PSLDinoSpecies.h"
+#include "PSLGameUserSettings.h"
 #include "PSLSaveSubsystem.h"
 
 UPSLGameInstance::UPSLGameInstance()
@@ -58,4 +59,17 @@ void UPSLGameInstance::QuitGame()
         return;
     }
     FPlatformMisc::RequestExit(false);
+}
+
+void UPSLGameInstance::OnWorldChanged(UWorld* OldWorld, UWorld* NewWorld)
+{
+    Super::OnWorldChanged(OldWorld, NewWorld);
+    if (NewWorld)
+    {
+        if (UPSLGameUserSettings* Settings = UPSLGameUserSettings::Get())
+        {
+            Settings->ApplyCulture();
+            Settings->ApplyAudio(NewWorld);
+        }
+    }
 }

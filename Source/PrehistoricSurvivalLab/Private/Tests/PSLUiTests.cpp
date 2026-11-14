@@ -8,6 +8,7 @@
 #include "PSLGameOverWidget.h"
 #include "PSLMainMenuWidget.h"
 #include "PSLPauseWidget.h"
+#include "PSLSettingsWidget.h"
 #include "PSLSpeciesSelectWidget.h"
 #include "PSLUiButton.h"
 #include "PSLUiStyle.h"
@@ -74,7 +75,15 @@ bool FPSLUiScreensTest::RunTest(const FString& Parameters)
         {
             TestFalse(TEXT("Version text is filled in"), Menu->GetVersionText()->GetText().IsEmpty());
         }
-        TestTrue(TEXT("Settings is hidden until M2b2"), Menu->GetSettingsButton()->GetVisibility() == ESlateVisibility::Collapsed);
+        TestTrue(TEXT("Settings is visible (M2b2)"), Menu->GetSettingsButton()->GetVisibility() == ESlateVisibility::Visible);
+        if (TestNotNull(TEXT("Settings screen is nested"), Menu->GetSettingsWidget()))
+        {
+            TestTrue(TEXT("Settings screen starts hidden"), Menu->GetSettingsWidget()->GetVisibility() == ESlateVisibility::Collapsed);
+            Menu->GetSettingsButton()->OnClicked.Broadcast();
+            TestTrue(TEXT("Settings button opens the settings screen"), Menu->GetSettingsWidget()->GetVisibility() == ESlateVisibility::Visible);
+            Menu->GetSettingsWidget()->RequestBack();
+            TestTrue(TEXT("Settings Back returns to the main menu"), Menu->GetSettingsWidget()->GetVisibility() == ESlateVisibility::Collapsed);
+        }
         if (TestNotNull(TEXT("Species screen is nested"), Menu->GetSpeciesWidget()))
         {
             TestTrue(TEXT("Species screen starts hidden"), Menu->GetSpeciesWidget()->GetVisibility() == ESlateVisibility::Collapsed);
@@ -137,7 +146,15 @@ bool FPSLUiScreensTest::RunTest(const FString& Parameters)
         TestNotNull(TEXT("Quit"), Pause->GetQuitButton());
         if (TestNotNull(TEXT("Settings"), Pause->GetSettingsButton()))
         {
-            TestTrue(TEXT("Settings is hidden until M2b2"), Pause->GetSettingsButton()->GetVisibility() == ESlateVisibility::Collapsed);
+            TestTrue(TEXT("Settings is visible (M2b2)"), Pause->GetSettingsButton()->GetVisibility() == ESlateVisibility::Visible);
+            if (TestNotNull(TEXT("Pause settings screen is nested"), Pause->GetSettingsWidget()))
+            {
+                TestFalse(TEXT("Pause settings starts closed"), Pause->IsSettingsOpen());
+                Pause->GetSettingsButton()->OnClicked.Broadcast();
+                TestTrue(TEXT("Pause Settings button opens the settings screen"), Pause->IsSettingsOpen());
+                Pause->HandleCancel();
+                TestFalse(TEXT("Cancel inside Settings closes Settings, not the pause menu"), Pause->IsSettingsOpen());
+            }
         }
     }
 

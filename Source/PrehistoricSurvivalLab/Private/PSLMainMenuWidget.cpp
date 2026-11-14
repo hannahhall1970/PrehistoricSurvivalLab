@@ -9,9 +9,11 @@
 #include "Components/VerticalBoxSlot.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "InputCoreTypes.h"
 #include "Misc/ConfigCacheIni.h"
 #include "PSLGameInstance.h"
 #include "PSLSaveSubsystem.h"
+#include "PSLSettingsWidget.h"
 #include "PSLSpeciesSelectWidget.h"
 #include "PSLUiButton.h"
 #include "PSLUiStyle.h"
@@ -64,8 +66,7 @@ void UPSLMainMenuWidget::BuildTree()
     ContinueButton->OnClicked.AddDynamic(this, &UPSLMainMenuWidget::OnContinue);
     NewGameButton->OnClicked.AddDynamic(this, &UPSLMainMenuWidget::OnNewGame);
     QuitButton->OnClicked.AddDynamic(this, &UPSLMainMenuWidget::OnQuit);
-    // Settings screen arrives with M2b2; hidden and unbound until then.
-    SettingsButton->SetVisibility(ESlateVisibility::Collapsed);
+    SettingsButton->OnClicked.AddDynamic(this, &UPSLMainMenuWidget::OnSettings);
 
     // Read from config: the project-settings class lives in EngineSettings, which this module does not link.
     FString ProjectVersion;
@@ -87,6 +88,14 @@ void UPSLMainMenuWidget::BuildTree()
     UCanvasPanelSlot* SpeciesSlot = Root->AddChildToCanvas(SpeciesWidget);
     SpeciesSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
     SpeciesSlot->SetOffsets(FMargin(0.0f));
+
+    SettingsWidget = NewObject<UPSLSettingsWidget>(WidgetTree, UPSLSettingsWidget::StaticClass());
+    SettingsWidget->Initialize();
+    SettingsWidget->SetVisibility(ESlateVisibility::Collapsed);
+    SettingsWidget->OnClosed.AddDynamic(this, &UPSLMainMenuWidget::OnSettingsClosed);
+    UCanvasPanelSlot* SettingsSlot = Root->AddChildToCanvas(SettingsWidget);
+    SettingsSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+    SettingsSlot->SetOffsets(FMargin(0.0f));
 }
 
 void UPSLMainMenuWidget::NativeConstruct()
@@ -106,6 +115,7 @@ void UPSLMainMenuWidget::RefreshContinue()
 void UPSLMainMenuWidget::ShowMain()
 {
     SpeciesWidget->SetVisibility(ESlateVisibility::Collapsed);
+    SettingsWidget->SetVisibility(ESlateVisibility::Collapsed);
     MainPanel->SetVisibility(ESlateVisibility::Visible);
     RefreshContinue();
     SetKeyboardFocus();
@@ -137,6 +147,30 @@ void UPSLMainMenuWidget::OnQuit()
     {
         Session->QuitGame();
     }
+}
+
+void UPSLMainMenuWidget::OnSettings()
+{
+    SettingsWidget->LoadFromSettings();
+    SettingsWidget->SelectTab(UPSLSettingsWidget::ETab::Graphics);
+    MainPanel->SetVisibility(ESlateVisibility::Collapsed);
+    SettingsWidget->SetVisibility(ESlateVisibility::Visible);
+    SettingsWidget->SetKeyboardFocus();
+}
+
+void UPSLMainMenuWidget::OnSettingsClosed()
+{
+    ShowMain();
+}
+
+FReply UPSLMainMenuWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+    if (SettingsWidget->GetVisibility() != ESlateVisibility::Collapsed && (InKeyEvent.GetKey() == EKeys::Escape || InKeyEvent.GetKey() == EKeys::P))
+    {
+        SettingsWidget->RequestBack();
+        return FReply::Handled();
+    }
+    return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
 }
 
 #undef LOCTEXT_NAMESPACE
