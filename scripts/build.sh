@@ -15,4 +15,4 @@ if [[ ! -x "$BUILD_SCRIPT" ]]; then
 	exit 1
 fi
 
-"$BUILD_SCRIPT" PrehistoricSurvivalLabEditor Mac Development "-project=$PROJECT_FILE" -MaxParallelActions=4
+"$BUILD_SCRIPT" PrehistoricSurvivalLabEditor Mac Development "-project=$PROJECT_FILE" -MaxParallelActions=4 -DisableAdaptiveUnity
