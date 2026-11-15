@@ -1,0 +1,13 @@
+Be Vietnam Pro — designed by Lâm Bảo, Tony Le, ViệtAnh Nguyễn
+License: SIL Open Font License 1.1 (OFL.txt). Copyright 2021 The Be Vietnam Pro Project Authors (https://github.com/bettergui/BeVietnamPro),
+Source repository: https://github.com/google/fonts (ofl/bevietnampro)
+Pinned commit c13390277dfb1fcc7415d84ef7ef9cfc1e52f8c1 (2026-03-03T15:27:52Z)
+Files:
+BeVietnamPro-Regular.ttf  132948 B  sha256 cd1ef6e9d7db28ad5cdb88a65ccbe693870e60d340b791f349d248342b4fe4c3  git-blob dfa34c09fe2bae0626e00aa3265af2119345c27b
+BeVietnamPro-SemiBold.ttf  136736 B  sha256 bd8e27eb02720b9d91e59e4f10a90878643219f25ce6a8d9a4f06a8a88d3bb71  git-blob b25bad31fe8984d5db6cbce61a23323bbb68bc97
+BeVietnamPro-Bold.ttf  140300 B  sha256 7f738fe5c43c8872807b20e2d30d42163618de8a4daf7f48a939adac32c16847  git-blob 52aadc6da089ed8ae647b5e0c8cac4f8b3e24750
+OFL.txt  4397 B  sha256 6b7f8f73609a25ea78c891e34cf37b06f8a676b7ea986e941e43b009110f2a85  git-blob 9e2c1177b1e7b9b2f63e122d37f8c21bc5dddc65
+METADATA.pb (reference, not copied into SourceArt/Fonts)  7961 B  sha256 2ef4a8f6b3a18698c70d2e3adf0cf45debc71a4220941ccdf8280db7d1d567f4  git-blob 0557992ac852d99adae1aadb567474a581341d34
+Upstream design source (per METADATA.pb): https://github.com/bettergui/BeVietnamPro commit 804e62d81abbbcdcce5686069c69b41b8c245192
+Retrieved: 2026-11-15
+Files are unmodified.
