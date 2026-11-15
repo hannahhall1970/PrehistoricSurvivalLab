@@ -7,6 +7,8 @@
 class UTextBlock;
 class UWidgetTree;
 
+enum class EPSLFontWeight : uint8 { Regular, SemiBold, Bold };
+
 /** The only place for UI colours, sizes and fonts ("dusk amber" palette). */
 struct PREHISTORICSURVIVALLAB_API FPSLUiStyle
 {
@@ -25,8 +27,12 @@ struct PREHISTORICSURVIVALLAB_API FPSLUiStyle
     static constexpr const TCHAR* ClickSoundPath = TEXT("/Game/Audio/SFX_UI_Click.SFX_UI_Click");
     static constexpr const TCHAR* HoverSoundPath = TEXT("/Game/Audio/SFX_UI_Hover.SFX_UI_Hover");
 
-    // BeVietnamPro (Regular / Bold) when the composite font asset exists, else the engine default font.
-    static FSlateFontInfo Font(int32 Size, bool bBold = false);
+    // BeVietnamPro (Regular / SemiBold / Bold faces of the composite font) when the asset exists, else the engine default font.
+    // The engine default has no SemiBold, so the fallback maps SemiBold to its "Bold" style.
+    static FSlateFontInfo Font(int32 Size, EPSLFontWeight Weight = EPSLFontWeight::Regular);
+
+    // Typeface entry name inside the composite font for a weight: "Regular" / "SemiBold" / "Bold".
+    static FName TypefaceName(EPSLFontWeight Weight);
 
     // True when the project font asset loaded (false means every Font() call falls back).
     static bool HasProjectFont();
@@ -36,5 +42,5 @@ struct PREHISTORICSURVIVALLAB_API FPSLUiStyle
     static void PlayHover(const UObject* WorldContext);
 
     // Label with the style's font and colour. Text must come from LOCTEXT.
-    static UTextBlock* MakeText(UWidgetTree* Tree, const FText& Text, int32 Size, const FLinearColor& Color, bool bBold = false);
+    static UTextBlock* MakeText(UWidgetTree* Tree, const FText& Text, int32 Size, const FLinearColor& Color, EPSLFontWeight Weight = EPSLFontWeight::Regular);
 };

@@ -76,9 +76,9 @@ bool UPSLSettingsWidget::Initialize()
     return bResult;
 }
 
-UTextBlock* UPSLSettingsWidget::AddLabel(TFunction<FText()> Getter, int32 Size, const FLinearColor& Color, bool bBold)
+UTextBlock* UPSLSettingsWidget::AddLabel(TFunction<FText()> Getter, int32 Size, const FLinearColor& Color, EPSLFontWeight Weight)
 {
-    UTextBlock* Text = FPSLUiStyle::MakeText(WidgetTree, Getter(), Size, Color, bBold);
+    UTextBlock* Text = FPSLUiStyle::MakeText(WidgetTree, Getter(), Size, Color, Weight);
     LabelWidgets.Add(Text);
     LabelGetters.Add(MoveTemp(Getter));
     return Text;
@@ -108,7 +108,7 @@ void UPSLSettingsWidget::BuildTree()
 
     UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("Column"));
     Panel->SetContent(Column);
-    Column->AddChildToVerticalBox(AddLabel([] { return LOCTEXT("Settings_Title", "SETTINGS"); }, FPSLUiStyle::HeadingSize, FPSLUiStyle::Accent(), true))
+    Column->AddChildToVerticalBox(AddLabel([] { return LOCTEXT("Settings_Title", "SETTINGS"); }, FPSLUiStyle::HeadingSize, FPSLUiStyle::Accent(), EPSLFontWeight::Bold))
         ->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 16.0f));
 
     auto MakeRow = [this]() { return WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass()); };
@@ -211,6 +211,9 @@ void UPSLSettingsWidget::BuildTree()
     Language->AddChildToVerticalBox(VietnameseButton)->SetPadding(FMargin(0.0f, 2.0f));
 
     StatusText = FPSLUiStyle::MakeText(WidgetTree, FText::GetEmpty(), FPSLUiStyle::BodySize, FPSLUiStyle::Danger());
+    // Status/confirm texts (vi ~66 chars) wrap at 560 px instead of stretching the panel.
+    StatusText->SetAutoWrapText(true);
+    StatusText->SetWrapTextAt(560.0f);
     Column->AddChildToVerticalBox(StatusText)->SetPadding(FMargin(0.0f, 12.0f, 0.0f, 4.0f));
 
     UHorizontalBox* Footer = MakeRow();

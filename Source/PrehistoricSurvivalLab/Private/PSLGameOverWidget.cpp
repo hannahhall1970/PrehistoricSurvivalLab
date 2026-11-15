@@ -46,9 +46,12 @@ void UPSLGameOverWidget::BuildTree()
     UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("Column"));
     Panel->SetContent(Column);
 
-    TitleText = FPSLUiStyle::MakeText(WidgetTree, FText::GetEmpty(), FPSLUiStyle::TitleSize, FPSLUiStyle::Danger(), true);
+    TitleText = FPSLUiStyle::MakeText(WidgetTree, FText::GetEmpty(), FPSLUiStyle::TitleSize, FPSLUiStyle::Danger(), EPSLFontWeight::Bold);
     Column->AddChildToVerticalBox(TitleText)->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 12.0f));
     StatsText = FPSLUiStyle::MakeText(WidgetTree, FText::GetEmpty(), FPSLUiStyle::BodySize, FPSLUiStyle::Text());
+    // Stats lines are short, but bound them so a long vi value wraps instead of widening the panel.
+    StatsText->SetAutoWrapText(true);
+    StatsText->SetWrapTextAt(480.0f);
     Column->AddChildToVerticalBox(StatsText)->SetPadding(FMargin(12.0f, 0.0f, 12.0f, 16.0f));
 
     auto AddButton = [this, Column](const FText& Text) -> UPSLUiButton*

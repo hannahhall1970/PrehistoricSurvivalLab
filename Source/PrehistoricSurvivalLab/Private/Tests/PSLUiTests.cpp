@@ -3,6 +3,7 @@
 #include "Misc/AutomationTest.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/ProgressBar.h"
+#include "Engine/Font.h"
 #include "Internationalization/Culture.h"
 #include "Internationalization/Internationalization.h"
 #include "Components/TextBlock.h"
@@ -47,13 +48,29 @@ bool FPSLUiStyleTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Panel is translucent"), FPSLUiStyle::Panel().A, 0.86f, 1.0e-4f);
 
     // The project font resolves, or Font() falls back to the engine default; either way a usable font comes back.
-    const FSlateFontInfo Regular = FPSLUiStyle::Font(FPSLUiStyle::BodySize, false);
-    const FSlateFontInfo Bold = FPSLUiStyle::Font(FPSLUiStyle::BodySize, true);
+    const FSlateFontInfo Regular = FPSLUiStyle::Font(FPSLUiStyle::BodySize, EPSLFontWeight::Regular);
+    const FSlateFontInfo SemiBold = FPSLUiStyle::Font(FPSLUiStyle::BodySize, EPSLFontWeight::SemiBold);
+    const FSlateFontInfo Bold = FPSLUiStyle::Font(FPSLUiStyle::BodySize, EPSLFontWeight::Bold);
     TestEqual(TEXT("Font size is honoured"), Regular.Size, static_cast<float>(FPSLUiStyle::BodySize));
+    TestEqual(TEXT("SemiBold font size is honoured"), SemiBold.Size, static_cast<float>(FPSLUiStyle::BodySize));
     TestEqual(TEXT("Bold font size is honoured"), Bold.Size, static_cast<float>(FPSLUiStyle::BodySize));
+    TestEqual(TEXT("Regular typeface name"), FPSLUiStyle::TypefaceName(EPSLFontWeight::Regular), FName(TEXT("Regular")));
+    TestEqual(TEXT("SemiBold typeface name"), FPSLUiStyle::TypefaceName(EPSLFontWeight::SemiBold), FName(TEXT("SemiBold")));
+    TestEqual(TEXT("Bold typeface name"), FPSLUiStyle::TypefaceName(EPSLFontWeight::Bold), FName(TEXT("Bold")));
     if (FPSLUiStyle::HasProjectFont())
     {
         TestTrue(TEXT("Project font used when present"), Regular.FontObject != nullptr);
+        const UFont* Project = LoadObject<UFont>(nullptr, FPSLUiStyle::FontPath, nullptr, LOAD_NoWarn | LOAD_Quiet);
+        if (TestNotNull(TEXT("F_BeVietnamPro loads as a UFont"), Project))
+        {
+            for (const EPSLFontWeight Weight : {EPSLFontWeight::Regular, EPSLFontWeight::SemiBold, EPSLFontWeight::Bold})
+            {
+                const FSlateFontInfo Info = FPSLUiStyle::Font(FPSLUiStyle::BodySize, Weight);
+                const FString Name = FPSLUiStyle::TypefaceName(Weight).ToString();
+                TestTrue(FString::Printf(TEXT("%s uses F_BeVietnamPro"), *Name), Info.FontObject == Project);
+                TestEqual(FString::Printf(TEXT("%s typeface font name"), *Name), Info.TypefaceFontName, FPSLUiStyle::TypefaceName(Weight));
+            }
+        }
     }
     else
     {

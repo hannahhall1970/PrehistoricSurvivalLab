@@ -18,7 +18,7 @@ UPSLUiButton* UPSLUiButton::Make(UWidgetTree* Tree, const FText& Text)
     Button->SetStyle(Style);
 
     UVerticalBox* Column = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
-    Button->Label = FPSLUiStyle::MakeText(Tree, Text, FPSLUiStyle::ButtonSize, FPSLUiStyle::Text(), false);
+    Button->Label = FPSLUiStyle::MakeText(Tree, Text, FPSLUiStyle::ButtonSize, FPSLUiStyle::Text(), EPSLFontWeight::SemiBold);
     Column->AddChildToVerticalBox(Button->Label)->SetPadding(FMargin(12.0f, 6.0f, 12.0f, 4.0f));
 
     Button->Underline = Tree->ConstructWidget<UBorder>(UBorder::StaticClass());

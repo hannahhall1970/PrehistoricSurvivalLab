@@ -49,7 +49,7 @@ void UPSLPauseWidget::BuildTree()
     UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("Column"));
     Panel->SetContent(Column);
 
-    TitleText = FPSLUiStyle::MakeText(WidgetTree, LOCTEXT("Pause_Title", "PAUSED"), FPSLUiStyle::HeadingSize, FPSLUiStyle::Accent(), true);
+    TitleText = FPSLUiStyle::MakeText(WidgetTree, LOCTEXT("Pause_Title", "PAUSED"), FPSLUiStyle::HeadingSize, FPSLUiStyle::Accent(), EPSLFontWeight::Bold);
     Column->AddChildToVerticalBox(TitleText)->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 16.0f));
 
     auto AddButton = [this, Column](const FText& Text) -> UPSLUiButton*
@@ -70,9 +70,14 @@ void UPSLPauseWidget::BuildTree()
     MainMenuButton->OnClicked.AddDynamic(this, &UPSLPauseWidget::OnMainMenu);
     QuitButton->OnClicked.AddDynamic(this, &UPSLPauseWidget::OnQuit);
 
+    // The panel is 480 wide with 24 padding: wrap the long vi toast/warning texts at the 432 px content width.
     ToastText = FPSLUiStyle::MakeText(WidgetTree, FText::GetEmpty(), FPSLUiStyle::BodySize, FPSLUiStyle::Accent());
+    ToastText->SetAutoWrapText(true);
+    ToastText->SetWrapTextAt(432.0f);
     Column->AddChildToVerticalBox(ToastText)->SetPadding(FMargin(0.0f, 12.0f, 0.0f, 0.0f));
     WarningText = FPSLUiStyle::MakeText(WidgetTree, FText::GetEmpty(), FPSLUiStyle::BodySize, FPSLUiStyle::Danger());
+    WarningText->SetAutoWrapText(true);
+    WarningText->SetWrapTextAt(432.0f);
     Column->AddChildToVerticalBox(WarningText)->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 0.0f));
 
     // Settings replaces the pause panel while open. NewObject + Initialize: the tree must build outside a world (unit tests).

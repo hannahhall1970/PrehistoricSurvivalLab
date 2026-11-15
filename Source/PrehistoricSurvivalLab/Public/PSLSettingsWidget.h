@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "PSLUiStyle.h"
 #include "PSLSettingsWidget.generated.h"
 
 class UCheckBox;
@@ -78,7 +79,7 @@ private:
     void SetCulture(const FString& Culture);
     void HandleCultureChanged();
 
-    UTextBlock* AddLabel(TFunction<FText()> Getter, int32 Size, const FLinearColor& Color, bool bBold = false);
+    UTextBlock* AddLabel(TFunction<FText()> Getter, int32 Size, const FLinearColor& Color, EPSLFontWeight Weight = EPSLFontWeight::Regular);
     UPSLUiButton* AddButton(TFunction<FText()> Getter);
     UFUNCTION() void OnTabGraphics();
     UFUNCTION() void OnTabAudio();

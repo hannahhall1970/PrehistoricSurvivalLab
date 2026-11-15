@@ -25,15 +25,9 @@
 
 namespace
 {
-    UTextBlock* MakeLabel(UWidgetTree* Tree, const FText& Text, int32 Size, const FLinearColor& Color)
+    UTextBlock* MakeLabel(UWidgetTree* Tree, const FText& Text, int32 Size, const FLinearColor& Color, EPSLFontWeight Weight = EPSLFontWeight::Regular)
     {
-        UTextBlock* Label = Tree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
-        Label->SetText(Text);
-        Label->SetColorAndOpacity(FSlateColor(Color));
-        FSlateFontInfo Font = Label->GetFont();
-        Font.Size = Size;
-        Label->SetFont(Font);
-        return Label;
+        return FPSLUiStyle::MakeText(Tree, Text, Size, Color, Weight);
     }
 
     // 22x22 rounded icon in the bar colour with a centred glyph.
@@ -67,7 +61,7 @@ namespace
         Row->AddChildToHorizontalBox(MakeIcon(Tree, Glyph, Fill, GlyphLabel))->SetVerticalAlignment(VAlign_Center);
         OutGlyphs.Add(GlyphLabel);
 
-        UTextBlock* CaptionLabel = MakeLabel(Tree, Caption, 16, FLinearColor::White);
+        UTextBlock* CaptionLabel = MakeLabel(Tree, Caption, 16, FLinearColor::White, EPSLFontWeight::SemiBold);
         OutCaptions.Add(CaptionLabel);
         UHorizontalBoxSlot* LabelSlot = Row->AddChildToHorizontalBox(CaptionLabel);
         LabelSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
@@ -125,11 +119,15 @@ void UPSLHudWidget::BuildTree()
     StaminaValueText = StaminaValue;
     HungerValueText = HungerValue;
 
-    StateText = MakeLabel(WidgetTree, FText::GetEmpty(), 14, FLinearColor::White);
+    StateText = MakeLabel(WidgetTree, FText::GetEmpty(), 14, FLinearColor::White, EPSLFontWeight::SemiBold);
+    // vi "ĐANG CHẠY NƯỚC RÚT" (19 chars) fits the 296 px content width at 14 SemiBold (checked in PSL.UI.VietnameseLayout); wrap is a safety net.
+    StateText->SetAutoWrapText(true);
     Column->AddChildToVerticalBox(StateText)->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 0.0f));
 
     // Diet hint (e.g. "Carnivores can't eat plants"); empty until a bite touched the wrong food.
     HintText = MakeLabel(WidgetTree, FText::GetEmpty(), 14, FPSLUiStyle::Accent());
+    // vi hint is ~48 chars: wrap inside the 296 px panel content width instead of overflowing it.
+    HintText->SetAutoWrapText(true);
     Column->AddChildToVerticalBox(HintText)->SetPadding(FMargin(0.0f, 2.0f, 0.0f, 0.0f));
 
     // Centered DEAD text.

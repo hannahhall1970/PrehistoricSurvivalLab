@@ -66,7 +66,7 @@ void UPSLSpeciesSelectWidget::BuildTree()
     UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("Column"));
     Panel->SetContent(Column);
 
-    HeadingText = FPSLUiStyle::MakeText(WidgetTree, LOCTEXT("Species_Heading", "CHOOSE YOUR DINO"), FPSLUiStyle::HeadingSize, FPSLUiStyle::Accent(), true);
+    HeadingText = FPSLUiStyle::MakeText(WidgetTree, LOCTEXT("Species_Heading", "CHOOSE YOUR DINO"), FPSLUiStyle::HeadingSize, FPSLUiStyle::Accent(), EPSLFontWeight::Bold);
     Column->AddChildToVerticalBox(HeadingText)->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 12.0f));
 
     // < Name >
@@ -74,17 +74,18 @@ void UPSLSpeciesSelectWidget::BuildTree()
     Column->AddChildToVerticalBox(NameRow);
     PrevButton = UPSLUiButton::Make(WidgetTree, LOCTEXT("Species_Prev", "<"));
     NameRow->AddChildToHorizontalBox(PrevButton);
-    NameText = FPSLUiStyle::MakeText(WidgetTree, FText::GetEmpty(), FPSLUiStyle::ButtonSize, FPSLUiStyle::Text(), true);
+    NameText = FPSLUiStyle::MakeText(WidgetTree, FText::GetEmpty(), FPSLUiStyle::ButtonSize, FPSLUiStyle::Text(), EPSLFontWeight::Bold);
     UHorizontalBoxSlot* NameSlot = NameRow->AddChildToHorizontalBox(NameText);
     NameSlot->SetPadding(FMargin(16.0f, 6.0f));
     NameSlot->SetVerticalAlignment(VAlign_Center);
     NextButton = UPSLUiButton::Make(WidgetTree, LOCTEXT("Species_Next", ">"));
     NameRow->AddChildToHorizontalBox(NextButton);
 
-    DietText = FPSLUiStyle::MakeText(WidgetTree, FText::GetEmpty(), FPSLUiStyle::BodySize, FPSLUiStyle::Accent(), true);
+    DietText = FPSLUiStyle::MakeText(WidgetTree, FText::GetEmpty(), FPSLUiStyle::BodySize, FPSLUiStyle::Accent(), EPSLFontWeight::SemiBold);
     Column->AddChildToVerticalBox(DietText)->SetPadding(FMargin(12.0f, 4.0f));
     DescriptionText = FPSLUiStyle::MakeText(WidgetTree, FText::GetEmpty(), FPSLUiStyle::BodySize, FPSLUiStyle::Text());
     DescriptionText->SetAutoWrapText(true);
+    DescriptionText->SetWrapTextAt(480.0f);
     Column->AddChildToVerticalBox(DescriptionText)->SetPadding(FMargin(12.0f, 4.0f, 12.0f, 12.0f));
 
     const FText StatNames[StatCount] = {

@@ -50,7 +50,7 @@ void UPSLMainMenuWidget::BuildTree()
     UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("Column"));
     Panel->SetContent(Column);
 
-    TitleText = FPSLUiStyle::MakeText(WidgetTree, LOCTEXT("Menu_Title", "PREHISTORIC SURVIVAL"), FPSLUiStyle::TitleSize, FPSLUiStyle::Accent(), true);
+    TitleText = FPSLUiStyle::MakeText(WidgetTree, LOCTEXT("Menu_Title", "PREHISTORIC SURVIVAL"), FPSLUiStyle::TitleSize, FPSLUiStyle::Accent(), EPSLFontWeight::Bold);
     Column->AddChildToVerticalBox(TitleText)->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 24.0f));
 
     auto AddButton = [this, Column](const FText& Text) -> UPSLUiButton*

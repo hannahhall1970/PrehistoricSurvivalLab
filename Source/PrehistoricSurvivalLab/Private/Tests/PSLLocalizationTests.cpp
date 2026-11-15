@@ -345,12 +345,22 @@ bool FPSLUiVietnameseGlyphsTest::RunTest(const FString& Parameters)
     }
     // FSlateRenderer::GetFontCache (SlateRenderer.h:427), FSlateFontCache::GetFontDataForCodepoint / CanLoadCodepoint (FontCache.h:898, :974).
     const TSharedRef<FSlateFontCache> Cache = FSlateApplication::Get().GetRenderer()->GetFontCache();
-    const FString Sample = TEXT("ăâđêôơư ĂÂĐÊÔƠƯ àảãáạ ằẳẵắặ ầẩẫấậ èẻẽéẹ ềểễếệ ìỉĩíị òỏõóọ ồổỗốộ ờởỡớợ ùủũúụ ừửữứự ỳỷỹýỵ");
-
-    for (const bool bBold : {false, true})
+    FString Sample = TEXT("ăâđêôơư ĂÂĐÊÔƠƯ àảãáạ ằẳẵắặ ầẩẫấậ èẻẽéẹ ềểễếệ ìỉĩíị òỏõóọ ồổỗốộ ờởỡớợ ùủũúụ ừửữứự ỳỷỹýỵ");
+    // UI strings (vi) in both cases, plus the decomposed combining marks U+0300 U+0301 U+0303 U+0309 U+0323.
+    for (const TCHAR* Word : {TEXT("Tiếp tục"), TEXT("Cài đặt"), TEXT("Khủng long"), TEXT("Thể lực"), TEXT("Đói"), TEXT("Đã kiệt sức"), TEXT("Trở về menu chính")})
     {
-        const FSlateFontInfo Info = FPSLUiStyle::Font(FPSLUiStyle::BodySize, bBold);
-        const TCHAR* Face = bBold ? TEXT("bold") : TEXT("regular");
+        Sample += TEXT(" ");
+        Sample += Word;
+        Sample += TEXT(" ");
+        Sample += FString(Word).ToUpper();
+    }
+    Sample += TEXT(" \u0300\u0301\u0303\u0309\u0323");
+
+    for (const EPSLFontWeight Weight : {EPSLFontWeight::Regular, EPSLFontWeight::SemiBold, EPSLFontWeight::Bold})
+    {
+        const FSlateFontInfo Info = FPSLUiStyle::Font(FPSLUiStyle::BodySize, Weight);
+        const FString FaceName = FPSLUiStyle::TypefaceName(Weight).ToString();
+        const TCHAR* Face = *FaceName;
         FString MissingPrimary, MissingAny;
         for (const TCHAR Ch : Sample)
         {
@@ -379,6 +389,10 @@ bool FPSLUiVietnameseGlyphsTest::RunTest(const FString& Parameters)
                 Face, FPSLUiStyle::HasProjectFont(), *MissingPrimary, *MissingAny));
         }
         TestTrue(FString::Printf(TEXT("%s font renders every Vietnamese glyph (missing at last-resort fallback: '%s')"), Face, *MissingAny), MissingAny.IsEmpty());
+        if (FPSLUiStyle::HasProjectFont())
+        {
+            TestTrue(FString::Printf(TEXT("%s project font has every glyph itself, no fallback needed (missing at FF_NoFallback: '%s')"), Face, *MissingPrimary), MissingPrimary.IsEmpty());
+        }
     }
     return true;
 }
