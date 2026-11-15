@@ -2,12 +2,33 @@
 
 #include "Animation/AnimSequence.h"
 #include "Engine/SkeletalMesh.h"
-
-#define LOCTEXT_NAMESPACE "PSL"
+#include "Internationalization/StringTableRegistry.h"
 
 const FName UPSLDinoSpecies::TRexId(TEXT("TRex"));
 const FName UPSLDinoSpecies::ParaId(TEXT("Para"));
 const FPrimaryAssetType UPSLDinoSpecies::AssetType(TEXT("PSLSpecies"));
+const FName UPSLDinoSpecies::TextTableId(TEXT("PSLSpecies"));
+
+void UPSLDinoSpecies::RegisterTextTable()
+{
+    // Species texts are string-table entries so DA_Species_* assets and MakeBuiltin share one identity (TableId + Key).
+    // A saved string-table text stores only that reference: it is not rekeyed into the asset's package namespace and
+    // not gathered from the asset. GatherText reads these macros (literal arguments required) under namespace "PSL",
+    // so the existing PSL,Species* .po/.locres entries keep translating them. Translation is covered by PSL.Loc.PoComplete
+    // and PSL.UI.Localization; PSL.Species.Assets deliberately does not switch culture (macOS LanguageChanged crash path).
+    // Unregister first: RegisterStringTable checkf-fails on a duplicate ID (StringTableRegistry.cpp:71) if Startup reruns.
+    UnregisterTextTable();
+    LOCTABLE_NEW("PSLSpecies", "PSL");
+    LOCTABLE_SETSTRING("PSLSpecies", "SpeciesTRexName", "Tyrannosaurus Rex");
+    LOCTABLE_SETSTRING("PSLSpecies", "SpeciesTRexDesc", "Apex carnivore. Hits hard, eats meat from carcasses.");
+    LOCTABLE_SETSTRING("PSLSpecies", "SpeciesParaName", "Parasaurolophus");
+    LOCTABLE_SETSTRING("PSLSpecies", "SpeciesParaDesc", "Fast, agile herbivore. Grazes on plants; its bite only wounds.");
+}
+
+void UPSLDinoSpecies::UnregisterTextTable()
+{
+    FStringTableRegistry::Get().UnregisterStringTable(TextTableId);
+}
 
 namespace
 {
@@ -29,8 +50,8 @@ UPSLDinoSpecies* UPSLDinoSpecies::MakeBuiltin(FName Id, UObject* Outer)
     S->SpeciesId = Id;
     if (Id == TRexId)
     {
-        S->DisplayName = LOCTEXT("SpeciesTRexName", "Tyrannosaurus Rex");
-        S->Description = LOCTEXT("SpeciesTRexDesc", "Apex carnivore. Hits hard, eats meat from carcasses.");
+        S->DisplayName = FText::FromStringTable(TextTableId, TEXT("SpeciesTRexName"));
+        S->Description = FText::FromStringTable(TextTableId, TEXT("SpeciesTRexDesc"));
         S->Diet = EPSLDiet::Carnivore;
         S->Mesh = Soft<USkeletalMesh>(TEXT("/Game/Characters/Dino/SK_Trex.SK_Trex"));
         S->IdleAnim = Soft<UAnimSequence>(TEXT("/Game/Characters/Dino/A_Trex_Idle.A_Trex_Idle"));
@@ -55,8 +76,8 @@ UPSLDinoSpecies* UPSLDinoSpecies::MakeBuiltin(FName Id, UObject* Outer)
     }
     else
     {
-        S->DisplayName = LOCTEXT("SpeciesParaName", "Parasaurolophus");
-        S->Description = LOCTEXT("SpeciesParaDesc", "Fast, agile herbivore. Grazes on plants; its bite only wounds.");
+        S->DisplayName = FText::FromStringTable(TextTableId, TEXT("SpeciesParaName"));
+        S->Description = FText::FromStringTable(TextTableId, TEXT("SpeciesParaDesc"));
         S->Diet = EPSLDiet::Herbivore;
         S->Mesh = Soft<USkeletalMesh>(TEXT("/Game/Characters/Prey/SK_Parasaurolophus.SK_Parasaurolophus"));
         S->IdleAnim = Soft<UAnimSequence>(TEXT("/Game/Characters/Prey/A_Para_Idle.A_Para_Idle"));
@@ -81,5 +102,3 @@ UPSLDinoSpecies* UPSLDinoSpecies::MakeBuiltin(FName Id, UObject* Outer)
     // MeshScale stays 0: fit to 90% of the capsule.
     return S;
 }
-
-#undef LOCTEXT_NAMESPACE

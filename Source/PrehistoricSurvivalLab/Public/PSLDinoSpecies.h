@@ -27,6 +27,12 @@ public:
     // Asset Manager type used in DefaultGame.ini (directory /Game/Data/Species).
     static const FPrimaryAssetType AssetType;
 
+    // String table "PSLSpecies" (namespace PSL) holding DisplayName/Description of both species.
+    // Registered by the game module on startup; MakeBuiltin and DA_Species_* reference its entries.
+    static const FName TextTableId;
+    static void RegisterTextTable();
+    static void UnregisterTextTable();
+
     // Id is TRexId or ParaId; anything else returns nullptr.
     static UPSLDinoSpecies* MakeBuiltin(FName Id, UObject* Outer);
 
