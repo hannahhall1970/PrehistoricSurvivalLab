@@ -93,7 +93,10 @@ void UPSLPauseWidget::NativeConstruct()
     {
         CultureHandle = FInternationalization::Get().OnCultureChanged().AddUObject(this, &UPSLPauseWidget::HandleCultureChanged);
     }
-    ToastText->SetText(FText::GetEmpty());
+    if (ToastText)
+    {
+        ToastText->SetText(FText::GetEmpty());
+    }
     RefreshTexts();
     SetKeyboardFocus();
 }
@@ -115,6 +118,10 @@ void UPSLPauseWidget::HandleCultureChanged()
 
 void UPSLPauseWidget::RefreshTexts()
 {
+    if (!TitleText || !ResumeButton || !SaveButton || !SettingsButton || !MainMenuButton || !QuitButton || !WarningText)
+    {
+        return; // tree not built yet (Initialize builds it)
+    }
     TitleText->SetText(LOCTEXT("Pause_Title", "PAUSED"));
     ResumeButton->GetLabel()->SetText(LOCTEXT("Pause_Resume", "Resume"));
     SaveButton->GetLabel()->SetText(LOCTEXT("Pause_Save", "Save"));

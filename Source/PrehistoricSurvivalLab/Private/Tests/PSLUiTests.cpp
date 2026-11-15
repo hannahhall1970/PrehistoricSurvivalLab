@@ -3,6 +3,8 @@
 #include "Misc/AutomationTest.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/ProgressBar.h"
+#include "Internationalization/Culture.h"
+#include "Internationalization/Internationalization.h"
 #include "Components/TextBlock.h"
 #include "PSLDinoSpecies.h"
 #include "PSLGameOverWidget.h"
@@ -172,6 +174,49 @@ bool FPSLUiScreensTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Survival time 125 s"), UPSLGameOverWidget::FormatSurvivalTime(125.9f), FString(TEXT("02:05")));
     TestEqual(TEXT("Survival time clamps negatives"), UPSLGameOverWidget::FormatSurvivalTime(-3.0f), FString(TEXT("00:00")));
     TestEqual(TEXT("Survival time past an hour keeps minutes"), UPSLGameOverWidget::FormatSurvivalTime(3600.0f), FString(TEXT("60:00")));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLUiRefreshTextsUnbuiltTest, "PSL.UI.RefreshTextsUnbuilt", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPSLUiRefreshTextsUnbuiltTest::RunTest(const FString& Parameters)
+{
+    // H-F2: RefreshTexts (also reached from OnCultureChanged) must be a no-op before Initialize builds the tree.
+    UPSLMainMenuWidget* Menu = NewObject<UPSLMainMenuWidget>(GetTransientPackage());
+    UPSLPauseWidget* Pause = NewObject<UPSLPauseWidget>(GetTransientPackage());
+    if (!TestNotNull(TEXT("Main menu created"), Menu) || !TestNotNull(TEXT("Pause created"), Pause))
+    {
+        return false;
+    }
+    TestNull(TEXT("Main menu tree not built"), Menu->GetNewGameButton());
+    TestNull(TEXT("Pause tree not built"), Pause->GetResumeButton());
+
+    const FString OldCulture = FInternationalization::Get().GetCurrentCulture()->GetName();
+    for (const TCHAR* Culture : {TEXT("vi"), TEXT("en")})
+    {
+        FInternationalization::Get().SetCurrentCulture(Culture);
+        Menu->RefreshTexts();
+        Pause->RefreshTexts();
+    }
+    FInternationalization::Get().SetCurrentCulture(OldCulture);
+
+    // Once built, RefreshTexts must fill the labels again (a sentinel proves it ran).
+    const FText Sentinel = FText::AsCultureInvariant(TEXT("__psl_unbuilt__"));
+    Menu->Initialize();
+    Pause->Initialize();
+    if (!TestNotNull(TEXT("Main menu tree built"), Menu->GetNewGameButton()) || !TestNotNull(TEXT("Pause tree built"), Pause->GetResumeButton()))
+    {
+        return false;
+    }
+    Menu->GetNewGameButton()->GetLabel()->SetText(Sentinel);
+    Pause->GetResumeButton()->GetLabel()->SetText(Sentinel);
+    Pause->GetWarningText()->SetText(Sentinel);
+    Menu->RefreshTexts();
+    Pause->RefreshTexts();
+    TestFalse(TEXT("Main menu New Game label refreshed"), Menu->GetNewGameButton()->GetLabel()->GetText().ToString() == Sentinel.ToString());
+    TestFalse(TEXT("Main menu version filled"), Menu->GetVersionText()->GetText().IsEmpty());
+    TestFalse(TEXT("Pause Resume label refreshed"), Pause->GetResumeButton()->GetLabel()->GetText().ToString() == Sentinel.ToString());
+    TestFalse(TEXT("Pause warning refreshed"), Pause->GetWarningText()->GetText().ToString() == Sentinel.ToString());
     return true;
 }
 

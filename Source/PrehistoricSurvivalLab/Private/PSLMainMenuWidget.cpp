@@ -129,6 +129,10 @@ void UPSLMainMenuWidget::HandleCultureChanged()
 
 void UPSLMainMenuWidget::RefreshTexts()
 {
+    if (!TitleText || !ContinueButton || !NewGameButton || !SettingsButton || !QuitButton || !VersionText)
+    {
+        return; // tree not built yet (Initialize builds it)
+    }
     TitleText->SetText(LOCTEXT("Menu_Title", "PREHISTORIC SURVIVAL"));
     ContinueButton->GetLabel()->SetText(LOCTEXT("Menu_Continue", "Continue"));
     NewGameButton->GetLabel()->SetText(LOCTEXT("Menu_NewGame", "New Game"));
@@ -141,7 +145,10 @@ void UPSLMainMenuWidget::RefreshContinue()
 {
     const UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
     const UPSLSaveSubsystem* Saves = GI ? GI->GetSubsystem<UPSLSaveSubsystem>() : nullptr;
-    ContinueButton->SetActive(Saves && Saves->HasValidSave());
+    if (ContinueButton)
+    {
+        ContinueButton->SetActive(Saves && Saves->HasValidSave());
+    }
 }
 
 void UPSLMainMenuWidget::ShowMain()
