@@ -4,8 +4,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Game\n"
-"POT-Creation-Date: 2026-11-14 09:10\n"
-"PO-Revision-Date: 2026-11-14 09:10\n"
+"POT-Creation-Date: 2026-11-15 10:22\n"
+"PO-Revision-Date: 2026-11-15 10:22\n"
 "Language-Team: \n"
 "Language: vi\n"
 "MIME-Version: 1.0\n"
@@ -28,29 +28,29 @@ msgid "Herbivores can't eat meat. Find plants instead."
 msgstr "Thú ăn cỏ không ăn được thịt. Hãy tìm cây cỏ."
 
 #. Key:	SpeciesTRexName
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(32)
-#: Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(32)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(22)
+#: Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(22)
 msgctxt "PSL,SpeciesTRexName"
 msgid "Tyrannosaurus Rex"
 msgstr "Khủng long bạo chúa T-Rex"
 
 #. Key:	SpeciesTRexDesc
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(33)
-#: Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(33)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(23)
+#: Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(23)
 msgctxt "PSL,SpeciesTRexDesc"
 msgid "Apex carnivore. Hits hard, eats meat from carcasses."
 msgstr "Kẻ săn mồi đỉnh cao. Cắn rất mạnh, ăn thịt từ xác chết."
 
 #. Key:	SpeciesParaName
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(58)
-#: Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(58)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(24)
+#: Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(24)
 msgctxt "PSL,SpeciesParaName"
 msgid "Parasaurolophus"
 msgstr "Parasaurolophus"
 
 #. Key:	SpeciesParaDesc
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(59)
-#: Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(59)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(25)
+#: Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(25)
 msgctxt "PSL,SpeciesParaDesc"
 msgid "Fast, agile herbivore. Grazes on plants; its bite only wounds."
 msgstr "Loài ăn cỏ nhanh nhẹn, linh hoạt. Gặm cây cỏ; vết cắn chỉ gây thương tích nhẹ."
@@ -224,29 +224,29 @@ msgid "Version {0}"
 msgstr "Phiên bản {0}"
 
 #. Key:	Pause_NeverSaved
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(129)
-#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(129)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(136)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(136)
 msgctxt "PSL,Pause_NeverSaved"
 msgid "This run has never been saved."
 msgstr "Lượt chơi này chưa từng được lưu."
 
 #. Key:	Pause_UnsavedSince
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(136)
-#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(136)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(143)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(143)
 msgctxt "PSL,Pause_UnsavedSince"
 msgid "Unsaved progress since {0}."
 msgstr "Tiến trình chưa lưu kể từ {0}."
 
 #. Key:	Pause_Saved
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(195)
-#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(195)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(202)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(202)
 msgctxt "PSL,Pause_Saved"
 msgid "Saved"
 msgstr "Đã lưu"
 
 #. Key:	Pause_SaveRefused
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(195)
-#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(195)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(202)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(202)
 msgctxt "PSL,Pause_SaveRefused"
 msgid "Can't save right now: the dino is starving or badly hurt."
 msgstr "Không thể lưu lúc này: khủng long đang đói lả hoặc bị thương nặng."
