@@ -1,7 +1,10 @@
 #include "PSLSurvivalComponent.h"
 
 #include "GameFramework/Actor.h"
+#include "Kismet/GameplayStatics.h"
+#include "PSLAudio.h"
 #include "PSLStatsComponent.h"
+#include "Sound/SoundBase.h"
 
 UPSLSurvivalComponent::UPSLSurvivalComponent()
 {
@@ -104,6 +107,14 @@ void UPSLSurvivalComponent::UpdateHunger(float DeltaSeconds)
 
     const float Previous = Hunger;
     Hunger = FMath::Max(0.0f, Hunger - HungerDrainPerSecond * (bIsSprinting ? 2.0f : 1.0f) * DeltaSeconds);
+    // Starving cue on the edge into Hunger 0 only; needs a world (transient test components have none).
+    if (Previous > 0.0f && Hunger <= 0.0f && GetOwner() && GetWorld())
+    {
+        if (USoundBase* S = PSLAudio::Load(PSLAudio::Starving))
+        {
+            UGameplayStatics::PlaySoundAtLocation(GetWorld(), S, GetOwner()->GetActorLocation());
+        }
+    }
     if (!FMath::IsNearlyEqual(Previous, Hunger))
     {
         OnHungerChanged.Broadcast(Hunger);

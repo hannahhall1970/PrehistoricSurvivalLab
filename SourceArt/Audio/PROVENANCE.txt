@@ -1,0 +1,31 @@
+Prehistoric Survival Lab audio (music, ambience, SFX)
+Author/owner: the Prehistoric Survival Lab project owner. Project-original work: synthesized procedurally, no samples,
+no third-party recordings. License: same terms as the rest of this repository's project-owned content. No CC0 or other
+public-domain dedication has been made; one would need an explicit decision by the project owner.
+Synthesized on 2026-11-13 with ffmpeg (lavfi aevalsrc/anoisesrc); checked against ffmpeg 8.1.2 on 2026-11-15.
+Format: RIFF WAVE, PCM s16le, 44100 Hz, unnormalized. The committed bytes are canonical: import them as-is, never regenerate.
+Reproducibility: the anoisesrc files (AMB_Wind, SFX_Bite, SFX_Eat) were generated without a seed, so rerunning their
+commands gives different bytes. A reproducible regeneration needs an explicit seed, e.g. anoisesrc=c=pink:a=0.25:d=30:r=44100:seed=<n>,
+and would produce new files with new sha256 values (update this file and AUDIO_SHA256 in scripts/build_game_shell.py).
+The other 6 files regenerate byte-identical from the commands below (ffmpeg 8.1.2).
+Command form: ffmpeg <args> <file>.wav (WAV muxer default codec pcm_s16le)
+Files:
+MUS_Menu.wav  7179558 B  2ch  40.7s  sha256 70ea3fadd3ea9d283aabcaad85b6c4a8bb58a50d6181264b8e0973c4cd7beb58
+MUS_Valley.wav  8626038 B  2ch  48.9s  sha256 19d58d6bbf06f4a58052ef2b692c6a93b39b8d5a0d90e4a0851350bf8294082e
+AMB_Wind.wav  2646078 B  1ch  30.0s  sha256 17fb1d48368d7f181d3a1e41153f4efb292cda7adf3521d5e66fb237dc3ae58c
+SFX_UI_Click.wav  10662 B  1ch  0.12s  sha256 128591f10a36895c534d4163500708ac0e41d6e892b05ab44f7807767d618d8f
+SFX_UI_Hover.wav  7134 B  1ch  0.08s  sha256 d457549e5cf2cb65677b46b2b9e4265eda6848cfe214e80db4a9f360c9d19d26
+SFX_Bite.wav  30948 B  1ch  0.35s  sha256 0ed0271964f79bcac281123726e7fed5bc3f3e91065d2ce654a6d95b6671193b
+SFX_Eat.wav  52998 B  1ch  0.6s  sha256 c255171e1ad2cc297300dd81b2756e775409f6336146815a836fa2b65b9d3572
+SFX_GameOver.wav  247038 B  1ch  2.8s  sha256 45a43391e73fd786d78a764570e1a752566ce3e2c82cc34613251d2297552444
+SFX_Starving.wav  44178 B  1ch  0.5s  sha256 8446a2da117558621a6dd54cc0e58c0580e0d157e43c3a32c492f035c654d488
+Generator args:
+MUS_Menu.wav: -f lavfi -i "aevalsrc='0.10*sin(2*PI*110*t)*(0.6+0.4*sin(2*PI*0.05*t))+0.07*sin(2*PI*164.8*t)*(0.5+0.5*sin(2*PI*0.031*t))+0.05*sin(2*PI*220*t)*(0.5+0.5*sin(2*PI*0.07*t))|0.10*sin(2*PI*110.5*t)*(0.6+0.4*sin(2*PI*0.05*t))+0.07*sin(2*PI*165.3*t)*(0.5+0.5*sin(2*PI*0.029*t))+0.05*sin(2*PI*246.9*t)*(0.5+0.5*sin(2*PI*0.06*t))':s=44100:d=40" -af "aecho=0.8:0.7:400|700:0.4|0.3,afade=t=in:d=2,afade=t=out:st=38:d=2"
+MUS_Valley.wav: -f lavfi -i "aevalsrc='0.08*sin(2*PI*98*t)*(0.5+0.5*sin(2*PI*0.04*t))+0.05*sin(2*PI*146.8*t)*(0.5+0.5*sin(2*PI*0.023*t))|0.08*sin(2*PI*98.4*t)*(0.5+0.5*sin(2*PI*0.04*t))+0.05*sin(2*PI*130.8*t)*(0.5+0.5*sin(2*PI*0.027*t))':s=44100:d=48" -af "aecho=0.8:0.6:500|900:0.4|0.3,afade=t=in:d=3,afade=t=out:st=45:d=3"
+AMB_Wind.wav: -f lavfi -i "anoisesrc=c=pink:a=0.25:d=30:r=44100" -af "lowpass=f=500,volume='0.6+0.4*sin(2*PI*0.08*t)':eval=frame,afade=t=in:d=1,afade=t=out:st=29:d=1"
+SFX_UI_Click.wav: -f lavfi -i "aevalsrc='0.5*sin(2*PI*1200*t)*exp(-40*t)':s=44100:d=0.12"
+SFX_UI_Hover.wav: -f lavfi -i "aevalsrc='0.25*sin(2*PI*800*t)*exp(-60*t)':s=44100:d=0.08"
+SFX_Bite.wav: -f lavfi -i "anoisesrc=c=brown:a=0.9:d=0.35:r=44100" -af "lowpass=f=900,afade=t=out:st=0.05:d=0.3"
+SFX_Eat.wav: -f lavfi -i "anoisesrc=c=pink:a=0.5:d=0.6:r=44100" -af "lowpass=f=1500,volume='0.5+0.5*sin(2*PI*9*t)':eval=frame,afade=t=out:st=0.3:d=0.3"
+SFX_GameOver.wav: -f lavfi -i "aevalsrc='0.4*sin(2*PI*(220-80*t)*t)*exp(-1.2*t)+0.3*sin(2*PI*(164.8-60*t)*t)*exp(-1.2*t)':s=44100:d=2.5" -af "aecho=0.8:0.6:300:0.4"
+SFX_Starving.wav: -f lavfi -i "aevalsrc='0.6*sin(2*PI*55*t)*exp(-6*t)':s=44100:d=0.5"

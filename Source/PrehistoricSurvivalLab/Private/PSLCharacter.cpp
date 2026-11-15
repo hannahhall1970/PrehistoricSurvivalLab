@@ -2,6 +2,7 @@
 
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "PSLAudio.h"
 #include "PSLInputDefaults.h"
 #include "InputActionValue.h"
 #include "PSLStatsComponent.h"
@@ -402,6 +403,10 @@ bool APSLCharacter::TryBite()
         DinoAnim->PlayAction(EPSLDinoAction::Attack);
     }
     World->GetTimerManager().SetTimer(BiteHitTimer, this, &APSLCharacter::ResolveBiteHit, FMath::Max(BiteHitDelay, KINDA_SMALL_NUMBER), false);
+    if (USoundBase* S = PSLAudio::Load(PSLAudio::Bite))
+    {
+        UGameplayStatics::PlaySoundAtLocation(this, S, GetActorLocation());
+    }
     return true;
 }
 

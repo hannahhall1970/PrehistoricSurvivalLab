@@ -68,7 +68,7 @@ void UPSLGameUserSettings::ApplyAudio(UWorld* World)
     {
         UGameplayStatics::SetSoundMixClassOverride(World, Mix, Entry.Key, Entry.Value, 1.0f, 0.1f, true);
     }
-    UGameplayStatics::PushSoundMixModifier(World, Mix);
+    UGameplayStatics::SetBaseSoundMix(World, Mix);
 }
 
 float UPSLGameUserSettings::GetAppliedClassOverride(const USoundClass* Class) const

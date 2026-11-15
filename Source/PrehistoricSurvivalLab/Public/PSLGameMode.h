@@ -6,6 +6,7 @@
 #include "PSLGameMode.generated.h"
 
 class APSLCharacter;
+class UAudioComponent;
 class APSLPreyCharacter;
 class UUserWidget;
 
@@ -95,4 +96,10 @@ private:
     // Pause / Game Over screens. Created on entry to the state, removed on leaving it or on EndPlay.
     UPROPERTY(Transient)
     TObjectPtr<UUserWidget> ScreenWidget;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UAudioComponent> Music;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UAudioComponent> Ambience;
 };

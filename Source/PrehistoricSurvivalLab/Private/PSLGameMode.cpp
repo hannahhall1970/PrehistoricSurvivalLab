@@ -2,6 +2,7 @@
 
 #include "Blueprint/UserWidget.h"
 #include "Camera/CameraComponent.h"
+#include "Components/AudioComponent.h"
 #include "PSLGameOverWidget.h"
 #include "PSLPauseWidget.h"
 #include "EngineUtils.h"
@@ -9,6 +10,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "NavigationSystem.h"
+#include "PSLAudio.h"
 #include "PSLCharacter.h"
 #include "PSLDinoSpecies.h"
 #include "PSLGameInstance.h"
@@ -17,6 +19,7 @@
 #include "PSLSaveSubsystem.h"
 #include "PSLStatsComponent.h"
 #include "PSLSurvivalComponent.h"
+#include "Sound/SoundBase.h"
 #include "TimerManager.h"
 
 APSLGameMode::APSLGameMode()
@@ -42,6 +45,15 @@ void APSLGameMode::BeginPlay()
         CarcassHandle = APSLPreyCharacter::OnAnyCarcassDestroyed().AddUObject(this, &APSLGameMode::OnCarcassDestroyed);
     }
     PreyKilledHandle = APSLPreyCharacter::OnAnyPreyKilled().AddUObject(this, &APSLGameMode::HandlePreyKilled);
+
+    if (USoundBase* S = PSLAudio::Load(PSLAudio::ValleyMusic))
+    {
+        Music = UGameplayStatics::SpawnSound2D(this, S, 1.f, 1.f, 0.f, nullptr, false, false);
+    }
+    if (USoundBase* S = PSLAudio::Load(PSLAudio::Wind))
+    {
+        Ambience = UGameplayStatics::SpawnSound2D(this, S, 1.f, 1.f, 0.f, nullptr, false, false);
+    }
 }
 
 void APSLGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -50,6 +62,14 @@ void APSLGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
     GetWorldTimerManager().ClearTimer(GameOverTimer);
     APSLPreyCharacter::OnAnyCarcassDestroyed().Remove(CarcassHandle);
     APSLPreyCharacter::OnAnyPreyKilled().Remove(PreyKilledHandle);
+    if (Music)
+    {
+        Music->Stop();
+    }
+    if (Ambience)
+    {
+        Ambience->Stop();
+    }
     if (State != EPSLGameState::Playing)
     {
         UGameplayStatics::SetGamePaused(this, false);
@@ -184,6 +204,10 @@ void APSLGameMode::EnterGameOver()
 {
     State = EPSLGameState::GameOver;
     UGameplayStatics::SetGamePaused(this, true);
+    if (USoundBase* S = PSLAudio::Load(PSLAudio::GameOver))
+    {
+        UGameplayStatics::PlaySound2D(this, S);
+    }
     SetInputForState();
 
     // Cause is read now: the title must not depend on the pawn later.

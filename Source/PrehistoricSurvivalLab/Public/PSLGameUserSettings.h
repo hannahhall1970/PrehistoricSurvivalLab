@@ -49,7 +49,7 @@ public:
 
     // Resolves the SoundMix and the Master/Music/SFX classes and records each applied value first (the three totals and
     // per class via GetAppliedClassOverride), so they are readable without a world or an audio device. Only with a world
-    // are the SoundMix class overrides set and the mix pushed.
+    // are the SoundMix class overrides set and the mix set as the world audio device's base mix (idempotent).
     void ApplyAudio(UWorld* World);
     float GetAppliedMasterOverride() const { return AppliedMaster; }
     float GetAppliedMusicOverride() const { return AppliedMusic; }

@@ -1,6 +1,7 @@
 #include "PSLUiStyle.h"
 
 #include "Blueprint/WidgetTree.h"
+#include "PSLAudio.h"
 #include "Components/TextBlock.h"
 #include "Engine/Font.h"
 #include "Kismet/GameplayStatics.h"
@@ -34,7 +35,7 @@ bool FPSLUiStyle::HasProjectFont()
 
 static void PlayCue(const UObject* WorldContext, const TCHAR* Path)
 {
-    if (USoundBase* Sound = LoadObject<USoundBase>(nullptr, Path, nullptr, LOAD_NoWarn | LOAD_Quiet))
+    if (USoundBase* Sound = PSLAudio::Load(Path))
     {
         UGameplayStatics::PlaySound2D(WorldContext, Sound);
     }
