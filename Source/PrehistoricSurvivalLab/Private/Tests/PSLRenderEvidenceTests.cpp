@@ -461,6 +461,11 @@ bool FPSLRenderFontEvidenceTest::RunTest(const FString& Parameters)
         {
             State->SwapSaveSlot(Menu->GetWorld());
         }
+        // Without the test slot the valley would autosave over the developer's slot: stop the flow instead.
+        if (!Ctx.bInvalid && !Ctx.Test->TestTrue(TEXT("D: save subsystem uses the test slot"), State->bSlotSwapped))
+        {
+            Ctx.bInvalid = true;
+        }
         return true;
     });
     RenderEvQueueSettle(Context, State);

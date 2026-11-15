@@ -19,6 +19,7 @@
 
 - `scripts/build_game_shell.py` fonts step imports `SourceArt/Fonts/BeVietnamPro-{Regular,SemiBold,Bold}.ttf` (sha256-pinned in the script) as `UFontFace` assets `/Game/UI/Fonts/FF_BeVietnamPro_{Regular,SemiBold,Bold}` with LoadingPolicy **Inline** (the import factory leaves it unset, and only Inline embeds the bytes in cooked builds) and Hinting Default.
 - `/Game/UI/Fonts/F_BeVietnamPro` is a Runtime-cache `UFont` whose default typeface entries `Regular`, `SemiBold`, `Bold` reference those faces. Python cannot set `FCompositeFont` or `FontCacheType`, so `UPSLFontBuildLibrary::SetRuntimeTypefaces` does it (test `PSL.Fonts.BuildLibrary`).
+- `FPSLUiStyle` loads the font by path, which the cooker cannot follow, so `Config/DefaultGame.ini` lists `/Game/UI/Fonts` in `DirectoriesToAlwaysCook`.
 - `PSL_GAMESHELL_STEPS=fonts` (comma list of `species`, `fonts`; default all) limits the build phase; verify always checks everything.
 - `SourceArt/Fonts/PROVENANCE.txt` pins the source: google/fonts commit `c13390277dfb1fcc7415d84ef7ef9cfc1e52f8c1` (`ofl/bevietnampro`, OFL in `OFL.txt`).
 

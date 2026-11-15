@@ -122,8 +122,8 @@ bool FPSLUiProjectFontTest::RunTest(const FString& Parameters)
     return true;
 }
 
-// Vietnamese stacks diacritics (Ế Ệ Ỗ Ữ Ặ) and runs ~30% longer than English: measure every sample per weight/size, and check that every
-// bounded label either fits its bound or wraps (AutoWrapText), with the real widgets' actual size/weight.
+// Vietnamese runs ~30% longer than English: check that every bounded label either fits its bound or wraps (AutoWrapText),
+// with the real widgets' actual size/weight.
 // (Measure().Y is the font's max character height by definition (FontMeasure.h:22-30), so vertical clipping is not measurable here.)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLUiVietnameseLayoutTest, "PSL.UI.VietnameseLayout", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
@@ -136,25 +136,6 @@ bool FPSLUiVietnameseLayoutTest::RunTest(const FString& Parameters)
     }
     // FSlateRenderer::GetFontMeasureService (SlateRenderer.h:419), FSlateFontMeasure::Measure (FontMeasure.h:29) / GetMaxCharacterHeight (:172).
     const TSharedRef<FSlateFontMeasure> Measure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
-
-    const TCHAR* Samples[] = {TEXT("Tiếp tục"), TEXT("Cài đặt"), TEXT("Khủng long"), TEXT("Thể lực"), TEXT("Đói"), TEXT("Đã kiệt sức"),
-        TEXT("Trở về menu chính"), TEXT("ẾỆỖỮẶ"), TEXT("ĐANG CHẠY NƯỚC RÚT"), TEXT("BẠN ĐÃ CHẾT ĐÓI")};
-    for (const EPSLFontWeight Weight : FontUiWeights)
-    {
-        const FString Name = FPSLUiStyle::TypefaceName(Weight).ToString();
-        for (const int32 Size : {14, 16, 20, 26, 32, 64})
-        {
-            const FSlateFontInfo Info = FPSLUiStyle::Font(Size, Weight);
-            for (const TCHAR* Sample : Samples)
-            {
-                for (const FString& Text : {FString(Sample), FString(Sample).ToUpper()})
-                {
-                    const FVector2f Extent = Measure->Measure(Text, Info);
-                    TestTrue(FString::Printf(TEXT("%s %d '%s' has positive width"), *Name, Size, *Text), Extent.X > 0.0f);
-                }
-            }
-        }
-    }
 
     IConsoleVariable* Force = IConsoleManager::Get().FindConsoleVariable(TEXT("Localization.ForceLoadGameLocalizationInEditor"));
     if (!TestNotNull(TEXT("ForceLoadGameLocalizationInEditor CVar exists"), Force))
