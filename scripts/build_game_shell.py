@@ -372,13 +372,14 @@ def verify_fonts(counts):
     font = unreal.EditorAssetLibrary.load_asset(FONT_ASSET)
     if font is None or not isinstance(font, unreal.Font):
         fail("missing or wrong class for " + FONT_ASSET)
-    res = unreal.PSLFontBuildLibrary.get_runtime_typefaces(font)  # out params come back as (ret, names, faces)
-    if not isinstance(res, (tuple, list)) or len(res) != 3 or res[0] is not True:
+    # bool return + out params: UE Python returns None on false, else (names, faces) (PyGenUtil.cpp:1161)
+    res = unreal.PSLFontBuildLibrary.get_runtime_typefaces(font)
+    if not isinstance(res, (tuple, list)) or len(res) != 2:
         fail("get_runtime_typefaces failed for %s: %r" % (FONT_ASSET, res))
-    names = [str(n) for n in res[1]]
+    names = [str(n) for n in res[0]]
     if names != list(FONT_WEIGHTS):
         fail("typeface names of %s are %s, expected %s" % (FONT_ASSET, names, list(FONT_WEIGHTS)))
-    for w, face in zip(FONT_WEIGHTS, res[2]):
+    for w, face in zip(FONT_WEIGHTS, res[1]):
         got = face.get_path_name() if face is not None else None
         if got != object_path(font_face_package(w)):
             fail("typeface %s of %s is %s, expected %s" % (w, FONT_ASSET, got, object_path(font_face_package(w))))
