@@ -40,6 +40,13 @@
 - Default mix: `Config/DefaultEngine.ini` `[/Script/Engine.AudioSettings] DefaultBaseSoundMix=/Game/Audio/SM_PSL_Volume.SM_PSL_Volume`, so every audio device starts with `SM_PSL_Volume` as its base mix before `ApplyAudio` sets the overrides.
 - Playback sites: menu music in `APSLMenuGameMode::BeginPlay`; valley music and wind in `APSLGameMode::BeginPlay`; bite in `APSLCharacter::TryBite`; eat via `EatSound`; starving on the hunger 0 transition; game-over as a 2D cue; UI click/hover on the buttons.
 - Build: `PSL_GAMESHELL_STEPS=audio` limits the build phase to this step; verify always checks everything (classes, routing, looping, channels, duration, volume, import source file).
+- Cook: every sound is loaded by path (`PSLAudio::Load`, `FPSLUiStyle`) or through native-constructor soft refs (`UPSLGameUserSettings` SC_*/SM_*, `APSLCharacter::EatSound`), which the cooker does not follow, so `Config/DefaultGame.ini` lists `/Game/Audio` in `DirectoriesToAlwaysCook` (the M2c5b cook without it shipped only `SM_PSL_Volume`).
+
+## Packaging
+
+- `Config/DefaultGame.ini` `[/Script/UnrealEd.ProjectPackagingSettings]`: `MapsToCook` L_MainMenu + L_LostValley; `DirectoriesToAlwaysCook` `/Game/UI/Fonts` + `/Game/Audio`; `CulturesToStage` en + vi; `InternationalizationPreset=All` (ICU `vi`/`vi_VN` data).
+- License: `Content/Licenses/BeVietnamPro/OFL.txt` is a byte-identical copy of `SourceArt/Fonts/OFL.txt`, staged loose (outside the pak) via `DirectoriesToAlwaysStageAsNonUFS=(Path="Licenses/BeVietnamPro")` (path relative to `Content/`). Update both copies together.
+- `PSL.Config.Packaging` pins all of the above.
 
 ## Main menu scene (L_MainMenu)
 

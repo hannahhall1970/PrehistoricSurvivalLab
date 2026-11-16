@@ -210,7 +210,7 @@ Source: `Private/Tests/PSLLocalizationTests.cpp` and `Private/Tests/PSLMenuFlowP
 - (b) The editor needs `Localization.ForceLoadGameLocalizationInEditor` to load non-native locres.
 - (c) The project font BeVietnamPro (Regular/SemiBold/Bold, `/Game/UI/Fonts`) is integrated in M2c3; when the asset is missing `FPSLUiStyle` falls back to the engine default font (SemiBold maps to its Bold) and `PSL.UI.ProjectFont` fails by design.
 - (d) `-nullrhi` `ClickWidget` uses the `OnClicked` fallback.
-- (e) Packaged-build verification is pending: staged cultures (`InternationalizationPreset=All` for vi ICU data), locres in the pak, L_MainMenu cooked. `GameDefaultMap` points at L_MainMenu since M2c5; the cook smoke is M2c5b.
+- (e) Packaged-build verification is pending until M2c8. The M2c5b Mac cook commandlet cooks both maps, the fonts, species and (since `/Game/Audio` is always-cooked) all audio; the staged output (locres, ICU `All`, loose OFL, pak/IoStore containers) needs a Game-target build and UAT `BuildCookRun -stage`.
 
 ## Task 004 M2c4 audio (results come from the harness gate only)
 
@@ -226,3 +226,7 @@ Source: `Private/Tests/PSLLocalizationTests.cpp` and `Private/Tests/PSLMenuFlowP
 - `PSL.PIE.Menu.FullFlow` step `NoDuplicateMenu`: after Pause -> Main Menu the new menu world has exactly one `UPSLMainMenuWidget` and exactly one `MUS_Menu` audio component (at most one when no audio device exists).
 - `scripts/create_main_menu.py --selftest` (no editor): deterministic placement within `BUDGET`, nothing tall inside the camera->dino sight line or on the dino, no bush/rock/near tree in the dino's screen column (±0.2), dino centre at screen x 0.65..0.80 and height 0.35..0.55 of a 16:9 frame.
 - Visual acceptance needs Metal renders, not the `-nullrhi` gate: EN menu, VI menu, VI settings over the scene, VI HUD after New Game (`PSL.Render.FontEvidence`).
+
+## Task 004 M2c5b cook readiness (results come from the harness gate only)
+
+- `PSL.Config.Packaging`: every path the game loads at runtime (`PSLAudio::*`, UI click/hover sounds and font, `APSLCharacter::EatSound`, `UPSLGameUserSettings` SC_Master/SC_Music/SC_SFX/SM_PSL_Volume) lies under a `DirectoriesToAlwaysCook` entry; `MapsToCook` has L_MainMenu and L_LostValley; `CulturesToStage` has en and vi; `InternationalizationPreset=All`; `DirectoriesToAlwaysStageAsNonUFS` has `Licenses/BeVietnamPro` and `Content/Licenses/BeVietnamPro/OFL.txt` equals `SourceArt/Fonts/OFL.txt`.

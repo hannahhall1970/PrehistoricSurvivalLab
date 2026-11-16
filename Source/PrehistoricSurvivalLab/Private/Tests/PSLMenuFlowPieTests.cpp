@@ -11,10 +11,13 @@
 #include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/ConfigCacheIni.h"
+#include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
 #include "PSLAudio.h"
+#include "PSLCharacter.h"
 #include "PSLDinoSpecies.h"
 #include "PSLGameInstance.h"
+#include "PSLGameUserSettings.h"
 #include "PSLMainMenuWidget.h"
 #include "PSLMenuCameraRig.h"
 #include "PSLMenuGameMode.h"
@@ -24,6 +27,7 @@
 #include "PSLSaveSubsystem.h"
 #include "PSLSpeciesSelectWidget.h"
 #include "PSLUiButton.h"
+#include "PSLUiStyle.h"
 #include "UObject/UObjectIterator.h"
 
 namespace
@@ -138,6 +142,68 @@ bool FPSLStartupMapsTest::RunTest(const FString& Parameters)
     // Intentional (docs/GAME_SHELL.md): the editor opens on the valley.
     TestEqual(TEXT("EditorStartupMap is the valley"), EditorStartup,
         FString::Printf(TEXT("/Game/Maps/%s.%s"), UPSLGameInstance::ValleyMap, UPSLGameInstance::ValleyMap));
+    return true;
+}
+
+namespace
+{
+// ProjectPackagingSettings array entries as the cooker/UAT read them: `(Path="X")` -> X.
+TArray<FString> PackagingPaths(const TCHAR* Key)
+{
+    TArray<FString> Raw, Out;
+    GConfig->GetArray(TEXT("/Script/UnrealEd.ProjectPackagingSettings"), Key, Raw, GGameIni);
+    for (const FString& Entry : Raw)
+    {
+        TArray<FString> Parts;
+        Entry.ParseIntoArray(Parts, TEXT("\""), false);
+        Out.Add(Parts.Num() == 3 ? Parts[1] : Entry);
+    }
+    return Out;
+}
+}
+
+// The cooker only follows hard references: everything the game loads by path (or through native-constructor soft refs)
+// must sit under DirectoriesToAlwaysCook, or the packaged game silently runs without it (M2c5b cook dropped 12 audio assets).
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLPackagingConfigTest, "PSL.Config.Packaging", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPSLPackagingConfigTest::RunTest(const FString& Parameters)
+{
+    const TArray<FString> AlwaysCook = PackagingPaths(TEXT("DirectoriesToAlwaysCook"));
+    const UPSLGameUserSettings* Settings = GetDefault<UPSLGameUserSettings>();
+    const TArray<FString> RuntimePaths = {
+        PSLAudio::MenuMusic, PSLAudio::ValleyMusic, PSLAudio::Wind, PSLAudio::Bite, PSLAudio::GameOver, PSLAudio::Starving,
+        FPSLUiStyle::ClickSoundPath, FPSLUiStyle::HoverSoundPath, FPSLUiStyle::FontPath,
+        GetDefault<APSLCharacter>()->EatSound.ToSoftObjectPath().ToString(),
+        Settings->SC_Master.ToSoftObjectPath().ToString(), Settings->SC_Music.ToSoftObjectPath().ToString(),
+        Settings->SC_SFX.ToSoftObjectPath().ToString(), Settings->SM_PSL_Volume.ToSoftObjectPath().ToString()};
+    for (const FString& Path : RuntimePaths)
+    {
+        const FString Package = FPackageName::ObjectPathToPackageName(Path);
+        const bool bCooked = AlwaysCook.ContainsByPredicate([&](const FString& Dir) { return Package.StartsWith(Dir + TEXT("/")); });
+        TestTrue(FString::Printf(TEXT("%s is under DirectoriesToAlwaysCook"), *Package), bCooked);
+    }
+
+    const TArray<FString> Maps = PackagingPaths(TEXT("MapsToCook"));
+    for (const TCHAR* Map : {UPSLGameInstance::MenuMap, UPSLGameInstance::ValleyMap})
+    {
+        TestTrue(FString::Printf(TEXT("MapsToCook has %s"), Map), Maps.Contains(FString::Printf(TEXT("/Game/Maps/%s"), Map)));
+    }
+
+    TArray<FString> Cultures;
+    GConfig->GetArray(TEXT("/Script/UnrealEd.ProjectPackagingSettings"), TEXT("CulturesToStage"), Cultures, GGameIni);
+    TestTrue(TEXT("CulturesToStage has en"), Cultures.Contains(TEXT("en")));
+    TestTrue(TEXT("CulturesToStage has vi"), Cultures.Contains(TEXT("vi")));
+    FString Preset;
+    GConfig->GetString(TEXT("/Script/UnrealEd.ProjectPackagingSettings"), TEXT("InternationalizationPreset"), Preset, GGameIni);
+    TestEqual(TEXT("ICU preset stages vi locale data"), Preset, FString(TEXT("All")));
+
+    // The OFL must ship next to the font: a loose, byte-identical copy staged outside the pak.
+    const FString LicenseDir = TEXT("Licenses/BeVietnamPro");
+    TestTrue(TEXT("OFL dir staged as NonUFS"), PackagingPaths(TEXT("DirectoriesToAlwaysStageAsNonUFS")).Contains(LicenseDir));
+    FString Staged, Source;
+    TestTrue(TEXT("staged OFL.txt exists"), FFileHelper::LoadFileToString(Staged, *FPaths::Combine(FPaths::ProjectContentDir(), LicenseDir, TEXT("OFL.txt"))));
+    TestTrue(TEXT("source OFL.txt exists"), FFileHelper::LoadFileToString(Source, *FPaths::Combine(FPaths::ProjectDir(), TEXT("SourceArt/Fonts/OFL.txt"))));
+    TestTrue(TEXT("staged OFL matches SourceArt/Fonts/OFL.txt"), !Staged.IsEmpty() && Staged == Source);
     return true;
 }
 
