@@ -210,10 +210,18 @@ Source: `Private/Tests/PSLLocalizationTests.cpp` and `Private/Tests/PSLMenuFlowP
 - (b) The editor needs `Localization.ForceLoadGameLocalizationInEditor` to load non-native locres.
 - (c) The project font BeVietnamPro (Regular/SemiBold/Bold, `/Game/UI/Fonts`) is integrated in M2c3; when the asset is missing `FPSLUiStyle` falls back to the engine default font (SemiBold maps to its Bold) and `PSL.UI.ProjectFont` fails by design.
 - (d) `-nullrhi` `ClickWidget` uses the `OnClicked` fallback.
-- (e) Packaged-build verification is pending: staged cultures (`InternationalizationPreset=All` for vi ICU data), locres in the pak, L_MainMenu cooked (`GameDefaultMap`/`MapsToCook` switch is M2c).
+- (e) Packaged-build verification is pending: staged cultures (`InternationalizationPreset=All` for vi ICU data), locres in the pak, L_MainMenu cooked. `GameDefaultMap` points at L_MainMenu since M2c5; the cook smoke is M2c5b.
 
 ## Task 004 M2c4 audio (results come from the harness gate only)
 
 - `PSL.Audio.BuildLibrary`: `UPSLAudioBuildLibrary::SetSoundClassParent` keeps `ParentClass` and `ChildClasses` consistent (reparent, idempotent, null/self/cycle rejected with one error each, detach to root).
 - `PSL.Audio.Assets` (requires `/Game/Audio`): `SC_Master` is the root with exactly `SC_Music` and `SC_SFX` as children on both sides of the link; class and wave volumes 1.0; `SM_PSL_Volume` has no class effects; `AudioSettings.DefaultBaseSoundMix` is `SM_PSL_Volume` and resolves; the settings defaults point at these assets; each of the 9 waves routes to its class (`MUS_*` -> `SC_Music`, others -> `SC_SFX`), loops only for `MUS_Menu`/`MUS_Valley`/`AMB_Wind`, and matches the pinned WAV channel count and duration (frames / 44100); every path the game plays from (`PSLAudio::*`, UI click/hover, `EatSound`) loads a wave.
 - `PSL.Audio.EffectiveVolume` (PIE `L_TestArena`): for sliders (0.5, 0.6, 0.8) and (1.0, 0.0, 1.0), `ApplyAudio(PIE world)` then the PIE audio device (read on the audio thread behind an `FAudioCommandFence`) reports `SM_PSL_Volume` as base mix and effective class volumes Master = M, Music = M*Mu, SFX = M*S (tolerance 1e-3, polled up to 5 s for the fades). The user's in-memory slider values are restored afterwards; nothing is saved. This proves the mix math on the device, not audible output.
+
+## Task 004 M2c5 3D main menu (results come from the harness gate only)
+
+- `PSL.Config.StartupMaps`: `GameDefaultMap` = `/Game/Maps/L_MainMenu.L_MainMenu` and the package exists; `EditorStartupMap` stays `/Game/Maps/L_LostValley.L_LostValley` (intentional, see `GAME_SHELL.md`).
+- `PSL.Menu.PreviewSway`: `APSLMenuPreviewActor::SwayYawOffset` is 0 at t = 0, +amplitude at a quarter period, periodic, and never exceeds ±`SwayAmplitudeDegrees`.
+- `PSL.PIE.Menu.FullFlow` step `NoDuplicateMenu`: after Pause -> Main Menu the new menu world has exactly one `UPSLMainMenuWidget` and exactly one `MUS_Menu` audio component (at most one when no audio device exists).
+- `scripts/create_main_menu.py --selftest` (no editor): deterministic placement within `BUDGET`, nothing tall inside the camera->dino sight line or on the dino, dino centre at screen x 0.65..0.80 and height 0.35..0.55 of a 16:9 frame.
+- Visual acceptance needs Metal renders, not the `-nullrhi` gate: EN menu, VI menu, VI settings over the scene, VI HUD after New Game (`PSL.Render.FontEvidence`).

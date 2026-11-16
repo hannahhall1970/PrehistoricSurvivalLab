@@ -291,8 +291,8 @@ bool FPSLAudioEffectiveVolumeTest::RunTest(const FString& Parameters)
     }
 
     QueuePieEnd(Context);
-    // After PIE ends and outside FPSLPieStep (which skips its body once PIE is lost), so it always runs:
-    // the in-memory sliders go back to the user's values. Nothing is saved.
+    // After PIE ends and outside FPSLPieStep (which skips its body once PIE is lost), so a lost PIE world does not skip it:
+    // the in-memory sliders go back to the user's values. It does not run if the automation queue itself aborts; nothing is saved either way.
     TFunction<bool()> Restore = [Settings, Saved]()
     {
         Settings->SetMasterVolume(Saved.X);

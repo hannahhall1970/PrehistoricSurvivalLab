@@ -1,7 +1,14 @@
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 
+#include "AudioDevice.h"
+#include "Components/AudioComponent.h"
 #include "Components/TextBlock.h"
 #include "Kismet/GameplayStatics.h"
+#include "PSLAudio.h"
+#include "Misc/ConfigCacheIni.h"
+#include "Misc/PackageName.h"
+#include "UObject/UObjectIterator.h"
+#include "PSLMenuPreviewActor.h"
 #include "PSLDinoSpecies.h"
 #include "PSLGameInstance.h"
 #include "PSLMainMenuWidget.h"
@@ -109,6 +116,44 @@ T* FindFlowScreen(FPSLPieCtx& Ctx)
     UWidgetBlueprintLibrary::GetAllWidgetsOfClass(Ctx.World, Found, T::StaticClass(), true);
     return Found.Num() > 0 ? Cast<T>(Found[0]) : nullptr;
 }
+}
+
+// A packaged game boots on GameDefaultMap: it must be the menu, and the menu map package must exist (a typo boots a black screen).
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLStartupMapsTest, "PSL.Config.StartupMaps", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPSLStartupMapsTest::RunTest(const FString& Parameters)
+{
+    const TCHAR* Section = TEXT("/Script/EngineSettings.GameMapsSettings");
+    FString GameDefault, EditorStartup;
+    GConfig->GetString(Section, TEXT("GameDefaultMap"), GameDefault, GEngineIni);
+    GConfig->GetString(Section, TEXT("EditorStartupMap"), EditorStartup, GEngineIni);
+    const FString MenuPath = FString::Printf(TEXT("/Game/Maps/%s"), UPSLGameInstance::MenuMap);
+    TestEqual(TEXT("GameDefaultMap is the main menu"), GameDefault, FString::Printf(TEXT("%s.%s"), *MenuPath, UPSLGameInstance::MenuMap));
+    TestTrue(TEXT("Main menu map package exists"), FPackageName::DoesPackageExist(MenuPath));
+    // Intentional (docs/GAME_SHELL.md): the editor opens on the valley.
+    TestEqual(TEXT("EditorStartupMap is the valley"), EditorStartup,
+        FString::Printf(TEXT("/Game/Maps/%s.%s"), UPSLGameInstance::ValleyMap, UPSLGameInstance::ValleyMap));
+    return true;
+}
+
+// The hero preview must keep its framed 3/4 view: bounded sway around the placed yaw, never a full turn.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLMenuPreviewSwayTest, "PSL.Menu.PreviewSway", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPSLMenuPreviewSwayTest::RunTest(const FString& Parameters)
+{
+    constexpr float Amp = APSLMenuPreviewActor::SwayAmplitudeDegrees;
+    constexpr float Period = APSLMenuPreviewActor::SwayPeriodSeconds;
+    TestEqual(TEXT("No offset at start"), APSLMenuPreviewActor::SwayYawOffset(0.0f), 0.0f, 1.0e-4f);
+    TestEqual(TEXT("Full amplitude at a quarter period"), APSLMenuPreviewActor::SwayYawOffset(Period * 0.25f), Amp, 1.0e-3f);
+    TestEqual(TEXT("Periodic"), APSLMenuPreviewActor::SwayYawOffset(Period * 3.3f), APSLMenuPreviewActor::SwayYawOffset(Period * 0.3f), 1.0e-2f);
+    float MaxAbs = 0.0f;
+    for (float T = 0.0f; T <= 600.0f; T += 0.37f)
+    {
+        MaxAbs = FMath::Max(MaxAbs, FMath::Abs(APSLMenuPreviewActor::SwayYawOffset(T)));
+    }
+    TestTrue(FString::Printf(TEXT("Sway stays within +-%.0f deg over 10 min (max %.3f)"), Amp, MaxAbs), MaxAbs <= Amp + 1.0e-3f);
+    TestTrue(TEXT("Amplitude keeps the 3/4 view (< 45 deg)"), Amp > 0.0f && Amp < 45.0f);
+    return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLMenuFullFlowPieTest, "PSL.PIE.Menu.FullFlow", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -286,6 +331,37 @@ bool FPSLMenuFullFlowPieTest::RunTest(const FString& Parameters)
     AddPieStep(Context, TEXT("WaitForMenuAgain"), 30.0f, [](FPSLPieCtx& Ctx)
     {
         return Ctx.bInvalid || FindMenuWidget(Ctx) != nullptr;
+    });
+    // Returning from gameplay must rebuild the menu once: one menu widget and one menu-music component in the new world.
+    AddPieStep(Context, TEXT("NoDuplicateMenu"), 2.0f, [](FPSLPieCtx& Ctx)
+    {
+        UWorld* World = nullptr;
+        if (Ctx.bInvalid || !FindMenuWidget(Ctx, &World))
+        {
+            return true;
+        }
+        TArray<UUserWidget*> Menus;
+        UWidgetBlueprintLibrary::GetAllWidgetsOfClass(World, Menus, UPSLMainMenuWidget::StaticClass(), true);
+        Ctx.Test->TestEqual(TEXT("Exactly one main menu widget after ReturnToMenu"), Menus.Num(), 1);
+        const USoundBase* MenuSound = PSLAudio::Load(PSLAudio::MenuMusic);
+        int32 MusicComponents = 0;
+        for (TObjectIterator<UAudioComponent> It; It; ++It)
+        {
+            MusicComponents += (MenuSound && It->Sound == MenuSound && It->GetWorld() == World && IsValid(*It)) ? 1 : 0;
+        }
+        // SpawnSound2D returns null without an audio device (possible headless), so exactly one is required only with a device.
+        const bool bHasDevice = World->GetAudioDevice().IsValid();
+        Ctx.Test->AddInfo(FString::Printf(TEXT("After ReturnToMenu: %d menu widget(s), %d MUS_Menu component(s), audio device %d"),
+            Menus.Num(), MusicComponents, bHasDevice ? 1 : 0));
+        if (bHasDevice && MenuSound)
+        {
+            Ctx.Test->TestEqual(TEXT("Exactly one MUS_Menu audio component after ReturnToMenu"), MusicComponents, 1);
+        }
+        else
+        {
+            Ctx.Test->TestTrue(TEXT("At most one MUS_Menu audio component after ReturnToMenu"), MusicComponents <= 1);
+        }
+        return true;
     });
     AddPieStep(Context, TEXT("ClickContinue"), 4.0f, [Flow](FPSLPieCtx& Ctx)
     {

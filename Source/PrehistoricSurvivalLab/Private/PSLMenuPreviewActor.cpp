@@ -20,16 +20,25 @@ APSLMenuPreviewActor::APSLMenuPreviewActor()
 void APSLMenuPreviewActor::BeginPlay()
 {
     Super::BeginPlay();
+    BaseYaw = GetActorRotation().Yaw;
     if (CurrentSpecies.IsNone())
     {
         SetSpecies(UPSLDinoSpecies::TRexId);
     }
 }
 
+float APSLMenuPreviewActor::SwayYawOffset(float Seconds)
+{
+    return SwayAmplitudeDegrees * FMath::Sin(2.0f * PI * Seconds / SwayPeriodSeconds);
+}
+
 void APSLMenuPreviewActor::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
-    AddActorLocalRotation(FRotator(0.0f, TurntableDegreesPerSecond * DeltaSeconds, 0.0f));
+    Elapsed += DeltaSeconds;
+    FRotator Rotation = GetActorRotation();
+    Rotation.Yaw = BaseYaw + SwayYawOffset(Elapsed);
+    SetActorRotation(Rotation);
 }
 
 void APSLMenuPreviewActor::SetSpecies(FName SpeciesId)

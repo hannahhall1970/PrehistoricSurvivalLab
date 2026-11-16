@@ -36,7 +36,25 @@
 - Assets in `/Game/Audio`: SoundWaves `MUS_Menu`, `MUS_Valley`, `AMB_Wind`, `SFX_UI_Click`, `SFX_UI_Hover`, `SFX_Bite`, `SFX_Eat`, `SFX_GameOver`, `SFX_Starving`; SoundClasses `SC_Master`, `SC_Music`, `SC_SFX`; SoundMix `SM_PSL_Volume` (no class effects).
 - Routing: `MUS_*` -> `SC_Music`; `AMB_Wind` and every `SFX_*` -> `SC_SFX`. `MUS_Menu`, `MUS_Valley` and `AMB_Wind` loop. Wave volume stays 1.0 and the import applies no processing.
 - Hierarchy: `SC_Music` and `SC_SFX` are children of `SC_Master`. `USoundClass::ParentClass` has no `EditAnywhere` (python cannot set it) and the engine's `SetParentClass` does not add the child to the parent's `ChildClasses`, so the build uses `UPSLAudioBuildLibrary::SetSoundClassParent(Child, Parent)` (`unreal.PSLAudioBuildLibrary.set_sound_class_parent`), which updates both sides.
-- Volume: `UPSLGameUserSettings::ApplyAudio` sets `SM_PSL_Volume` as the base mix (`SetBaseSoundMix`) with per-class overrides: Master = M, Music = M*Mu, SFX = M*S (the engine multiplies a child by its parent, so the effective values follow the sliders).
+- Volume: `UPSLGameUserSettings::ApplyAudio` sets `SM_PSL_Volume` as the base mix (`SetBaseSoundMix`) with per-class overrides `SC_Master` = M, `SC_Music` = Mu, `SC_SFX` = S. The engine multiplies a child by its parent, so the effective volumes are Master = M, Music = M*Mu, SFX = M*S.
 - Default mix: `Config/DefaultEngine.ini` `[/Script/Engine.AudioSettings] DefaultBaseSoundMix=/Game/Audio/SM_PSL_Volume.SM_PSL_Volume`, so every audio device starts with `SM_PSL_Volume` as its base mix before `ApplyAudio` sets the overrides.
 - Playback sites: menu music in `APSLMenuGameMode::BeginPlay`; valley music and wind in `APSLGameMode::BeginPlay`; bite in `APSLCharacter::TryBite`; eat via `EatSound`; starving on the hunger 0 transition; game-over as a 2D cue; UI click/hover on the buttons.
 - Build: `PSL_GAMESHELL_STEPS=audio` limits the build phase to this step; verify always checks everything (classes, routing, looping, channels, duration, volume, import source file).
+
+## Main menu scene (L_MainMenu)
+
+- Built only by `scripts/create_main_menu.py` (trusted parent, under the build lock; `--selftest` checks placement and framing without the editor). It replaces the map and writes `Saved/PSL/main-menu.json`.
+- Contents, all from existing project assets:
+  - Ground plane with `M_PSL_Terrain`.
+  - Golden-hour lighting, all movable: `PSL_Menu_Sun`, `PSL_Menu_SkyAtmosphere`, `PSL_Menu_SkyLight` (real-time capture), `PSL_Menu_Fog`.
+  - `PSL_Menu_PostProcess`: unbound, with fixed exposure (min = max = 1) so the lit snout no longer blows out.
+  - Seeded HISM backdrop `PSL_Menu_{Trees,Cliffs,Rocks,Bushes,Grass}` from `/Game/Environment/Nature`, capped by `BUDGET` (at most 538 instances).
+- Framing at 16:9:
+  - The UI panel covers screen x 0.05..0.50.
+  - `MenuPreview` (`APSLMenuPreviewActor`) stands at (0, 300, 0) with yaw 215, so it faces the camera and the panel. Its centre lands at screen x 0.73.
+  - `MenuCameraRig` stands at (-1400, 0, 200) with pitch -4, horizontal FOV 50, no aspect constraint, and a 60 uu dolly over 30 s.
+- The preview no longer spins 360 degrees, which used to turn its back or tail into the panel. It sways ±20 degrees around its placed yaw over a 16 s period (`SwayYawOffset`). The species screen still swaps the mesh through `SetSpecies`.
+- Startup maps (`Config/DefaultEngine.ini`):
+  - `GameDefaultMap` is `L_MainMenu`, so a game build boots into the menu.
+  - `EditorStartupMap` stays `L_LostValley` on purpose: the editor opens on gameplay, and PIE on `L_MainMenu` exercises the menu.
+  - `PSL.Config.StartupMaps` pins both.
