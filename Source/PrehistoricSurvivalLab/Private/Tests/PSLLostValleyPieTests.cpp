@@ -4,6 +4,7 @@
 #include "Landscape.h"
 #include "LandscapeProxy.h"
 #include "LandscapeComponent.h"
+#include "Materials/MaterialInstance.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
 #include "Engine/DirectionalLight.h"
@@ -162,17 +163,28 @@ bool FPSLLostValleyLoadsTest::RunTest(const FString& Parameters)
         UWorld* World = Ctx.World;
         Ctx.Test->TestTrue(TEXT("Map is L_LostValley"), World->GetMapName().Contains(TEXT("L_LostValley")));
 
+        // The cooked game uses the component material instances saved in the map as-is, so they must derive from
+        // M_PSL_Terrain (built with a null material they derive from WorldGridMaterial: a checkerboard ground).
+        const UMaterialInterface* Terrain = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Environment/Materials/M_PSL_Terrain.M_PSL_Terrain"));
+        Ctx.Test->TestNotNull(TEXT("M_PSL_Terrain loads"), Terrain);
         int32 LandscapeCount = 0;
         int32 ComponentCount = 0;
+        int32 TerrainComponents = 0;
         for (TActorIterator<ALandscape> It(World); It; ++It)
         {
             ++LandscapeCount;
             TArray<ULandscapeComponent*> Components;
             It->GetComponents(Components);
             ComponentCount += Components.Num();
+            for (const ULandscapeComponent* Component : Components)
+            {
+                const UMaterialInstance* Instance = Component->GetMaterialInstanceCount(false) > 0 ? Component->GetMaterialInstance(0, false) : nullptr;
+                TerrainComponents += Terrain && Instance && Instance->GetMaterial() == Terrain->GetMaterial() ? 1 : 0;
+            }
         }
         Ctx.Test->TestEqual(TEXT("Landscape count"), LandscapeCount, 1);
         Ctx.Test->TestEqual(TEXT("Landscape component count"), ComponentCount, 16);
+        Ctx.Test->TestEqual(TEXT("Landscape components whose saved material instance derives from M_PSL_Terrain"), TerrainComponents, ComponentCount);
 
         int32 HismWithInstances = 0;
         for (TActorIterator<AActor> It(World); It; ++It)

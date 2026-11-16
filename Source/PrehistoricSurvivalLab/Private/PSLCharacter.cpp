@@ -5,6 +5,7 @@
 #include "PSLAudio.h"
 #include "PSLInputDefaults.h"
 #include "InputActionValue.h"
+#include "InputMappingContext.h"
 #include "PSLStatsComponent.h"
 #include "PSLSurvivalComponent.h"
 #include "Camera/CameraComponent.h"
@@ -215,16 +216,22 @@ void APSLCharacter::BeginPlay()
             PlayerController->PlayerCameraManager->ViewPitchMax = 20.0f;
         }
 
-        if (ULocalPlayer* LocalPlayer = PlayerController->GetLocalPlayer())
+        ULocalPlayer* LocalPlayer = PlayerController->GetLocalPlayer();
+        UEnhancedInputLocalPlayerSubsystem* InputSubsystem = LocalPlayer ? ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(LocalPlayer) : nullptr;
+        if (InputSubsystem && DefaultMappingContext)
         {
-            if (UEnhancedInputLocalPlayerSubsystem* InputSubsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(LocalPlayer))
-            {
-                if (DefaultMappingContext)
-                {
-                    InputSubsystem->AddMappingContext(DefaultMappingContext, 0);
-                }
-            }
+            InputSubsystem->AddMappingContext(DefaultMappingContext, 0);
+            UE_LOG(LogTemp, Display, TEXT("PSL input context added: %s"), *GetNameSafe(DefaultMappingContext));
         }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("PSL input context NOT added (local player %d, subsystem %d, context %d)"),
+                LocalPlayer != nullptr, InputSubsystem != nullptr, DefaultMappingContext != nullptr);
+        }
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("PSL input context NOT added: no player controller at BeginPlay"));
     }
 }
 
@@ -303,7 +310,33 @@ void APSLCharacter::Look(const FInputActionValue& Value)
 
 void APSLCharacter::StartJump(const FInputActionValue& Value)
 {
+    UCharacterMovementComponent* Movement = GetCharacterMovement();
+    UE_LOG(LogTemp, Display, TEXT("PSL input: Jump Started (canjump=%d grounded=%d z=%.1f)"), CanJump(),
+        Movement && Movement->IsMovingOnGround(), GetActorLocation().Z);
+    if (CanJump() && Movement)
+    {
+        JumpStartZ = GetActorLocation().Z;
+        JumpStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+        Movement->bNotifyApex = true; // one-shot: the movement component clears it when NotifyJumpApex fires
+    }
     Jump();
+}
+
+void APSLCharacter::NotifyJumpApex()
+{
+    Super::NotifyJumpApex();
+    UE_LOG(LogTemp, Display, TEXT("PSL jump apex: +%.1f uu"), GetActorLocation().Z - JumpStartZ);
+}
+
+void APSLCharacter::Landed(const FHitResult& Hit)
+{
+    Super::Landed(Hit);
+    if (JumpStartTime >= 0.0 && GetWorld())
+    {
+        UE_LOG(LogTemp, Display, TEXT("PSL jump landed: z=%.1f airtime=%.2f s"), GetActorLocation().Z,
+            GetWorld()->GetTimeSeconds() - JumpStartTime);
+        JumpStartTime = -1.0;
+    }
 }
 
 void APSLCharacter::StopJump(const FInputActionValue& Value)
@@ -375,6 +408,7 @@ bool APSLCharacter::CanBite(double Now, double LastBite, double Cooldown, bool b
 
 void APSLCharacter::StartBite(const FInputActionValue& Value)
 {
+    UE_LOG(LogTemp, Display, TEXT("PSL input: Bite Started"));
     TryBite();
 }
 
@@ -392,12 +426,15 @@ bool APSLCharacter::TryBite()
     const bool bDead = !StatsComponent || StatsComponent->IsDead();
     if (!World || !CanBite(World->GetTimeSeconds(), LastBiteTime, BiteCooldown, bDead))
     {
+        UE_LOG(LogTemp, Display, TEXT("PSL bite rejected: dead=%d cooldown_left=%.2f"), bDead,
+            World ? FMath::Max(0.0, BiteCooldown - (World->GetTimeSeconds() - LastBiteTime)) : 0.0);
         return false;
     }
 
     LastBiteTime = World->GetTimeSeconds();
     ++BiteCount;
     LastBiteHitCount = -1;
+    UE_LOG(LogTemp, Display, TEXT("PSL bite accepted #%d"), BiteCount);
     if (UPSLDinoAnimInstance* DinoAnim = Cast<UPSLDinoAnimInstance>(GetMesh()->GetAnimInstance()))
     {
         DinoAnim->PlayAction(EPSLDinoAction::Attack);
@@ -444,6 +481,8 @@ void APSLCharacter::ResolveBiteHit()
     }
 
     const float Ate = TryEat(Center);
+    UE_LOG(LogTemp, Display, TEXT("PSL bite hit: pawns=%d damage=%.1f food=%.1f hunger=%.1f"), Victims.Num(), BiteDamage, Ate,
+        SurvivalComponent ? SurvivalComponent->GetHunger() : -1.0f);
     if (Ate > 0.0f)
     {
         OnAteFood.Broadcast(Ate);

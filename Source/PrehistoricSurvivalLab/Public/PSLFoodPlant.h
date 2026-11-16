@@ -5,6 +5,7 @@
 #include "Engine/TimerHandle.h"
 #include "PSLFoodPlant.generated.h"
 
+class USphereComponent;
 class UStaticMeshComponent;
 
 /** Herbivore food: a bite overlapping it yields FoodAmount, then it hides until it regrows. The mesh is set by content. */
@@ -16,6 +17,11 @@ class PREHISTORICSURVIVALLAB_API APSLFoodPlant : public AActor
 public:
     APSLFoodPlant();
 
+    // What the bite sphere overlaps, so any foliage mesh works (the Nature bushes are imported without collision).
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Food")
+    TObjectPtr<USphereComponent> BiteVolume;
+
+    // Visual only, no collision.
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Food")
     TObjectPtr<UStaticMeshComponent> PlantMesh;
 

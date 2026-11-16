@@ -162,6 +162,10 @@ public:
     // Pure look-input transform used by Look(): scaled by Sensitivity, Y negated when bInvertY.
     static FVector2D ScaleLookInput(FVector2D Raw, float Sensitivity, bool bInvertY);
 
+    // Development diagnostics only: log the jump apex height and landing airtime ("PSL jump ..." lines).
+    virtual void NotifyJumpApex() override;
+    virtual void Landed(const FHitResult& Hit) override;
+
 protected:
     virtual void BeginPlay() override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
@@ -196,6 +200,8 @@ private:
     bool bDeathHandled;
     double LastBiteTime;
     FTimerHandle BiteHitTimer;
+    double JumpStartZ = 0.0;
+    double JumpStartTime = -1.0; // < 0: no diagnosed jump in flight
 
     // Carnivore bites eat one dead prey in the sphere; herbivore bites eat plants. Returns hunger gained.
     float TryEat(const FVector& Center);

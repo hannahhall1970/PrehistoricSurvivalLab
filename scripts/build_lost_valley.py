@@ -220,6 +220,9 @@ def selftest():
     assert all(not excluded(x, y, poly) for x, y in pts)
     assert all(math.hypot(a[0] - b[0], a[1] - b[1]) >= 700.0 for i, a in enumerate(pts) for b in pts[:i])
     assert pts == poisson(random.Random(SEED), 220, 700.0, lambda x, y: not excluded(x, y, poly)), "deterministic"
+    plants = food_plant_spots(poly, (PATH_POINTS[0][0] + 400.0, PATH_POINTS[0][1] + 300.0))
+    assert len(plants) == 6 and len(set(plants)) == 6, plants
+    assert all(not excluded(x, y, poly) and abs(x) < EXTENT and abs(y) < EXTENT for x, y in plants), plants
     print(LOG + "selftest ok (%d trees)" % len(pts))
 
 
@@ -241,6 +244,11 @@ COLLIDES_RE = re.compile(r"(?i)tree|pine|rock")
 FOLIAGE_LABELS = ["PSL_Foliage_Trees", "PSL_Foliage_Rocks", "PSL_Foliage_Grass", "PSL_Foliage_Bushes", "PSL_PathStones"]
 LIGHT_LABELS = ["PSL_Sun", "PSL_SkyAtmosphere", "PSL_SkyLight", "PSL_Fog", "PSL_PostProcess"]
 PREY_LABELS = ["PSL_Prey_0%d" % i for i in (1, 2, 3)]
+FOOD_PLANT_CLASS = "/Script/PrehistoricSurvivalLab.PSLFoodPlant"
+FOOD_PLANT_MESH = "Bush_Common_Flowers"
+FOOD_PLANT_LABELS = ["PSL_FoodPlant_%02d" % i for i in range(6)]
+FOOD_PLANT_RANGE = (1500.0, 4500.0)  # 2D distance from the PlayerStart: herbivore food on the first stretch of the path
+FOOD_PLANT_OFFSET = 700.0  # beside the path, outside PATH_EXCLUDE, alternating sides
 
 
 def write_report(status, counts=None):
@@ -657,6 +665,26 @@ def build_gameplay(grid, poly):
     for label in PREY_LABELS:
         x, y = mx + rng.uniform(-800, 800), my + rng.uniform(-800, 800)
         spawn(prey_class, label, x, y, sample_height(grid, x, y) + 100.0)
+    for label, (x, y) in zip(FOOD_PLANT_LABELS, food_plant_spots(poly, (sx, sy))):
+        plant = spawn(unreal.load_class(None, FOOD_PLANT_CLASS), label, x, y, sample_height(grid, x, y) + 5.0)
+        plant.get_editor_property("plant_mesh").set_static_mesh(unreal.load_asset(NATURE_DEST + "/SM_" + FOOD_PLANT_MESH))
+        plant.set_actor_scale3d(unreal.Vector(1.5, 1.5, 1.5))
+
+
+def food_plant_spots(poly, start_xy):
+    """Deterministic: path samples FOOD_PLANT_RANGE from the PlayerStart, pushed FOOD_PLANT_OFFSET to alternating sides,
+    evenly picked; returns len(FOOD_PLANT_LABELS) (x, y) spots, each clear of the path/clearing/meadow."""
+    spots = []
+    for x, y, tx, ty in resample(poly, 300.0):
+        side = 1.0 if len(spots) % 2 == 0 else -1.0
+        px, py = x - ty * FOOD_PLANT_OFFSET * side, y + tx * FOOD_PLANT_OFFSET * side
+        d = math.hypot(px - start_xy[0], py - start_xy[1])
+        if FOOD_PLANT_RANGE[0] <= d <= FOOD_PLANT_RANGE[1] and not excluded(px, py, poly, 100.0):
+            spots.append((px, py))
+    n = len(FOOD_PLANT_LABELS)
+    if len(spots) < n:
+        raise ValueError("only %d food plant spots" % len(spots))
+    return [spots[k * (len(spots) - 1) // (n - 1)] for k in range(n)]
 
 
 def build_lighting():
@@ -714,6 +742,20 @@ def check():
         counts["landscapeComponents"] = len(lands[0].get_components_by_class(unreal.LandscapeComponent))
         if counts["landscapeComponents"] != 16:
             problems.append("landscape component count %d, expected 16" % counts["landscapeComponents"])
+    # Landscape component material instances are saved in the map; built before the landscape material was set they
+    # derive from WorldGridMaterial (a checkerboard in the cooked game, where the editor's load-time fixup never runs).
+    # Check their parent chains, not the .umap bytes: the default brush's polys also import WorldGridMaterial.
+    roots = {}
+    for mic in unreal.ObjectIterator(unreal.LandscapeMaterialInstanceConstant):
+        if mic.get_path_name().startswith(MAP_PATH + "."):
+            m = mic
+            while isinstance(m, unreal.MaterialInstance):
+                m = m.get_editor_property("parent")
+            root = m.get_path_name() if m else "None"
+            roots[root] = roots.get(root, 0) + 1
+    terrain_root = unreal.load_asset(MAT_DEST + "/M_PSL_Terrain").get_path_name()
+    if not roots or set(roots) != {terrain_root}:
+        problems.append("landscape material instances must all derive from M_PSL_Terrain, got %s" % roots)
 
     for label in FOLIAGE_LABELS:
         a = found.get(label)
@@ -747,6 +789,14 @@ def check():
     for label in ("PSL_Landmark_DeadTree", "PSL_Landmark_Rocks"):
         if label not in found:
             problems.append("missing " + label)
+    plant_class = unreal.load_class(None, FOOD_PLANT_CLASS)
+    plants = [a for a in actors if plant_class is not None and a.get_class() == plant_class]
+    counts["foodPlants"] = len(plants)
+    if sorted(a.get_actor_label() for a in plants) != FOOD_PLANT_LABELS:
+        problems.append("food plants %s, expected %s" % (sorted(a.get_actor_label() for a in plants), FOOD_PLANT_LABELS))
+    for a in plants:
+        if a.get_editor_property("plant_mesh").get_editor_property("static_mesh") is None:
+            problems.append(a.get_actor_label() + " has no mesh")
 
     gm = editor_world().get_world_settings().get_editor_property("default_game_mode")
     if gm is None or "PSLGameMode" not in gm.get_path_name():
@@ -807,8 +857,9 @@ def main():
         # a failed earlier run leaves an (empty) map behind: drop this script's own output and rebuild
         log("existing map invalid, rebuilding: " + "; ".join(problems))
         unreal.EditorLoadingAndSavingUtils.new_blank_map(False)  # unload so the asset can be deleted
-        if not unreal.EditorAssetLibrary.delete_asset(MAP_PATH):
-            fail("cannot delete invalid " + MAP_PATH)
+        # delete_asset can report success yet keep a still-referenced level package on disk
+        if not unreal.EditorAssetLibrary.delete_asset(MAP_PATH) or exists(MAP_PATH):
+            fail("cannot delete invalid %s: delete Content/Maps/L_LostValley.umap before running" % MAP_PATH)
     build_map(levels)
     counts = validate()
     write_report("ok", counts)

@@ -5,6 +5,9 @@
 #include "PSLDinoSpecies.h"
 #include "PSLGameInstance.h"
 #include "PSLPieTestSupport.h"
+#include "PSLFoodPlant.h"
+#include "GameFramework/PlayerStart.h"
+#include "Components/StaticMeshComponent.h"
 
 namespace
 {
@@ -173,6 +176,116 @@ bool FPSLFlowEatCarcassTest::RunTest(const FString& Parameters)
             Ctx.Test->TestTrue(TEXT("Carcass lost meat"), Prey->MeatRemaining < 60.0f);
         }
         Record(Ctx, TEXT("ate"));
+        return true;
+    });
+    QueuePieEnd(Context);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLFlowParaEatsValleyPlantTest, "PSL.PIE.Hunger.ParaEatsValleyPlant", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+// The valley ships food a Para can reach from the PlayerStart, and a real bite on a placed plant feeds it.
+bool FPSLFlowParaEatsValleyPlantTest::RunTest(const FString& Parameters)
+{
+    const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("Flow_ParaEatsValleyPlant"));
+    if (!QueuePieStart(*this, Context))
+    {
+        return false;
+    }
+    const TSharedRef<TWeakObjectPtr<APSLFoodPlant>> Target = MakeShared<TWeakObjectPtr<APSLFoodPlant>>();
+    AddPieStep(Context, TEXT("StartNewGamePara"), 3.0f, [](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable())
+        {
+            return true;
+        }
+        UPSLGameInstance* GameInstance = Cast<UPSLGameInstance>(Ctx.World->GetGameInstance());
+        if (!GameInstance)
+        {
+            Ctx.MarkInvalid(TEXT("PIE GameInstance is not UPSLGameInstance"));
+            return true;
+        }
+        Ctx.RequiredMap = TEXT("L_LostValley");
+        Ctx.bReady = false;
+        Ctx.World = nullptr;
+        Ctx.GameViewport = nullptr;
+        Ctx.PC = nullptr;
+        Ctx.Character = nullptr;
+        GameInstance->StartNewGame(UPSLDinoSpecies::ParaId);
+        return true;
+    });
+    AddPieStep(Context, TEXT("WaitForValleyPawn"), 30.0f, [](FPSLPieCtx& Ctx)
+    {
+        return WaitForPlayer(Ctx);
+    });
+    AddPieStep(Context, TEXT("PlantsPlacedAndApproach"), 3.0f, [Target](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable())
+        {
+            return true;
+        }
+        TActorIterator<APlayerStart> StartIt(Ctx.World);
+        if (!StartIt)
+        {
+            Ctx.MarkInvalid(TEXT("No PlayerStart in L_LostValley"));
+            return true;
+        }
+        const FVector Start = StartIt->GetActorLocation();
+        int32 Count = 0;
+        double Nearest = TNumericLimits<double>::Max();
+        for (TActorIterator<APSLFoodPlant> It(Ctx.World); It; ++It)
+        {
+            ++Count;
+            Ctx.Test->TestNotNull(TEXT("Food plant has a mesh"), It->PlantMesh->GetStaticMesh().Get());
+            Ctx.Test->TestTrue(TEXT("Food plant starts available"), It->IsAvailable());
+            const double Distance = FVector::Dist2D(It->GetActorLocation(), Start);
+            if (Distance < Nearest)
+            {
+                Nearest = Distance;
+                *Target = *It;
+            }
+        }
+        Ctx.Test->TestTrue(FString::Printf(TEXT("At least 6 food plants in the valley (found %d)"), Count), Count >= 6);
+        Ctx.Test->TestTrue(FString::Printf(TEXT("A food plant within 4500 uu of the PlayerStart (nearest %.0f)"), Nearest), Nearest <= 4500.0);
+        APSLFoodPlant* Plant = Target->Get();
+        if (!Plant)
+        {
+            return true;
+        }
+        // Bite centre = actor + forward * BiteReach; stand so it lands on the plant.
+        const FVector Forward = FVector::ForwardVector;
+        const FVector Stand = Plant->GetActorLocation() - Forward * Ctx.Character->BiteReach
+            + FVector(0.0, 0.0, Ctx.Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 20.0);
+        Ctx.Character->SetActorLocation(Stand, false, nullptr, ETeleportType::TeleportPhysics);
+        Ctx.Character->GetCharacterMovement()->StopMovementImmediately();
+        Ctx.PC->SetControlRotation(Forward.Rotation());
+        Ctx.Character->SetActorRotation(Forward.Rotation());
+        Ctx.Character->GetSurvivalComponent()->Hunger = 10.0f;
+        return true;
+    });
+    AddPieStep(Context, TEXT("BitePlant"), 4.0f, [Target, bBitten = false, StartTime = -1.0](FPSLPieCtx& Ctx) mutable
+    {
+        if (!Ctx.IsUsable() || !Target->IsValid())
+        {
+            return true;
+        }
+        const double Now = Ctx.World->GetTimeSeconds();
+        if (!bBitten)
+        {
+            bBitten = true;
+            StartTime = Now;
+            Ctx.Test->TestTrue(TEXT("Bite accepted"), Ctx.Character->TryBite());
+            return false;
+        }
+        if (Now - StartTime < 0.8)
+        {
+            return false;
+        }
+        // Hunger drains a little meanwhile; one plant (30) must still leave it well above the 10 it started from.
+        const float Hunger = Ctx.Character->GetSurvivalComponent()->GetHunger();
+        Ctx.Test->TestTrue(FString::Printf(TEXT("Eating the plant raised hunger above 30 (was %.1f)"), Hunger), Hunger > 30.0f);
+        Ctx.Test->TestFalse(TEXT("The eaten plant is regrowing"), Target->Get()->IsAvailable());
+        Record(Ctx, TEXT("para_ate_plant"));
         return true;
     });
     QueuePieEnd(Context);

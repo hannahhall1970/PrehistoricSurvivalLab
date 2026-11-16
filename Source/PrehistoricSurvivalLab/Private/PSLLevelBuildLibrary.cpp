@@ -60,17 +60,15 @@ ALandscape* UPSLLevelBuildLibrary::CreateLandscape(UObject* WorldContext, FVecto
     TMap<FGuid, TArray<FLandscapeImportLayerInfo>> MaterialLayerDataPerLayer;
     MaterialLayerDataPerLayer.Add(FGuid(), TArray<FLandscapeImportLayerInfo>());
 
+    // The material must be set before Import: Import builds the component material instances from LandscapeMaterial, and a
+    // later bare PostEditChange does not rebuild them (only the editor's load-time fixup would, which -nullrhi and the
+    // cook skip), so the saved map kept WorldGridMaterial instances. Same order as the editor's New Landscape tool.
+    Landscape->LandscapeMaterial = Material;
     // Same call sequence as Engine/Plugins/PCG/Source/PCG/Private/Tests/PCGTestsCommon.cpp.
     Landscape->Import(FGuid::NewGuid(), 0, 0, SizeVerts - 1, SizeVerts - 1, 1, SubsectionQuads,
         HeightDataPerLayer, nullptr, MaterialLayerDataPerLayer, ELandscapeImportAlphamapType::Additive,
         MakeArrayView<const FLandscapeLayer>({}));
     Landscape->CreateLandscapeInfo();
-
-    if (Material)
-    {
-        Landscape->LandscapeMaterial = Material;
-        Landscape->PostEditChange();
-    }
     return Landscape;
 #else
     UE_LOG(LogTemp, Error, TEXT("PSL CreateLandscape is editor-only"));

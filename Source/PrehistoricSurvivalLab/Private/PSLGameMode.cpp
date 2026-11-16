@@ -129,6 +129,8 @@ void APSLGameMode::RestoreFromSave(APlayerController* PC)
         UE_LOG(LogTemp, Warning, TEXT("PSL continue failed, starting at the PlayerStart: %s"), *Error.ToString());
         return;
     }
+    UE_LOG(LogTemp, Display, TEXT("PSL continue loaded save from %s (species %s, hunger %.1f)"), *Data.SavedAtUtc.ToIso8601(),
+        *Data.SpeciesId.ToString(), Data.Hunger);
 
     Character->SetActorTransform(Data.PlayerTransform, false, nullptr, ETeleportType::TeleportPhysics);
     PC->SetControlRotation(Data.ControlRotation);

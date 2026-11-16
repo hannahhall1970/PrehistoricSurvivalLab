@@ -1,5 +1,6 @@
 #include "PSLFoodPlant.h"
 
+#include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
@@ -11,13 +12,18 @@ APSLFoodPlant::APSLFoodPlant()
     RegrowSeconds = 60.0f;
     bAvailable = true;
 
-    PlantMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PlantMesh"));
-    SetRootComponent(PlantMesh);
+    BiteVolume = CreateDefaultSubobject<USphereComponent>(TEXT("BiteVolume"));
+    BiteVolume->InitSphereRadius(80.0f);
+    SetRootComponent(BiteVolume);
     // Bite sphere queries by object type, so the plant is a WorldDynamic that overlaps only; it never blocks pawns.
-    PlantMesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-    PlantMesh->SetCollisionObjectType(ECC_WorldDynamic);
-    PlantMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
-    PlantMesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+    BiteVolume->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+    BiteVolume->SetCollisionObjectType(ECC_WorldDynamic);
+    BiteVolume->SetCollisionResponseToAllChannels(ECR_Ignore);
+    BiteVolume->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+
+    PlantMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PlantMesh"));
+    PlantMesh->SetupAttachment(BiteVolume);
+    PlantMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 }
 
 float APSLFoodPlant::Consume()
@@ -29,7 +35,7 @@ float APSLFoodPlant::Consume()
 
     bAvailable = false;
     SetActorHiddenInGame(true);
-    PlantMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    BiteVolume->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     GetWorldTimerManager().SetTimer(RegrowTimer, this, &APSLFoodPlant::Regrow, FMath::Max(RegrowSeconds, KINDA_SMALL_NUMBER), false);
     return FoodAmount;
 }
@@ -38,7 +44,7 @@ void APSLFoodPlant::Regrow()
 {
     bAvailable = true;
     SetActorHiddenInGame(false);
-    PlantMesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+    BiteVolume->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 }
 
 void APSLFoodPlant::EndPlay(const EEndPlayReason::Type EndPlayReason)
