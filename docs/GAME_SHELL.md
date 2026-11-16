@@ -43,7 +43,7 @@
 
 ## Main menu scene (L_MainMenu)
 
-- Built only by `scripts/create_main_menu.py` (trusted parent, under the build lock; `--selftest` checks placement and framing without the editor). It replaces the map and writes `Saved/PSL/main-menu.json`.
+- Built only by `scripts/create_main_menu.py` (trusted parent, under the build lock; `--selftest` checks placement and framing without the editor). It rebuilds the existing map in place (makes the LFS read-only `.umap` writable, clears its actors) and writes `Saved/PSL/main-menu.json`.
 - Contents, all from existing project assets:
   - Ground plane with `M_PSL_Terrain`.
   - Golden-hour lighting, all movable: `PSL_Menu_Sun`, `PSL_Menu_SkyAtmosphere`, `PSL_Menu_SkyLight` (real-time capture), `PSL_Menu_Fog`.
@@ -51,7 +51,8 @@
   - Seeded HISM backdrop `PSL_Menu_{Trees,Cliffs,Rocks,Bushes,Grass}` from `/Game/Environment/Nature`, capped by `BUDGET` (at most 538 instances).
 - Framing at 16:9:
   - The UI panel covers screen x 0.05..0.50.
-  - `MenuPreview` (`APSLMenuPreviewActor`) stands at (0, 300, 0) with yaw 215, so it faces the camera and the panel. Its centre lands at screen x 0.73.
+  - `MenuPreview` (`APSLMenuPreviewActor`) stands at (0, 350, 0) with yaw 205, so it faces the camera with the head angled at the panel. Its centre lands at screen x 0.77. Bushes, rocks and near trees keep out of its screen column (±0.2), so only grass is in front of it.
+  - Distant cliffs are scaled 10..18 at 20..28 km, so the fog softens them instead of a wall of grey rock.
   - `MenuCameraRig` stands at (-1400, 0, 200) with pitch -4, horizontal FOV 50, no aspect constraint, and a 60 uu dolly over 30 s.
 - The preview no longer spins 360 degrees, which used to turn its back or tail into the panel. It sways ±20 degrees around its placed yaw over a 16 s period (`SwayYawOffset`). The species screen still swaps the mesh through `SetSpecies`.
 - Startup maps (`Config/DefaultEngine.ini`):

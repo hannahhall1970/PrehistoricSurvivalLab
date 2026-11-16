@@ -44,8 +44,8 @@ SEED = 5005
 CAMERA = (-1400.0, 0.0, 200.0)
 CAMERA_PITCH = -4.0
 FOV = 50.0  # horizontal degrees, 16:9
-DINO = (0.0, 300.0)
-DINO_YAW = 215.0  # facing the camera and the panel (3/4 view); APSLMenuPreviewActor sways +-20 deg around it
+DINO = (0.0, 350.0)
+DINO_YAW = 205.0  # mostly toward the camera, head angled at the panel; APSLMenuPreviewActor sways +-20 deg around it
 DINO_HEIGHT = 300.0  # APSLMenuPreviewActor::FitHeight
 DOLLY_DISTANCE, DOLLY_PERIOD = 60.0, 30.0
 GROUND_SCALE = 600.0  # 600 m square
@@ -69,6 +69,12 @@ def sight_distance(x, y):
 
 def clear_of_dino(x, y, radius):
     return math.hypot(x - DINO[0], y - DINO[1]) >= radius and sight_distance(x, y) >= radius
+
+
+def out_of_dino_column(x, y):
+    """Bushes/rocks/near trees stay out of the dino's screen column (+-0.2 of its centre) at every depth, so the head,
+    which reaches toward the camera and the panel, is never covered and the silhouette reads against meadow, fog and sky."""
+    return abs(screen_x(x, y) - screen_x(*DINO)) >= 0.2
 
 
 def screen_x(x, y):
@@ -100,16 +106,16 @@ def placements():
 
     # Treeline: open meadow straight behind the dino (clean silhouette), trees beyond 3500 uu and framing both sides.
     in_tree_box = box(1200.0, 10000.0, -6500.0, 6500.0)
-    tree_ok = lambda x, y: in_tree_box(x, y) and (x >= 3500.0 or abs(y - DINO[1]) >= 1800.0)
+    tree_ok = lambda x, y: in_tree_box(x, y) and (x >= 3500.0 or abs(y - DINO[1]) >= 1800.0) and (x >= 6000.0 or out_of_dino_column(x, y))
     out["trees"] = pick(TREES, B.poisson(rng, BUDGET["trees"], 650.0, tree_ok), (0.9, 1.5))
     # Distant cliffs: big sunk rocks on the horizon, softened by the height fog.
-    cliffs = [(rng.uniform(17000.0, 26000.0), -15000.0 + i * 6000.0 + rng.uniform(-1500.0, 1500.0)) for i in range(BUDGET["cliffs"])]
-    out["cliffs"] = pick(ROCKS, cliffs, (25.0, 45.0), z=lambda s: -30.0 * s)
-    rock_ok = lambda x, y: box(600.0, 6000.0, -3500.0, 4000.0)(x, y) and clear_of_dino(x, y, 600.0)
+    cliffs = [(rng.uniform(20000.0, 28000.0), -16000.0 + i * 6400.0 + rng.uniform(-1500.0, 1500.0)) for i in range(BUDGET["cliffs"])]
+    out["cliffs"] = pick(ROCKS, cliffs, (10.0, 18.0), z=lambda s: -30.0 * s)
+    rock_ok = lambda x, y: box(600.0, 6000.0, -3500.0, 4000.0)(x, y) and clear_of_dino(x, y, 600.0) and out_of_dino_column(x, y)
     out["rocks"] = pick(ROCKS, B.scatter(rng, BUDGET["rocks"], rock_ok), (1.5, 4.0), z=lambda s: -10.0 * s)
-    bush_ok = lambda x, y: box(-600.0, 5000.0, -3000.0, 3500.0)(x, y) and clear_of_dino(x, y, 450.0)
+    bush_ok = lambda x, y: box(-600.0, 5000.0, -3000.0, 3500.0)(x, y) and clear_of_dino(x, y, 450.0) and out_of_dino_column(x, y)
     out["bushes"] = pick(BUSHES, B.scatter(rng, BUDGET["bushes"], bush_ok), (0.8, 1.4))
-    grass_ok = lambda x, y: x >= -900.0 and math.hypot(x - DINO[0], y - DINO[1]) <= 3500.0 and math.hypot(x - DINO[0], y - DINO[1]) >= 350.0
+    grass_ok = lambda x, y: x >= -900.0 and 500.0 <= math.hypot(x - DINO[0], y - DINO[1]) <= 3500.0 and sight_distance(x, y) >= 250.0
     out["grass"] = pick(GRASS, B.scatter(rng, BUDGET["grass"], grass_ok), (0.8, 1.3))
     return out
 
@@ -124,6 +130,9 @@ def selftest():
     for k in ("trees", "rocks", "bushes"):  # nothing tall in front of or on the dino
         for _, x, y, *_ in p[k]:
             assert clear_of_dino(x, y, 450.0), (k, x, y)
+    for k in ("rocks", "bushes"):
+        for _, x, y, *_ in p[k]:
+            assert out_of_dino_column(x, y), (k, x, y)
     for _, x, y, *_ in p["trees"]:
         assert x >= 3500.0 or abs(y - DINO[1]) >= 1800.0, (x, y)
     sx = screen_x(*DINO)
@@ -254,11 +263,19 @@ def verify(levels, counts):
 def main():
     levels = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     game_mode = load_cls(GAME_MODE_CLASS)
-    if B.exists(MAP_PATH):  # this script owns L_MainMenu: replace it (new_level refuses an existing asset)
-        unreal.EditorLoadingAndSavingUtils.new_blank_map(False)  # unload so the asset can be deleted
-        if not unreal.EditorAssetLibrary.delete_asset(MAP_PATH):
-            B.fail("cannot delete existing " + MAP_PATH)
-    if not levels.new_level(MAP_PATH, False):
+    if B.exists(MAP_PATH):
+        # This script owns L_MainMenu: rebuild it in place (delete + new_level fails: the registry keeps the deleted path).
+        # LFS `lockable` checks the map out read-only; the save needs it writable.
+        os.chmod(os.path.join(B.ROOT, "Content", "Maps", "L_MainMenu.umap"), 0o644)
+        if not levels.load_level(MAP_PATH):
+            B.fail("load_level failed for " + MAP_PATH)
+        actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+        old = actors.get_all_level_actors()
+        if old and not actors.destroy_actors(old):
+            B.fail("cannot clear %d actors from %s" % (len(old), MAP_PATH))
+        if actors.get_all_level_actors():
+            B.fail("%s still has actors after clearing" % MAP_PATH)
+    elif not levels.new_level(MAP_PATH, False):
         B.fail("new_level failed for " + MAP_PATH)
     counts = build_scene()
     world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()

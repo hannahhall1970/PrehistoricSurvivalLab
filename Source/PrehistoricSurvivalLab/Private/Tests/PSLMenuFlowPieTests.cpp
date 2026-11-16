@@ -1,25 +1,30 @@
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 
 #include "AudioDevice.h"
+#include "Blueprint/UserWidget.h"
+#include "Blueprint/WidgetBlueprintLibrary.h"
+#include "Camera/CameraComponent.h"
 #include "Components/AudioComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Components/TextBlock.h"
+#include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
-#include "PSLAudio.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/PackageName.h"
-#include "UObject/UObjectIterator.h"
-#include "PSLMenuPreviewActor.h"
+#include "PSLAudio.h"
 #include "PSLDinoSpecies.h"
 #include "PSLGameInstance.h"
 #include "PSLMainMenuWidget.h"
+#include "PSLMenuCameraRig.h"
 #include "PSLMenuGameMode.h"
+#include "PSLMenuPreviewActor.h"
 #include "PSLPauseWidget.h"
 #include "PSLPieTestSupport.h"
 #include "PSLSaveSubsystem.h"
 #include "PSLSpeciesSelectWidget.h"
 #include "PSLUiButton.h"
-#include "Blueprint/UserWidget.h"
-#include "Blueprint/WidgetBlueprintLibrary.h"
+#include "UObject/UObjectIterator.h"
 
 namespace
 {
@@ -153,6 +158,119 @@ bool FPSLMenuPreviewSwayTest::RunTest(const FString& Parameters)
     }
     TestTrue(FString::Printf(TEXT("Sway stays within +-%.0f deg over 10 min (max %.3f)"), Amp, MaxAbs), MaxAbs <= Amp + 1.0e-3f);
     TestTrue(TEXT("Amplitude keeps the 3/4 view (< 45 deg)"), Amp > 0.0f && Amp < 45.0f);
+    return true;
+}
+
+// L_MainMenu as scripts/create_main_menu.py builds it: menu game mode, the rig is the view target, the hero preview is fully right of
+// the UI panel (screen x 0.05..0.50) at both sway extremes, and the lit backdrop exists within its instance budget.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLMenuScenePieTest, "PSL.PIE.Menu.Scene", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPSLMenuScenePieTest::RunTest(const FString& Parameters)
+{
+    const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("Menu_Scene"));
+    Context->RequiredMap = TEXT("L_MainMenu");
+    if (!TestTrue(TEXT("AutomationOpenMap returned true"), AutomationOpenMap(TEXT("/Game/Maps/L_MainMenu"))))
+    {
+        return false;
+    }
+    AddPieStep(Context, TEXT("WaitForMenu"), 30.0f, [](FPSLPieCtx& Ctx)
+    {
+        return Ctx.bInvalid || FindMenuWidget(Ctx) != nullptr;
+    });
+    AddPieStep(Context, TEXT("Scene"), 4.0f, [](FPSLPieCtx& Ctx)
+    {
+        UWorld* World = nullptr;
+        FAutomationTestBase& Test = *Ctx.Test;
+        if (!Test.TestNotNull(TEXT("Menu widget under PSLMenuGameMode"), Ctx.bInvalid ? nullptr : FindMenuWidget(Ctx, &World)))
+        {
+            return true;
+        }
+        TArray<APSLMenuCameraRig*> Rigs;
+        TArray<APSLMenuPreviewActor*> Previews;
+        TMap<FString, AActor*> ByLabel;
+        for (TActorIterator<AActor> It(World); It; ++It)
+        {
+            ByLabel.Add(It->GetActorLabel(), *It);
+            if (APSLMenuCameraRig* Rig = Cast<APSLMenuCameraRig>(*It))
+            {
+                Rigs.Add(Rig);
+            }
+            if (APSLMenuPreviewActor* Preview = Cast<APSLMenuPreviewActor>(*It))
+            {
+                Previews.Add(Preview);
+            }
+        }
+        for (const TCHAR* Label : {TEXT("PSL_Menu_Sun"), TEXT("PSL_Menu_SkyAtmosphere"), TEXT("PSL_Menu_SkyLight"), TEXT("PSL_Menu_Fog"),
+                 TEXT("PSL_Menu_PostProcess"), TEXT("PSL_Menu_Ground")})
+        {
+            Test.TestTrue(FString::Printf(TEXT("%s exists"), Label), ByLabel.Contains(Label));
+        }
+        int32 Instances = 0;
+        for (const TCHAR* Label : {TEXT("PSL_Menu_Trees"), TEXT("PSL_Menu_Cliffs"), TEXT("PSL_Menu_Rocks"), TEXT("PSL_Menu_Bushes"), TEXT("PSL_Menu_Grass")})
+        {
+            int32 N = 0;
+            if (AActor* const* Holder = ByLabel.Find(Label))
+            {
+                TArray<UInstancedStaticMeshComponent*> Ism;
+                (*Holder)->GetComponents(Ism);
+                for (const UInstancedStaticMeshComponent* C : Ism)
+                {
+                    N += C->GetInstanceCount();
+                }
+            }
+            Test.TestTrue(FString::Printf(TEXT("%s has instances (%d)"), Label, N), N > 0);
+            Instances += N;
+        }
+        Test.TestTrue(FString::Printf(TEXT("Backdrop within the 538-instance budget (%d)"), Instances), Instances <= 538);
+
+        if (!Test.TestEqual(TEXT("Exactly one menu camera rig"), Rigs.Num(), 1) || !Test.TestEqual(TEXT("Exactly one menu preview"), Previews.Num(), 1))
+        {
+            return true;
+        }
+        const APlayerController* PC = World->GetFirstPlayerController();
+        Test.TestTrue(TEXT("Player view target is the menu camera rig"), PC && PC->GetViewTarget() == Rigs[0]);
+        APSLMenuPreviewActor* Preview = Previews[0];
+        USkeletalMeshComponent* Mesh = Preview->GetMeshComponent();
+        if (!Test.TestNotNull(TEXT("Preview shows a species mesh"), Mesh->GetSkeletalMeshAsset()))
+        {
+            return true;
+        }
+
+        // Project the preview's world bounds through the rig camera at 16:9 (the gate runs -nullrhi, so no real viewport size).
+        FMinimalViewInfo View;
+        Rigs[0]->GetCameraComponent()->GetCameraView(0.0f, View);
+        View.AspectRatio = 16.0f / 9.0f;
+        View.bConstrainAspectRatio = false;
+        FMatrix ViewM, ProjM, ViewProj;
+        UGameplayStatics::CalculateViewProjectionMatricesFromMinimalView(View, TOptional<FMatrix>(), ViewM, ProjM, ViewProj);
+        const FRotator Saved = Preview->GetActorRotation();
+        for (const float Offset : {-APSLMenuPreviewActor::SwayAmplitudeDegrees, 0.0f, APSLMenuPreviewActor::SwayAmplitudeDegrees})
+        {
+            Preview->SetActorRotation(FRotator(Saved.Pitch, Preview->GetBaseYaw() + Offset, Saved.Roll));
+            Mesh->UpdateComponentToWorld();
+            // Oriented mesh box (local bounds through the component transform): the world AABB of a long, yawed body is far too loose.
+            const FBox Local = Mesh->CalcLocalBounds().GetBox();
+            const FTransform& ToWorld = Mesh->GetComponentTransform();
+            FBox2D Screen(ForceInit);
+            bool bInFront = true;
+            for (int32 I = 0; I < 8; ++I)
+            {
+                const FVector Corner = ToWorld.TransformPosition(FVector((I & 1) ? Local.Max.X : Local.Min.X, (I & 2) ? Local.Max.Y : Local.Min.Y,
+                    (I & 4) ? Local.Max.Z : Local.Min.Z));
+                const FVector4 Clip = ViewProj.TransformFVector4(FVector4(Corner, 1.0f));
+                bInFront &= Clip.W > KINDA_SMALL_NUMBER;
+                Screen += FVector2D(0.5 + 0.5 * Clip.X / Clip.W, 0.5 - 0.5 * Clip.Y / Clip.W);
+            }
+            const FString At = FString::Printf(TEXT("sway %+.0f deg: screen x %.3f..%.3f y %.3f..%.3f"), Offset, Screen.Min.X, Screen.Max.X, Screen.Min.Y, Screen.Max.Y);
+            Test.AddInfo(At);
+            Test.TestTrue(At + TEXT(": in front of the camera"), bInFront);
+            Test.TestTrue(At + TEXT(": clear of the UI panel (x >= 0.52)"), Screen.Min.X >= 0.52);
+            Test.TestTrue(At + TEXT(": inside the frame (x <= 0.98, y 0..1)"), Screen.Max.X <= 0.98 && Screen.Min.Y >= 0.0 && Screen.Max.Y <= 1.0);
+            Test.TestTrue(At + TEXT(": prominent (height >= 0.35 of the frame)"), Screen.Max.Y - Screen.Min.Y >= 0.35);
+        }
+        Preview->SetActorRotation(Saved);
+        return true;
+    });
     return true;
 }
 

@@ -35,7 +35,7 @@ float APSLMenuPreviewActor::SwayYawOffset(float Seconds)
 void APSLMenuPreviewActor::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
-    Elapsed += DeltaSeconds;
+    Elapsed = FMath::Fmod(Elapsed + DeltaSeconds, SwayPeriodSeconds);  // wrap: a long-idle menu keeps float precision
     FRotator Rotation = GetActorRotation();
     Rotation.Yaw = BaseYaw + SwayYawOffset(Elapsed);
     SetActorRotation(Rotation);

@@ -28,6 +28,8 @@ public:
 
     USkeletalMeshComponent* GetMeshComponent() const { return MeshComponent; }
     FName GetSpeciesId() const { return CurrentSpecies; }
+    // Yaw the level placed the preview at (captured in BeginPlay); the sway oscillates around it.
+    float GetBaseYaw() const { return BaseYaw; }
 
     virtual void Tick(float DeltaSeconds) override;
 
