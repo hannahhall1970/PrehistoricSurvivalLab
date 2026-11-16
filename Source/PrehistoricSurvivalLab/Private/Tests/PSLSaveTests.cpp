@@ -254,7 +254,12 @@ namespace
     // Marker stored in one slot, or -1 when the slot is missing or does not validate.
     int32 MarkerIn(const UPSLSaveSubsystem& Saves, bool bAuto, int32 Index)
     {
-        const UPSLSaveGame* Save = Cast<UPSLSaveGame>(UGameplayStatics::LoadGameFromSlot(Saves.GetSlotName(bAuto, Index), 0));
+        const FString Slot = Saves.GetSlotName(bAuto, Index);
+        if (!UGameplayStatics::DoesSaveGameExist(Slot, 0))
+        {
+            return -1;
+        }
+        const UPSLSaveGame* Save = Cast<UPSLSaveGame>(UGameplayStatics::LoadGameFromSlot(Slot, 0));
         if (!Save)
         {
             return -1;
@@ -407,7 +412,7 @@ bool FPSLSaveSecondsToLiveTest::RunTest(const FString& Parameters)
     auto Seconds = [&](float Health, float Hunger) { return UPSLSaveSubsystem::SecondsToLive(Health, Hunger, Drain, Damage); };
 
     TestEqual(TEXT("Minimum is 60 s"), Min, 60.0f);
-    TestTrue(TEXT("TRex full: Hunger/drain + Health/damage (~206.8 s)"),
+    TestTrue(TEXT("TRex full: Hunger/drain + Health/damage (~691.7 s)"),
         FMath::IsNearlyEqual(Seconds(TRex->MaxHealth, TRex->MaxHunger), TRex->MaxHunger / Drain + TRex->MaxHealth / Damage, 1.0e-3f));
     TestTrue(TEXT("TRex full is far above the gate"), Seconds(TRex->MaxHealth, TRex->MaxHunger) > Min);
 
