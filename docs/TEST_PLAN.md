@@ -230,3 +230,7 @@ Source: `Private/Tests/PSLLocalizationTests.cpp` and `Private/Tests/PSLMenuFlowP
 ## Task 004 M2c5b cook readiness (results come from the harness gate only)
 
 - `PSL.Config.Packaging`: every path the game loads at runtime (`PSLAudio::*`, UI click/hover sounds and font, `APSLCharacter::EatSound`, `UPSLGameUserSettings` SC_Master/SC_Music/SC_SFX/SM_PSL_Volume) lies under a `DirectoriesToAlwaysCook` entry; `MapsToCook` has L_MainMenu and L_LostValley; `CulturesToStage` has en and vi; `InternationalizationPreset=All`; `DirectoriesToAlwaysStageAsNonUFS` has `Licenses/BeVietnamPro` and `Content/Licenses/BeVietnamPro/OFL.txt` equals `SourceArt/Fonts/OFL.txt`.
+
+## Task 004 M2c8 foliage material usage (results come from the harness gate only)
+
+- `PSL.Editor.FoliageMaterialUsage`: `M_PSL_Flat`, `M_PSL_Leaf` and their 5 MIs (`MI_PSL_Rock/Grass/Bark/Flower/Leaf_Leaf_Pine_C`) load with `MATUSAGE_InstancedStaticMeshes` set and a clean (not dirty) package, i.e. the flag is saved on disk. Without it the packaged game logs `missing usage flag InstancedStaticMeshes` and draws the default material on HISM foliage. Fixed assets come from `scripts/fix_material_usage.py`; `build_lost_valley.py` sets the flag when it creates the parents.

@@ -12,6 +12,7 @@
 #include "LandscapeInfo.h"
 #include "LandscapeComponent.h"
 #include "LandscapeDataAccess.h"
+#include "Materials/MaterialInterface.h"
 #include "Misc/AutomationTest.h"
 #include "PSLLevelBuildLibrary.h"
 
@@ -96,6 +97,29 @@ bool FPSLLandscapeBuildTest::RunTest(const FString& Parameters)
 
     GEngine->DestroyWorldContext(World);
     World->DestroyWorld(false);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLFoliageMaterialUsageTest, "PSL.Editor.FoliageMaterialUsage", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+// HISM foliage (build_lost_valley.py / create_main_menu.py) uses these materials. Without the saved
+// InstancedStaticMeshes usage the cooked game logs "missing usage flag" and draws the default material.
+bool FPSLFoliageMaterialUsageTest::RunTest(const FString& Parameters)
+{
+    static const TCHAR* Names[] = {TEXT("M_PSL_Flat"), TEXT("M_PSL_Leaf"), TEXT("MI_PSL_Rock"), TEXT("MI_PSL_Grass"),
+        TEXT("MI_PSL_Bark"), TEXT("MI_PSL_Flower"), TEXT("MI_PSL_Leaf_Leaf_Pine_C")};
+    for (const TCHAR* Name : Names)
+    {
+        const FString Path = FString::Printf(TEXT("/Game/Environment/Materials/%s.%s"), Name, Name);
+        const UMaterialInterface* Material = LoadObject<UMaterialInterface>(nullptr, *Path);
+        if (!TestNotNull(Path + TEXT(" loads"), Material))
+        {
+            continue;
+        }
+        TestTrue(Path + TEXT(" is used with instanced static meshes"), Material->GetUsageByFlag(MATUSAGE_InstancedStaticMeshes));
+        // An editor-side auto-fix sets the flag in memory and dirties the package; only a saved flag reaches the cook.
+        TestFalse(Path + TEXT(" package is not dirty (flag comes from disk)"), Material->GetPackage()->IsDirty());
+    }
     return true;
 }
 

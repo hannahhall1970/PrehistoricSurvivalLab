@@ -381,7 +381,9 @@ def expr(mat, cls, x, y):
     return e
 
 
-def finish_material(mat):
+def finish_material(mat, instanced=False):
+    if instanced:  # placed on HISM foliage: without the usage flag the cooked game draws the default material
+        mel().set_base_material_usage(mat, unreal.MaterialUsage.MATUSAGE_INSTANCED_STATIC_MESHES, True)
     mel().recompile_material(mat)
     if not unreal.EditorAssetLibrary.save_loaded_asset(mat):
         fail("cannot save material " + mat.get_name())
@@ -399,7 +401,7 @@ def build_flat_material():
     rough.set_editor_property("r", 0.85)
     mel().connect_material_property(color, "", unreal.MaterialProperty.MP_BASE_COLOR)
     mel().connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
-    finish_material(mat)
+    finish_material(mat, instanced=True)
     return mat
 
 
@@ -416,7 +418,7 @@ def build_leaf_material():
     mel().connect_material_property(tex, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
     mel().connect_material_property(tex, "A", unreal.MaterialProperty.MP_OPACITY_MASK)
     mel().connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
-    finish_material(mat)
+    finish_material(mat, instanced=True)
     return mat
 
 
