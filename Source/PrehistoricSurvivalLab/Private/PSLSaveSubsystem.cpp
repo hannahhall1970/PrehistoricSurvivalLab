@@ -208,6 +208,9 @@ bool UPSLSaveSubsystem::WriteData(FPSLSaveData Data, EPSLSaveReason Reason)
         UE_LOG(LogTemp, Warning, TEXT("PSL save verify failed: %s"), *TargetSlot);
         return false;
     }
+    // Paired with "PSL continue loaded" (same saved-at stamp) so a packaged log shows which slot a Continue used.
+    UE_LOG(LogTemp, Display, TEXT("PSL save wrote %s (reason %d, saved at %s, hunger %.1f)"), *TargetSlot,
+        static_cast<int32>(Reason), *Data.SavedAtUtc.ToIso8601(), Data.Hunger);
     return true;
 }
 

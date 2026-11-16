@@ -14,6 +14,7 @@
 #include "LandscapeDataAccess.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/AutomationTest.h"
+#include "Materials/MaterialInstance.h"
 #include "PSLLevelBuildLibrary.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLLandscapeBuildTest, "PSL.Editor.LandscapeBuild", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -41,12 +42,27 @@ bool FPSLLandscapeBuildTest::RunTest(const FString& Parameters)
         }
     }
 
-    ALandscape* Landscape = UPSLLevelBuildLibrary::CreateLandscape(World, FVector(0.0f, 0.0f, 500.0f), FVector(100.0f, 100.0f, 1.0f), SizeVerts, Heights, nullptr);
+    // A null load fails the instance check below (and is reported), without leaking the world context.
+    UMaterialInterface* Terrain = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Environment/Materials/M_PSL_Terrain.M_PSL_Terrain"));
+    TestNotNull(TEXT("M_PSL_Terrain loads"), Terrain);
+    ALandscape* Landscape = UPSLLevelBuildLibrary::CreateLandscape(World, FVector(0.0f, 0.0f, 500.0f), FVector(100.0f, 100.0f, 1.0f), SizeVerts, Heights, Terrain);
     if (TestNotNull(TEXT("Landscape created"), Landscape))
     {
         TArray<ULandscapeComponent*> Components;
         Landscape->GetComponents(Components);
         TestEqual(TEXT("Landscape component count"), Components.Num(), 4);
+
+        // The saved component instances are what the cooked game draws; they must be built from the passed material,
+        // not from the default WorldGridMaterial (the editor's load-time fixup that hid this does not run in the cook).
+        for (const ULandscapeComponent* Component : Components)
+        {
+            TestTrue(TEXT("Component has material instances"), Component->GetMaterialInstanceCount(false) > 0);
+            for (int32 Index = 0; Index < Component->GetMaterialInstanceCount(false); ++Index)
+            {
+                const UMaterialInstance* Instance = Component->GetMaterialInstance(Index, false);
+                TestTrue(TEXT("Component material instance uses M_PSL_Terrain"), Terrain && Instance && Instance->GetMaterial() == Terrain->GetMaterial());
+            }
+        }
 
         // GetHeightAtLocation samples the collision heightfield, so verify the imported data directly.
         // Vertex X=60: local z = 60, scale z = 1 -> stored texel must be GetTexHeight(60).
