@@ -285,4 +285,128 @@ bool FPSLRestoreBroadcastsTest::RunTest(const FString& Parameters)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLStarvationTimelineTest, "PSL.Hunger.StarvationTimeline", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPSLStarvationTimelineTest::RunTest(const FString& Parameters)
+{
+    if (!TestNotNull(TEXT("GEngine available"), GEngine))
+    {
+        return false;
+    }
+    constexpr float Dt = 0.1f;
+    FPSLTestWorld Fixture;
+
+    for (const FName SpeciesId : { UPSLDinoSpecies::TRexId, UPSLDinoSpecies::ParaId })
+    {
+        const FString Label = SpeciesId.ToString();
+        APSLCharacter* Character = Fixture.Spawn<APSLCharacter>();
+        if (!TestNotNull(*(Label + TEXT(": character spawned")), Character))
+        {
+            return false;
+        }
+        Character->ApplySpecies(UPSLDinoSpecies::MakeBuiltin(SpeciesId, Character));
+        UPSLSurvivalComponent* Survival = Character->GetSurvivalComponent();
+        UPSLStatsComponent* Stats = Character->GetStatsComponent();
+        UPSLVitalsListener* Listener = NewObject<UPSLVitalsListener>();
+        Stats->OnDeath.AddDynamic(Listener, &UPSLVitalsListener::OnDeath);
+
+        // Expected values come from the live components, never from literals.
+        const float MaxHunger = Survival->MaxHunger;
+        const float MaxHealth = Stats->GetMaxHealth();
+        const float Drain = Survival->HungerDrainPerSecond;
+        const float Damage = Survival->StarveDamagePerSecond;
+        if (!TestTrue(*(Label + TEXT(": drain and damage are positive")), Drain > 0.0f && Damage > 0.0f))
+        {
+            return false;
+        }
+
+        // Same per-frame order as UPSLSurvivalComponent::TickComponent (the pawn has no velocity in the bare world, so the
+        // moving flag is passed explicitly: true while sprinting, false when idle).
+        auto Step = [&](bool bMoving)
+        {
+            Survival->UpdateStamina(Dt, bMoving);
+            Survival->UpdateHunger(Dt);
+        };
+
+        // 1) Sprint: exactly 2x drain for the whole sprint, health untouched, then back to 1x.
+        constexpr int32 SprintSteps = 30; // 3 s, shorter than the stamina pool of both species (SprintDrainPerSecond 20)
+        Survival->SetSprintRequested(true);
+        bool bSprintDoubled = true;
+        for (int32 I = 0; I < SprintSteps; ++I)
+        {
+            const float Before = Survival->GetHunger();
+            Step(true);
+            bSprintDoubled &= Survival->IsSprinting() && FMath::IsNearlyEqual(Before - Survival->GetHunger(), 2.0f * Drain * Dt, 1.0e-4f);
+        }
+        TestTrue(*(Label + TEXT(": every sprint step drains exactly 2x")), bSprintDoubled);
+        TestTrue(*(Label + TEXT(": sprint total is 2 x drain x duration")),
+            FMath::IsNearlyEqual(MaxHunger - Survival->GetHunger(), 2.0f * Drain * Dt * SprintSteps, 1.0e-3f));
+        TestEqual(*(Label + TEXT(": health untouched while sprinting")), Stats->GetHealth(), MaxHealth);
+        Survival->SetSprintRequested(false);
+        const float BeforeIdle = Survival->GetHunger();
+        Step(false);
+        TestFalse(*(Label + TEXT(": sprint ended")), Survival->IsSprinting());
+        TestTrue(*(Label + TEXT(": idle step drains 1x")), FMath::IsNearlyEqual(BeforeIdle - Survival->GetHunger(), Drain * Dt, 1.0e-4f));
+
+        // 2) Idle timeline from a full belly.
+        Survival->Hunger = MaxHunger;
+        Survival->Stamina = Survival->MaxStamina;
+        const float ExpectedHungerZero = MaxHunger / Drain;
+        const float ExpectedDeath = ExpectedHungerZero + MaxHealth / Damage;
+        const int32 MaxSteps = FMath::CeilToInt(ExpectedDeath * 1.5f / Dt);
+        int32 Steps = 0;
+        int32 HungerZeroStep = 0;
+        bool bHealthUntouchedBeforeZero = true;
+        bool bFirstStarveStepIsSingle = false;
+        while (!Stats->IsDead() && Steps < MaxSteps)
+        {
+            const float HealthBefore = Stats->GetHealth();
+            Step(false);
+            ++Steps;
+            if (HungerZeroStep == 0)
+            {
+                if (Survival->GetHunger() > 0.0f)
+                {
+                    bHealthUntouchedBeforeZero &= Stats->GetHealth() == MaxHealth;
+                }
+                else
+                {
+                    HungerZeroStep = Steps;
+                    // Exactly one application of the starve damage on the step that reaches 0, not before.
+                    bFirstStarveStepIsSingle = HealthBefore == MaxHealth && FMath::IsNearlyEqual(MaxHealth - Stats->GetHealth(), Damage * Dt, 1.0e-4f);
+                }
+            }
+        }
+        const float HungerZeroSeconds = HungerZeroStep * Dt;
+        const float DeathSeconds = Steps * Dt;
+        AddInfo(FString::Printf(TEXT("%s starvation timeline (dt %.2f): Hunger 0 at %.1f s (expected %.2f s = %.0f/%.2f); death at %.1f s (expected %.2f s = + %.0f/%.2f)"),
+            *Label, Dt, HungerZeroSeconds, ExpectedHungerZero, MaxHunger, Drain, DeathSeconds, ExpectedDeath, MaxHealth, Damage));
+
+        TestTrue(*(Label + TEXT(": hunger reached 0")), HungerZeroStep > 0);
+        TestTrue(*(Label + TEXT(": died of starvation")), Stats->IsDead() && Survival->DiedOfStarvation());
+        // Thousands of float32 steps accumulate rounding (float32 replay: Para 0.12 dies at 850.7 s vs 850.83 s exact),
+        // so allow two steps plus 0.1 % of the span; a wrong rate or a double application is off by far more.
+        TestTrue(*(Label + TEXT(": time to Hunger 0 = MaxHunger / drain")), FMath::Abs(HungerZeroSeconds - ExpectedHungerZero) <= 2.0f * Dt + 1.0e-3f * ExpectedHungerZero);
+        TestTrue(*(Label + TEXT(": time to death = Hunger 0 + MaxHealth / starve damage")), FMath::Abs(DeathSeconds - ExpectedDeath) <= 2.0f * Dt + 1.0e-3f * ExpectedDeath);
+        TestTrue(*(Label + TEXT(": health untouched before Hunger reaches 0")), bHealthUntouchedBeforeZero);
+        TestTrue(*(Label + TEXT(": starve damage applied once on the first starving step")), bFirstStarveStepIsSingle);
+        TestEqual(*(Label + TEXT(": health is zero")), Stats->GetHealth(), 0.0f);
+        TestEqual(*(Label + TEXT(": OnDeath broadcast once")), Listener->DeathCalls, 1);
+
+        for (int32 I = 0; I < 10; ++I)
+        {
+            Step(false);
+        }
+        TestEqual(*(Label + TEXT(": no second OnDeath after more ticks")), Listener->DeathCalls, 1);
+
+        // 3) Pause suspension. The bare world has no player controller (SetGamePaused needs one) and its actors do not
+        // auto-tick, so a World->Tick pause check would prove nothing; the PIE test PSL.PIE.PauseGameOver covers the live path.
+        // What pause suspension depends on is asserted instead: the component ticks (so UpdateHunger runs only from its
+        // tick) and does not opt into ticking while paused.
+        TestTrue(*(Label + TEXT(": survival component ticks")), Survival->PrimaryComponentTick.bCanEverTick);
+        TestFalse(*(Label + TEXT(": survival component does not tick while paused")), Survival->PrimaryComponentTick.bTickEvenWhenPaused);
+    }
+    return true;
+}
+
 #endif

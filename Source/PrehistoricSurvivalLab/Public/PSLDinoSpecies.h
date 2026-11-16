@@ -108,7 +108,7 @@ public:
     float MaxHunger = 100.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Hunger")
-    float HungerDrainPerSecond = 0.55f;
+    float HungerDrainPerSecond = 0.15f;
 
     // Multiplier on the base food a bite yields.
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Hunger")

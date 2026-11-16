@@ -18,7 +18,7 @@ UPSLSurvivalComponent::UPSLSurvivalComponent()
     bIsSprinting = false;
     MaxHunger = 100.0f;
     Hunger = MaxHunger;
-    HungerDrainPerSecond = 0.55f;
+    HungerDrainPerSecond = 0.15f;
     StarveDamagePerSecond = 4.0f;
 }
 

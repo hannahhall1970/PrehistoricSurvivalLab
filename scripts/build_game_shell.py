@@ -103,7 +103,7 @@ SPECIES = {
             "capsule_radius": 60.0, "capsule_half_height": 120.0, "mesh_yaw": -90.0, "mesh_scale": 1.0,
             "max_health": 100.0, "max_stamina": 100.0, "walk_speed": 300.0, "sprint_speed": 600.0,
             "bite_damage": 25.0, "bite_radius": 120.0, "bite_cooldown": 1.0,
-            "max_hunger": 100.0, "hunger_drain_per_second": 0.55, "food_per_bite": 1.0,
+            "max_hunger": 100.0, "hunger_drain_per_second": 0.15, "food_per_bite": 1.0,
         },
     },
     "Para": {
@@ -122,7 +122,7 @@ SPECIES = {
             "capsule_radius": 50.0, "capsule_half_height": 110.0, "mesh_yaw": -90.0, "mesh_scale": 0.0,
             "max_health": 70.0, "max_stamina": 140.0, "walk_speed": 340.0, "sprint_speed": 760.0,
             "bite_damage": 12.0, "bite_radius": 100.0, "bite_cooldown": 0.7,
-            "max_hunger": 100.0, "hunger_drain_per_second": 0.40, "food_per_bite": 0.6,
+            "max_hunger": 100.0, "hunger_drain_per_second": 0.12, "food_per_bite": 0.6,
         },
     },
 }

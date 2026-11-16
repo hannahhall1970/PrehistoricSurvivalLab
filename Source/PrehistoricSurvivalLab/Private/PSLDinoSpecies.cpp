@@ -71,7 +71,7 @@ UPSLDinoSpecies* UPSLDinoSpecies::MakeBuiltin(FName Id, UObject* Outer)
         S->BiteRadius = 120.0f;
         S->BiteCooldown = 1.0f;
         S->MaxHunger = 100.0f;
-        S->HungerDrainPerSecond = 0.55f;
+        S->HungerDrainPerSecond = 0.15f; // ~11.5 min idle to death (666.7 s to Hunger 0 + 25 s starving)
         S->FoodPerBite = 1.0f;
     }
     else
@@ -96,7 +96,7 @@ UPSLDinoSpecies* UPSLDinoSpecies::MakeBuiltin(FName Id, UObject* Outer)
         S->BiteRadius = 100.0f;
         S->BiteCooldown = 0.7f;
         S->MaxHunger = 100.0f;
-        S->HungerDrainPerSecond = 0.40f;
+        S->HungerDrainPerSecond = 0.12f; // ~14.2 min idle to death (833.3 s to Hunger 0 + 17.5 s starving)
         S->FoodPerBite = 0.6f;
     }
     // MeshScale stays 0: fit to 90% of the capsule.

@@ -59,7 +59,7 @@ struct FFlowState
     {
         if (bSlotSwapped)
         {
-            UGameplayStatics::DeleteGameInSlot(FlowTestSlot, 0);
+            UPSLSaveSubsystem::DeleteAllSlots(FlowTestSlot);
             if (Saves.IsValid())
             {
                 Saves->SlotName = OldSlot;
@@ -445,7 +445,7 @@ bool FPSLMenuFullFlowPieTest::RunTest(const FString& Parameters)
             Ctx.Test->TestTrue(TEXT("Pawn moved off spawn"), Ctx.Character->TeleportTo(Flow->SpawnLocation + FVector(400.0, 300.0, 100.0), Ctx.Character->GetActorRotation()));
             DirtyStart = Ctx.World->GetTimeSeconds();
         }
-        // Three seconds of world time: Para drains 0.4 hunger/s.
+        // Three seconds of world time of real per-tick hunger drain.
         return Ctx.World->GetTimeSeconds() - DirtyStart >= 3.0;
     });
     // P, never Escape (Escape is the editor Stop-PIE chord). Vitals are recorded once the world is paused, so nothing drifts before the save.
@@ -464,7 +464,8 @@ bool FPSLMenuFullFlowPieTest::RunTest(const FString& Parameters)
             Survival->SetSprintRequested(true);
             Survival->UpdateStamina(3.0f, true);
             Survival->SetSprintRequested(false);
-            Survival->UpdateHunger(10.0f);
+            // Sized from the live rate so at least 5 hunger drains whatever the species balance is.
+            Survival->UpdateHunger(5.0f / Survival->HungerDrainPerSecond);
             SendKey(Ctx, EKeys::P, IE_Pressed);
             SendKey(Ctx, EKeys::P, IE_Released);
         }

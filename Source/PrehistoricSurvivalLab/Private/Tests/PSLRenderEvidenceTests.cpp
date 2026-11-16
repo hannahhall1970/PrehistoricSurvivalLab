@@ -90,7 +90,7 @@ struct FRenderEvState
         if (bSlotSwapped)
         {
             bSlotSwapped = false;
-            UGameplayStatics::DeleteGameInSlot(RenderEvSlot, 0);
+            UPSLSaveSubsystem::DeleteAllSlots(RenderEvSlot);
         }
     }
 

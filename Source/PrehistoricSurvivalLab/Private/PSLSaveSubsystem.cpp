@@ -113,10 +113,78 @@ bool UPSLSaveSubsystem::CanCheckpoint(bool bDead, float Health, float MaxHealth,
     return !(Hunger <= 0.0f && Health < LowHealthFraction * MaxHealth);
 }
 
-bool UPSLSaveSubsystem::WriteData(FPSLSaveData Data)
+float UPSLSaveSubsystem::SecondsToLive(float Health, float Hunger, float HungerDrainPerSecond, float StarveDamagePerSecond)
 {
+    constexpr float Infinity = TNumericLimits<float>::Max();
+    // Hunger already 0 costs no time; no drain with food left never starves; no damage never kills.
+    const float HungerSeconds = Hunger <= 0.0f ? 0.0f : (HungerDrainPerSecond <= 0.0f ? Infinity : Hunger / HungerDrainPerSecond);
+    const float HealthSeconds = StarveDamagePerSecond <= 0.0f ? Infinity : FMath::Max(Health, 0.0f) / StarveDamagePerSecond;
+    return (HungerSeconds >= Infinity || HealthSeconds >= Infinity) ? Infinity : HungerSeconds + HealthSeconds;
+}
+
+FString UPSLSaveSubsystem::SlotNameFor(const FString& BaseSlot, bool bAuto, int32 Index)
+{
+    if (bAuto)
+    {
+        return FString::Printf(TEXT("%s_Auto%d"), *BaseSlot, Index);
+    }
+    return Index == 0 ? BaseSlot : BaseSlot + TEXT("_B");
+}
+
+namespace
+{
+    // Loads and validates one slot. A missing slot yields SaveMissing, a bad one the reason it was rejected.
+    bool ReadValid(const FString& Slot, FPSLSaveData& OutData, FText& OutError)
+    {
+        if (!UGameplayStatics::DoesSaveGameExist(Slot, 0))
+        {
+            OutError = LOCTEXT("SaveMissing", "There is no saved game.");
+            return false;
+        }
+        const UPSLSaveGame* Save = Cast<UPSLSaveGame>(UGameplayStatics::LoadGameFromSlot(Slot, 0));
+        if (!Save)
+        {
+            return Reject(OutError, LOCTEXT("SaveUnreadable", "The save file could not be read."));
+        }
+        OutData = Save->Data;
+        return UPSLSaveSubsystem::Validate(OutData, OutError);
+    }
+}
+
+bool UPSLSaveSubsystem::WriteData(FPSLSaveData Data, EPSLSaveReason Reason)
+{
+    const bool bAuto = Reason == EPSLSaveReason::Autosave;
+
+    // State of all four slots: the target is chosen inside this reason's pair, the stamp must beat every valid slot.
+    FPSLSaveData Existing[2];
+    bool bValid[2] = { false, false };
+    int64 NewestTicks = 0;
+    for (const bool bPairAuto : { false, true })
+    {
+        for (int32 Index = 0; Index < 2; ++Index)
+        {
+            FPSLSaveData Slot;
+            FText Ignored;
+            if (ReadValid(GetSlotName(bPairAuto, Index), Slot, Ignored))
+            {
+                NewestTicks = FMath::Max(NewestTicks, Slot.SavedAtUtc.GetTicks());
+                if (bPairAuto == bAuto)
+                {
+                    Existing[Index] = Slot;
+                    bValid[Index] = true;
+                }
+            }
+        }
+    }
+    // Never over the newest valid member: an invalid or missing member first, else the older one.
+    const int32 Target = !bValid[0] ? 0 : !bValid[1] ? 1 : (Existing[0].SavedAtUtc < Existing[1].SavedAtUtc ? 0 : 1);
+
     Data.SaveVersion = UPSLSaveGame::CurrentVersion;
     Data.SavedAtUtc = FDateTime::UtcNow();
+    if (Data.SavedAtUtc.GetTicks() <= NewestTicks)
+    {
+        Data.SavedAtUtc = FDateTime(NewestTicks + 1); // keeps "newest" well defined even if the clock went backwards
+    }
     Data.Checksum = ComputeChecksum(Data);
 
     UPSLSaveGame* Save = Cast<UPSLSaveGame>(UGameplayStatics::CreateSaveGameObject(UPSLSaveGame::StaticClass()));
@@ -125,7 +193,22 @@ bool UPSLSaveSubsystem::WriteData(FPSLSaveData Data)
         return false;
     }
     Save->Data = Data;
-    return UGameplayStatics::SaveGameToSlot(Save, SlotName, 0);
+    const FString TargetSlot = GetSlotName(bAuto, Target);
+    if (!UGameplayStatics::SaveGameToSlot(Save, TargetSlot, 0))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("PSL save write failed: %s"), *TargetSlot);
+        return false;
+    }
+
+    // Read back what reached the disk. Integrity only (checksum equals what was written); semantic Validate is left to
+    // the loader, which skips a bad slot, so a save we wrote ourselves is never "lost" here.
+    const UPSLSaveGame* Loaded = Cast<UPSLSaveGame>(UGameplayStatics::LoadGameFromSlot(TargetSlot, 0));
+    if (!Loaded || Loaded->Data.Checksum != Data.Checksum || ComputeChecksum(Loaded->Data) != Data.Checksum)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("PSL save verify failed: %s"), *TargetSlot);
+        return false;
+    }
+    return true;
 }
 
 bool UPSLSaveSubsystem::SaveCheckpoint(EPSLSaveReason Reason)
@@ -146,6 +229,17 @@ bool UPSLSaveSubsystem::SaveCheckpoint(EPSLSaveReason Reason)
         UE_LOG(LogTemp, Log, TEXT("PSL checkpoint (%d) skipped: player dead or starving at low health."), static_cast<int32>(Reason));
         return false;
     }
+    if (Reason == EPSLSaveReason::Autosave)
+    {
+        // An autosave that cannot be survived would become the Continue target and loop the player into the same death.
+        const float Seconds = SecondsToLive(Stats->GetHealth(), Survival->GetHunger(), Survival->HungerDrainPerSecond, Survival->StarveDamagePerSecond);
+        if (Seconds < MinAutosaveSecondsToLive)
+        {
+            UE_LOG(LogTemp, Log, TEXT("PSL checkpoint (%d) skipped: starves to death in %.1f s (< %.0f s)."),
+                static_cast<int32>(Reason), Seconds, MinAutosaveSecondsToLive);
+            return false;
+        }
+    }
 
     FPSLSaveData Data;
     Data.SpeciesId = Character->GetSpecies() ? Character->GetSpecies()->SpeciesId : UPSLDinoSpecies::TRexId;
@@ -161,23 +255,42 @@ bool UPSLSaveSubsystem::SaveCheckpoint(EPSLSaveReason Reason)
         Data.FoodEaten = Session->FoodEaten;
         Data.SurvivalSeconds = Session->SurvivalSeconds;
     }
-    return WriteData(Data);
+    return WriteData(Data, Reason);
 }
 
 bool UPSLSaveSubsystem::LoadAndValidate(FPSLSaveData& OutData, FText& OutError) const
 {
-    if (!UGameplayStatics::DoesSaveGameExist(SlotName, 0))
+    bool bFound = false;
+    bool bAnyExists = false;
+    FText LastError = LOCTEXT("SaveMissing", "There is no saved game.");
+    for (const bool bAuto : { false, true })
     {
-        OutError = LOCTEXT("SaveMissing", "There is no saved game.");
-        return false;
+        for (int32 Index = 0; Index < 2; ++Index)
+        {
+            const FString Slot = GetSlotName(bAuto, Index);
+            FPSLSaveData Candidate;
+            FText Error;
+            if (ReadValid(Slot, Candidate, Error))
+            {
+                if (!bFound || Candidate.SavedAtUtc > OutData.SavedAtUtc)
+                {
+                    OutData = Candidate;
+                    bFound = true;
+                }
+            }
+            else if (UGameplayStatics::DoesSaveGameExist(Slot, 0))
+            {
+                bAnyExists = true;
+                LastError = Error;
+                UE_LOG(LogTemp, Warning, TEXT("PSL save slot %s skipped: %s"), *Slot, *Error.ToString());
+            }
+        }
     }
-    const UPSLSaveGame* Save = Cast<UPSLSaveGame>(UGameplayStatics::LoadGameFromSlot(SlotName, 0));
-    if (!Save)
+    if (!bFound)
     {
-        return Reject(OutError, LOCTEXT("SaveUnreadable", "The save file could not be read."));
+        OutError = bAnyExists ? LastError : LOCTEXT("SaveMissing", "There is no saved game.");
     }
-    OutData = Save->Data;
-    return Validate(OutData, OutError);
+    return bFound;
 }
 
 bool UPSLSaveSubsystem::HasValidSave() const
@@ -187,9 +300,20 @@ bool UPSLSaveSubsystem::HasValidSave() const
     return LoadAndValidate(Data, Error);
 }
 
+void UPSLSaveSubsystem::DeleteAllSlots(const FString& BaseSlot)
+{
+    for (const bool bAuto : { false, true })
+    {
+        for (int32 Index = 0; Index < 2; ++Index)
+        {
+            UGameplayStatics::DeleteGameInSlot(SlotNameFor(BaseSlot, bAuto, Index), 0);
+        }
+    }
+}
+
 void UPSLSaveSubsystem::DeleteSave()
 {
-    UGameplayStatics::DeleteGameInSlot(SlotName, 0);
+    DeleteAllSlots(SlotName);
 }
 
 #undef LOCTEXT_NAMESPACE
