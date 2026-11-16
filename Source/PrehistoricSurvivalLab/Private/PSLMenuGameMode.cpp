@@ -22,7 +22,7 @@ void APSLMenuGameMode::BeginPlay()
 
     if (USoundBase* S = PSLAudio::Load(PSLAudio::MenuMusic))
     {
-        MenuMusic = UGameplayStatics::SpawnSound2D(this, S, 1.f, 1.f, 0.f, nullptr, false, false);
+        MenuMusic = UGameplayStatics::SpawnSound2D(this, S, PSLAudio::MenuMusicGain, 1.f, 0.f, nullptr, false, false);
     }
 
     APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0);

@@ -48,7 +48,7 @@ void APSLGameMode::BeginPlay()
 
     if (USoundBase* S = PSLAudio::Load(PSLAudio::ValleyMusic))
     {
-        Music = UGameplayStatics::SpawnSound2D(this, S, 1.f, 1.f, 0.f, nullptr, false, false);
+        Music = UGameplayStatics::SpawnSound2D(this, S, PSLAudio::ValleyMusicGain, 1.f, 0.f, nullptr, false, false);
     }
     if (USoundBase* S = PSLAudio::Load(PSLAudio::Wind))
     {
