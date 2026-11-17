@@ -107,6 +107,9 @@ private:
     int32 PendingFrameCap = 1;
     int32 PendingWindowMode = 0;
     FString PendingCulture;
+    // Raw sg.ResolutionQuality as loaded (0 = engine display-based default) and the value LoadFromSettings put on the slider.
+    float LoadedResolutionScale = 0.0f;
+    float LoadedResolutionSlider = 100.0f;
 
     // Live-previewed values as last loaded/applied; Revert restores these on the settings object.
     float SavedMaster = 1.0f;

@@ -346,16 +346,20 @@ bool FPSLSettingsWidgetTest::RunTest(const FString& Parameters)
         TestTrue(TEXT("Revert restores culture en"), FInternationalization::Get().GetCurrentCulture()->GetName().StartsWith(TEXT("en")));
     }
 
-    // ResolutionQuality 0 is the engine's project-default sentinel: the slider shows 100% and Apply keeps 100% (it used to clamp to 50%).
+    // ResolutionQuality 0 is the engine default (display-based screen percentage): an untouched slider keeps 0 on Apply; a moved slider writes its value.
     Settings->SetResolutionScaleValueEx(0.0f);
     Widget->LoadFromSettings();
     if (TestNotNull(TEXT("Resolution scale slider"), Widget->GetResolutionScaleSlider()))
     {
         TestEqual(TEXT("Default scale shows 100%"), Widget->GetResolutionScaleSlider()->GetValue(), 100.0f, 0.01f);
-        TestTrue(TEXT("Apply with default scale succeeds"), Widget->Apply());
+        TestTrue(TEXT("Apply with untouched slider succeeds"), Widget->Apply());
         float Normalized, Scale, MinScale, MaxScale;
         Settings->GetResolutionScaleInformationEx(Normalized, Scale, MinScale, MaxScale);
-        TestEqual(TEXT("Apply keeps the default scale at 100%"), Scale, 100.0f, 0.01f);
+        TestEqual(TEXT("Untouched slider keeps the engine default (0)"), Scale, 0.0f, 0.01f);
+        Widget->GetResolutionScaleSlider()->SetValue(80.0f);
+        TestTrue(TEXT("Apply with moved slider succeeds"), Widget->Apply());
+        Settings->GetResolutionScaleInformationEx(Normalized, Scale, MinScale, MaxScale);
+        TestEqual(TEXT("Moved slider is applied"), Scale, 80.0f, 0.01f);
     }
 
     // Apply persists.

@@ -280,8 +280,10 @@ void UPSLSettingsWidget::LoadFromSettings()
     PendingCulture = UPSLGameUserSettings::ResolveCultureName(Settings->CultureName);
     float Normalized, Scale, MinScale, MaxScale;
     Settings->GetResolutionScaleInformationEx(Normalized, Scale, MinScale, MaxScale);
-    // ResolutionQuality 0 = project default (r.ScreenPercentage.Default 100): show 100 so Apply does not drop to the slider minimum.
-    ResolutionScaleSlider->SetValue(Scale > 0.0f ? FMath::Clamp(Scale, 50.0f, 100.0f) : 100.0f);
+    // 0 is the engine default (display-based screen percentage, not 100%); the slider shows 100 for it.
+    LoadedResolutionScale = Scale;
+    LoadedResolutionSlider = Scale > 0.0f ? FMath::Clamp(Scale, 50.0f, 100.0f) : 100.0f;
+    ResolutionScaleSlider->SetValue(LoadedResolutionSlider);
     VSyncCheck->SetIsChecked(Settings->IsVSyncEnabled());
     MasterSlider->SetValue(Settings->MasterVolume * 100.0f);
     MusicSlider->SetValue(Settings->MusicVolume * 100.0f);
@@ -344,8 +346,9 @@ bool UPSLSettingsWidget::Apply()
     {
         Settings->SetOverallScalabilityLevel(PendingQuality);
     }
-    // After the preset: the slider is the player's explicit choice and wins over the preset's screen percentage.
-    Settings->SetResolutionScaleValueEx(ResolutionScaleSlider->GetValue());
+    // After the preset: a moved slider is the player's explicit choice and wins over the preset's screen percentage; an untouched slider restores the loaded value, so 0 keeps the engine's display-based default instead of forcing 100% (47 ms/frame at 2560x1440 in packaged QA).
+    const float ScaleChoice = ResolutionScaleSlider->GetValue();
+    Settings->SetResolutionScaleValueEx(FMath::IsNearlyEqual(ScaleChoice, LoadedResolutionSlider) ? LoadedResolutionScale : ScaleChoice);
     Settings->SetVSyncEnabled(VSyncCheck->IsChecked());
     Settings->SetFrameRateChoice(PendingFrameCap);
     Settings->SetFullscreenMode(static_cast<EWindowMode::Type>(PendingWindowMode));
