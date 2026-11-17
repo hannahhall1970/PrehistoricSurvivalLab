@@ -706,11 +706,16 @@ def configure_sky(sc):
 
 
 def spawn_clouds():
-    """One cheap AVolumetricCloud (default material): low layer, reduced sample counts."""
+    """One cheap AVolumetricCloud (default material): low layer, reduced sample counts.
+
+    Packaged Metal A/B (M2f1b): default material at view 48 / reflection 80 samples put GPU p95 at 22.4 ms with GPU >20 ms in
+    9-13% of frames; view 36 (0.375 * 96) + SkyLight reflection capture 10 (0.104 * 96) gave GPU p95 17.4 ms with no
+    visible cloud change (24 view samples showed edge grain)."""
     actor = spawn(unreal.VolumetricCloud, CLOUDS_LABEL)
     cc = actor.get_component_by_class(unreal.VolumetricCloudComponent)
     for prop, value in (("layer_bottom_altitude", 5.0), ("layer_height", 6.0),
-                        ("view_sample_count_scale", 0.5), ("shadow_view_sample_count_scale", 0.5)):
+                        ("view_sample_count_scale", 0.375), ("reflection_view_sample_count_scale_value", 0.104),
+                        ("shadow_view_sample_count_scale", 0.5)):
         cc.set_editor_property(prop, value)
     return actor
 

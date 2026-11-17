@@ -194,6 +194,13 @@ def selftest():
     assert palette_color(TREX_PALETTE, TREX_DEFAULT, "Light Green") == TREX_PALETTE["lightgreen"]
     for c in list(PARA_PALETTE.values()) + [PARA_DEFAULT]:
         assert c[0] - c[2] >= 0.25, "prey colour not rust/ochre enough: %r" % (c,)
+    def keep(u, v, depth):  # mirror of pawn_window + CameraFadeFloor
+        d = math.hypot((u - PAWN_CENTER[0]) / PAWN_RADIUS[0], (v - PAWN_CENTER[1]) / PAWN_RADIUS[1])
+        sat = lambda x: min(max(x, 0.0), 1.0)
+        return max(sat((d - 1.0) / PAWN_SOFT), sat((depth - PAWN_FADE_DEPTH) / PAWN_DEPTH_RAMP), CAMERA_FADE_FLOOR)
+    assert keep(*PAWN_CENTER, 600.0) == CAMERA_FADE_FLOOR and keep(0.425, 0.65, 660.0) < 0.5, "occluder over the pawn not thinned"
+    assert keep(0.9, 0.3, 600.0) == 1.0 and keep(0.1, 0.8, 600.0) == 1.0, "pawn window leaks to the periphery"
+    assert keep(*PAWN_CENTER, PAWN_FADE_DEPTH + PAWN_DEPTH_RAMP) == 1.0, "foliage behind the pawn faded"
     print(LOG + "selftest ok (%d mask px, %d cluster pts, rocks at %.0f,%.0f)" % (sum(1 for v in px if v), len(pts), rx, ry))
 
 
@@ -493,7 +500,16 @@ def build_terrain_material(mask):
     return mat
 
 
-FADE_START, FADE_RANGE, LEAF_GAIN = 250.0, 300.0, 1.3  # camera fade: opaque beyond START+RANGE uu, gone at START uu
+FADE_START, FADE_RANGE = 250.0, 300.0  # camera fade: opaque beyond START+RANGE uu, gone at START uu
+# Pawn window (ScreenPosition.ViewportUV; the pawn sits left of centre from SocketOffset Y=70: torso ~(0.425, 0.80) at 1280x720).
+# Foliage inside the ellipse and in front of the pawn's far side (arm 650 -> pawn ~660 uu deep; M2f1 occluders sat at ~550-660)
+# dithers down to CAMERA_FADE_FLOOR instead of vanishing: the plant still reads but no longer hides the dinosaur. Foliage
+# beyond PAWN_FADE_DEPTH + PAWN_DEPTH_RAMP (behind the pawn) and everything outside the ellipse keep their full cutout.
+PAWN_CENTER, PAWN_RADIUS, PAWN_SOFT = (0.425, 0.80), (0.15, 0.28), 0.3
+PAWN_FADE_DEPTH, PAWN_DEPTH_RAMP, CAMERA_FADE_FLOOR = 680.0, 150.0, 0.15
+PAWN_PARAMS = ("CameraFadeCenterX", "CameraFadeCenterY", "CameraFadeRadiusX", "CameraFadeRadiusY", "PawnFadeSoftness",
+               "PawnFadeDepth", "PawnFadeDepthRamp", "CameraFadeFloor")
+LEAF_GAIN = 1.05  # M2f1's 1.3 plus the brighter sky washed bushes to near-white (RGB ~245); 1.05 keeps them sage green
 FOOD_FLOWER_MI = "MI_PSL_FoodFlower"
 FOOD_FLOWER_COLOR = (0.82, 0.22, 0.32)  # warm berry/blossom, reads against green foliage
 LEAF_CLIP = 0.3333  # M_PSL_Leaf's existing OpacityMaskClipValue (Material.h:536 default)
@@ -506,10 +522,14 @@ def foliage_opacity(mat, alpha=None, alpha_out="A"):
     (Mask - ClipValue) + 0.83 * blueNoise(0..1) - 0.5 > 0. With ClipValue = 0.3333 that is deterministic at Mask = 1 (always
     kept: 0.1667 + 0.83n > 0) and Mask = 0 (never kept: max -0.0033), and a screen-door ramp in between. So:
       cut  = saturate((TexAlpha - 0.3333) * 1000)  -> the original hard leaf cutout (alpha > 0.3333), 0 or 1
-      Mask = cut * Fade, Fade = saturate((PixelDepth - CameraFadeStart) / CameraFadeRange)
-    Far foliage (Fade = 1) keeps exactly the old cutout; near foliage dithers out. ShadowReplace feeds the shadow pass
-    `cut` alone (GetMaterialClippingShadowDepth clips on Mask - ClipValue, MaterialTemplate.ush:4542-4546; shadow flag
-    Common.ush:2290-2297), so the fade never changes shadow depth. alpha=None (no texture) means cut = 1."""
+      Mask = cut * min(Fade, Keep), Fade = saturate((PixelDepth - CameraFadeStart) / CameraFadeRange)
+      Keep = max(OutsidePawn, BehindPawn, CameraFadeFloor)
+        OutsidePawn = saturate((distance(UV / Radius, Center / Radius) - 1) / PawnFadeSoftness)  (0 inside the pawn ellipse)
+        BehindPawn  = saturate((PixelDepth - PawnFadeDepth) / PawnFadeDepthRamp)              (1 beyond the pawn)
+    Far foliage (Fade = 1, Keep = 1) keeps exactly the old cutout; near foliage dithers out; foliage between the camera and
+    the pawn on screen keeps ~CameraFadeFloor coverage. ShadowReplace feeds the shadow pass `cut` alone
+    (GetMaterialClippingShadowDepth clips on Mask - ClipValue, MaterialTemplate.ush:4542-4546; shadow flag Common.ush:2290-2297),
+    so neither fade changes shadow depth. alpha=None (no texture) means cut = 1."""
     depth = node(mat, unreal.MaterialExpressionPixelDepth, -1400, 1600)
     rel = node(mat, unreal.MaterialExpressionSubtract, -1200, 1600)
     link(depth, "", rel, "A")
@@ -519,6 +539,12 @@ def foliage_opacity(mat, alpha=None, alpha_out="A"):
     link(scalar_param(mat, "CameraFadeRange", FADE_RANGE, -1200, 1800), "", ratio, "B")
     fade = node(mat, unreal.MaterialExpressionSaturate, -800, 1600)
     link(ratio, "", fade, "")
+    keep = node(mat, unreal.MaterialExpressionMax, -800, 2000)
+    link(pawn_window(mat, depth), "", keep, "A")
+    link(scalar_param(mat, "CameraFadeFloor", CAMERA_FADE_FLOOR, -1000, 2200), "", keep, "B")
+    vis = node(mat, unreal.MaterialExpressionMin, -600, 1700)
+    link(fade, "", vis, "A")
+    link(keep, "", vis, "B")
     if alpha is None:
         cut = const(mat, 1.0, -800, 1500)
     else:
@@ -528,9 +554,48 @@ def foliage_opacity(mat, alpha=None, alpha_out="A"):
         cut = node(mat, unreal.MaterialExpressionSaturate, -800, 1400)
         link(mul(mat, over, const(mat, 1000.0, -1200, 1500), -1000, 1400), "", cut, "")
     shadow_switch = node(mat, unreal.MaterialExpressionShadowReplace, -400, 1500)
-    link(mul(mat, cut, fade, -600, 1550), "", shadow_switch, "Default")
+    link(mul(mat, cut, vis, -600, 1550), "", shadow_switch, "Default")
     link(cut, "", shadow_switch, "Shadow")
     mel().connect_material_property(shadow_switch, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+
+
+def pawn_window(mat, depth):
+    """max(OutsidePawn, BehindPawn) from foliage_opacity's docstring; 0 only for foliage in front of the pawn on screen."""
+    def vec2(px, py, *names_values):
+        v = node(mat, unreal.MaterialExpressionAppendVector, px, py)
+        for pin, (name, value) in zip(("A", "B"), names_values):
+            link(scalar_param(mat, name, value, px - 200, py + (0 if pin == "A" else 100)), "", v, pin)
+        return v
+    radius = vec2(-1600, 2100, ("CameraFadeRadiusX", PAWN_RADIUS[0]), ("CameraFadeRadiusY", PAWN_RADIUS[1]))
+    uv = node(mat, unreal.MaterialExpressionDivide, -1400, 1900)
+    link(node(mat, unreal.MaterialExpressionScreenPosition, -1600, 1900), "ViewportUV", uv, "A")
+    link(radius, "", uv, "B")
+    centre = node(mat, unreal.MaterialExpressionDivide, -1400, 2000)
+    link(vec2(-1600, 2000, ("CameraFadeCenterX", PAWN_CENTER[0]), ("CameraFadeCenterY", PAWN_CENTER[1])), "", centre, "A")
+    link(radius, "", centre, "B")
+    dist = node(mat, unreal.MaterialExpressionDistance, -1200, 1950)
+    link(uv, "", dist, "A")
+    link(centre, "", dist, "B")
+    out_rel = node(mat, unreal.MaterialExpressionSubtract, -1100, 1950)
+    link(dist, "", out_rel, "A")
+    link(const(mat, 1.0, -1200, 2050), "", out_rel, "B")
+    out_ratio = node(mat, unreal.MaterialExpressionDivide, -1000, 1950)
+    link(out_rel, "", out_ratio, "A")
+    link(scalar_param(mat, "PawnFadeSoftness", PAWN_SOFT, -1200, 2100), "", out_ratio, "B")
+    outside = node(mat, unreal.MaterialExpressionSaturate, -900, 1950)
+    link(out_ratio, "", outside, "")
+    behind_rel = node(mat, unreal.MaterialExpressionSubtract, -1200, 2300)
+    link(depth, "", behind_rel, "A")
+    link(scalar_param(mat, "PawnFadeDepth", PAWN_FADE_DEPTH, -1400, 2300), "", behind_rel, "B")
+    behind_ratio = node(mat, unreal.MaterialExpressionDivide, -1000, 2300)
+    link(behind_rel, "", behind_ratio, "A")
+    link(scalar_param(mat, "PawnFadeDepthRamp", PAWN_DEPTH_RAMP, -1200, 2400), "", behind_ratio, "B")
+    behind = node(mat, unreal.MaterialExpressionSaturate, -900, 2300)
+    link(behind_ratio, "", behind, "")
+    window = node(mat, unreal.MaterialExpressionMax, -800, 2100)
+    link(outside, "", window, "A")
+    link(behind, "", window, "B")
+    return window
 
 
 def masked_dither_setup(mat):
@@ -630,9 +695,10 @@ def foliage_material_problems(mat):
         out.append(n + " lacks dither_opacity_mask")
     if not mat.get_editor_property("two_sided"):
         out.append(n + " is not two sided")
-    if not expression_exists(mat, unreal.MaterialExpressionScalarParameter, "CameraFadeStart"):
-        out.append(n + " lacks CameraFadeStart param")
-    for cls in (unreal.MaterialExpressionPixelDepth, unreal.MaterialExpressionShadowReplace):
+    for param in ("CameraFadeStart",) + PAWN_PARAMS:
+        if not expression_exists(mat, unreal.MaterialExpressionScalarParameter, param):
+            out.append("%s lacks %s param" % (n, param))
+    for cls in (unreal.MaterialExpressionPixelDepth, unreal.MaterialExpressionScreenPosition, unreal.MaterialExpressionShadowReplace):
         if not expression_exists(mat, cls):
             out.append("%s lacks %s" % (n, cls.__name__))
     return out
@@ -769,6 +835,12 @@ def foliage_verify(counts):
     counts["clouds"], counts["decorBushMaxScale"], counts["decorBushFlowering"] = len(clouds), round(max_scale, 3), flowering
     if len(clouds) != 1 or sum(1 for a in actors if a.get_actor_label() == B.CLOUDS_LABEL) != 1:
         problems.append("%s count %d, expected exactly 1 VolumetricCloud" % (B.CLOUDS_LABEL, len(clouds)))
+    for cloud in clouds:
+        cc = cloud.get_component_by_class(unreal.VolumetricCloudComponent)
+        scales = [round(cc.get_editor_property(p), 3) for p in ("view_sample_count_scale", "reflection_view_sample_count_scale_value")]
+        counts["cloudSampleScales"] = scales
+        if scales[0] > 0.376 or scales[1] > 0.11:
+            problems.append("%s sample scales %s exceed (0.375, 0.11)" % (B.CLOUDS_LABEL, scales))
     if need(found, "PSL_SkyLight").get_component_by_class(unreal.SkyLightComponent).get_editor_property("lower_hemisphere_is_black"):
         problems.append("PSL_SkyLight lower hemisphere is black")
     return problems

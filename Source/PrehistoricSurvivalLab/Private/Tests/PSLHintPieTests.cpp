@@ -124,7 +124,8 @@ void Face(FPSLPieCtx& Ctx, const FVector& Direction)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLHintHerbivoreEatHintTest, "PSL.PIE.Hint.HerbivoreEatHint", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-// Regressions caught: hint missing/stuck, not cleared after eating or when facing away, and a second bite feeding twice.
+// Regressions caught: hint missing/stuck, a stale "cannot eat meat" misbite message masking it, not cleared after eating or
+// when facing away, and a second bite feeding twice.
 bool FPSLHintHerbivoreEatHintTest::RunTest(const FString& Parameters)
 {
     const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("Hint_HerbivoreEatHint"));
@@ -134,11 +135,43 @@ bool FPSLHintHerbivoreEatHintTest::RunTest(const FString& Parameters)
     }
     const TSharedRef<TWeakObjectPtr<APSLFoodPlant>> Target = MakeShared<TWeakObjectPtr<APSLFoodPlant>>();
     const TSharedRef<float> HungerAfterFirstBite = MakeShared<float>(0.0f);
+    const TSharedRef<FVector> PlantStand = MakeShared<FVector>(FVector::ZeroVector);
     QueueStandAtPlant(*this, Context, UPSLDinoSpecies::ParaId, Target);
 
+    AddPieStep(Context, TEXT("MisbiteCarcass"), 3.0f, [PlantStand](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable())
+        {
+            return true;
+        }
+        *PlantStand = Ctx.Character->GetActorLocation();
+        TActorIterator<APSLPreyCharacter> PreyIt(Ctx.World);
+        if (!PreyIt)
+        {
+            Ctx.MarkInvalid(TEXT("No prey in L_LostValley"));
+            return true;
+        }
+        PreyIt->GetStatsComponent()->ApplyDamage(1000.0f);
+        Ctx.Test->TestTrue(TEXT("Prey is dead"), PreyIt->IsDead());
+        // Same placement as PSL.PIE.Flow.EatCarcass: the bite centre lands 70 uu past the corpse centre.
+        const FVector Stand = PreyIt->GetActorLocation() - FVector::ForwardVector * (Ctx.Character->BiteReach - 70.0f) + FVector(0.0, 0.0, 60.0);
+        Ctx.Character->SetActorLocation(Stand, false, nullptr, ETeleportType::TeleportPhysics);
+        Ctx.Character->GetCharacterMovement()->StopMovementImmediately();
+        Face(Ctx, FVector::ForwardVector);
+        Ctx.Test->TestTrue(TEXT("Misbite accepted"), Ctx.Character->TryBite());
+        return true;
+    });
+    AddSettleStep(Context, TEXT("CannotEatMeatHint"), 0.8, [PlantStand](FPSLPieCtx& Ctx)
+    {
+        const FText CannotEat = NSLOCTEXT("PSL", "HintCannotEatMeat", "Herbivores can't eat meat. Find plants instead.");
+        Ctx.Test->TestTrue(TEXT("Biting a carcass shows the cannot-eat-meat hint"), Ctx.Character->GetFoodHint().EqualTo(CannotEat));
+        Ctx.Character->SetActorLocation(*PlantStand, false, nullptr, ETeleportType::TeleportPhysics);
+        Ctx.Character->GetCharacterMovement()->StopMovementImmediately();
+        Face(Ctx, FVector::ForwardVector);
+    });
     AddSettleStep(Context, TEXT("HintShownFacingPlant"), 0.5, [](FPSLPieCtx& Ctx)
     {
-        Ctx.Test->TestTrue(TEXT("Facing an available plant shows Bite to eat"), ShowsBiteToEat(Ctx));
+        Ctx.Test->TestTrue(TEXT("Facing an available plant shows Bite to eat (stale misbite hint cleared)"), ShowsBiteToEat(Ctx));
         Face(Ctx, -FVector::ForwardVector);
     });
     AddSettleStep(Context, TEXT("HintClearedFacingAway"), 0.5, [](FPSLPieCtx& Ctx)

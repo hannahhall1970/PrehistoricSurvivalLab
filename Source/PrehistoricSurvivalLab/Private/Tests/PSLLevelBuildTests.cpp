@@ -22,6 +22,7 @@
 #include "Engine/SkyLight.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionPixelDepth.h"
+#include "Materials/MaterialExpressionScreenPosition.h"
 #include "PSLFoodPlant.h"
 #include "PSLLevelBuildLibrary.h"
 
@@ -168,21 +169,21 @@ bool HasScalarParam(const UMaterialInterface& Material, const TCHAR* Name, float
     return bFound;
 }
 
-// Depth-first walk over every input of the expression graph feeding `Expression`.
-bool GraphContainsPixelDepth(UMaterialExpression* Expression, TSet<UMaterialExpression*>& Visited)
+// Depth-first walk over every input of the expression graph feeding `Expression`: true if any node is a `Class`.
+bool GraphContains(UMaterialExpression* Expression, const UClass* Class, TSet<UMaterialExpression*>& Visited)
 {
     if (!Expression || Visited.Contains(Expression))
     {
         return false;
     }
     Visited.Add(Expression);
-    if (Expression->IsA<UMaterialExpressionPixelDepth>())
+    if (Expression->IsA(Class))
     {
         return true;
     }
     for (FExpressionInputIterator It{Expression}; It; ++It)
     {
-        if (GraphContainsPixelDepth(It->Expression, Visited))
+        if (GraphContains(It->Expression, Class, Visited))
         {
             return true;
         }
@@ -215,8 +216,22 @@ bool FPSLLostValleyFoliageReadabilityTest::RunTest(const FString& Parameters)
         TestTrue(FString(Name) + TEXT(" has CameraFadeStart"), HasScalarParam(*Material, TEXT("CameraFadeStart")));
         TestTrue(FString(Name) + TEXT(" has CameraFadeRange"), HasScalarParam(*Material, TEXT("CameraFadeRange")));
         const UMaterialEditorOnlyData* Data = Material->GetEditorOnlyData();
+        UMaterialExpression* Mask = Data ? Data->OpacityMask.Expression : nullptr;
         TSet<UMaterialExpression*> Visited;
-        TestTrue(FString(Name) + TEXT(" OpacityMask depends on PixelDepth"), Data && GraphContainsPixelDepth(Data->OpacityMask.Expression, Visited));
+        TestTrue(FString(Name) + TEXT(" OpacityMask depends on PixelDepth"), GraphContains(Mask, UMaterialExpressionPixelDepth::StaticClass(), Visited));
+        // Pawn window: foliage between the camera and the dinosaur on screen dithers down instead of hiding it.
+        Visited.Reset();
+        TestTrue(FString(Name) + TEXT(" OpacityMask depends on ScreenPosition"), GraphContains(Mask, UMaterialExpressionScreenPosition::StaticClass(), Visited));
+        for (const TCHAR* Param : {TEXT("CameraFadeCenterX"), TEXT("CameraFadeCenterY"), TEXT("CameraFadeRadiusX"), TEXT("CameraFadeRadiusY"), TEXT("PawnFadeSoftness"), TEXT("PawnFadeDepth"), TEXT("PawnFadeDepthRamp")})
+        {
+            TestTrue(FString(Name) + TEXT(" has ") + Param, HasScalarParam(*Material, Param));
+        }
+        float Floor = -1.0f;
+        TestTrue(FString(Name) + TEXT(" has CameraFadeFloor"), HasScalarParam(*Material, TEXT("CameraFadeFloor"), &Floor));
+        TestTrue(FString::Printf(TEXT("%s CameraFadeFloor in (0, 0.5): occluding foliage thins but never vanishes (%.3f)"), Name, Floor), Floor > 0.0f && Floor < 0.5f);
+        float PawnDepth = 0.0f;
+        HasScalarParam(*Material, TEXT("PawnFadeDepth"), &PawnDepth);
+        TestTrue(FString::Printf(TEXT("%s PawnFadeDepth reaches the default 650 uu camera arm (%.0f)"), Name, PawnDepth), PawnDepth >= 650.0f);
     }
 
     const UMaterial* FoliageFlat = LoadValleyAsset<UMaterial>(TEXT("M_PSL_FoliageFlat"));
@@ -323,6 +338,9 @@ bool FPSLLostValleyAtmosphereTest::RunTest(const FString& Parameters)
             if (TestNotNull(TEXT("Cloud component"), Component))
             {
                 TestFalse(TEXT("Cloud material is set"), Component->Material.IsNull());
+                // Measured GPU cost (packaged Metal, M2f1b): main view <= 36 samples, SkyLight reflection capture <= 10.
+                TestTrue(FString::Printf(TEXT("Cloud view sample scale <= 0.375 (%.3f)"), Component->ViewSampleCountScale), Component->ViewSampleCountScale <= 0.375f + 1e-3f);
+                TestTrue(FString::Printf(TEXT("Cloud reflection sample scale <= 0.11 (%.3f)"), Component->ReflectionViewSampleCountScaleValue), Component->ReflectionViewSampleCountScaleValue <= 0.11f);
             }
         }
         else if (const ASkyLight* Sky = Cast<ASkyLight>(Actor))

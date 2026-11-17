@@ -594,6 +594,8 @@ void APSLCharacter::UpdateProximityHint()
         const APSLFoodPlant* Plant = Cast<APSLFoodPlant>(Overlap.GetActor());
         if (Plant && Plant->IsAvailable())
         {
+            // A stale misbite message ("cannot eat meat") must not mask the prompt once the dino faces an edible plant.
+            FoodHint = FText::GetEmpty();
             ProximityHint = NSLOCTEXT("PSL", "HintBiteToEat", "Bite to eat");
             return;
         }
