@@ -4,8 +4,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Game\n"
-"POT-Creation-Date: 2026-11-15 10:22\n"
-"PO-Revision-Date: 2026-11-15 10:22\n"
+"POT-Creation-Date: 2026-11-17 00:33\n"
+"PO-Revision-Date: 2026-11-17 00:33\n"
 "Language-Team: \n"
 "Language: en\n"
 "MIME-Version: 1.0\n"
@@ -14,18 +14,25 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 #. Key:	HintCannotEatPlants
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(516)
-#: Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(516)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(566)
+#: Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(566)
 msgctxt "PSL,HintCannotEatPlants"
 msgid "Carnivores can't eat plants. Hunt prey instead."
 msgstr "Carnivores can't eat plants. Hunt prey instead."
 
 #. Key:	HintCannotEatMeat
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(517)
-#: Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(517)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(567)
+#: Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(567)
 msgctxt "PSL,HintCannotEatMeat"
 msgid "Herbivores can't eat meat. Find plants instead."
 msgstr "Herbivores can't eat meat. Find plants instead."
+
+#. Key:	HintBiteToEat
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(597)
+#: Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(597)
+msgctxt "PSL,HintBiteToEat"
+msgid "Bite to eat"
+msgstr "Bite to eat"
 
 #. Key:	SpeciesTRexName
 #. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLDinoSpecies.cpp(22)
@@ -55,128 +62,128 @@ msgctxt "PSL,SpeciesParaDesc"
 msgid "Fast, agile herbivore. Grazes on plants; its bite only wounds."
 msgstr "Fast, agile herbivore. Grazes on plants; its bite only wounds."
 
+#. Key:	GameOver_Stats
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(102)
+#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(102)
+msgctxt "PSL,GameOver_Stats"
+msgid "Survived {0}\nPrey killed: {1}\nFood eaten: {2}"
+msgstr "Survived {0}\nPrey killed: {1}\nFood eaten: {2}"
+
 #. Key:	GameOver_Retry
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(60)
-#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(60)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(63)
+#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(63)
 msgctxt "PSL,GameOver_Retry"
 msgid "Retry"
 msgstr "Retry"
 
 #. Key:	GameOver_Continue
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(61)
-#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(61)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(64)
+#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(64)
 msgctxt "PSL,GameOver_Continue"
 msgid "Continue"
 msgstr "Continue"
 
 #. Key:	GameOver_MainMenu
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(62)
-#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(62)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(65)
+#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(65)
 msgctxt "PSL,GameOver_MainMenu"
 msgid "Main Menu"
 msgstr "Main Menu"
 
 #. Key:	GameOver_Died
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(92)
-#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(92)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(95)
+#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(95)
 msgctxt "PSL,GameOver_Died"
 msgid "YOU DIED"
 msgstr "YOU DIED"
 
 #. Key:	GameOver_Starved
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(92)
-#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(92)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(95)
+#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(95)
 msgctxt "PSL,GameOver_Starved"
 msgid "YOU STARVED"
 msgstr "YOU STARVED"
 
-#. Key:	GameOver_Stats
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(99)
-#: Source/PrehistoricSurvivalLab/Private/PSLGameOverWidget.cpp(99)
-msgctxt "PSL,GameOver_Stats"
-msgid "Survived {0}\nPrey killed: {1}\nFood eaten: {2}"
-msgstr "Survived {0}\nPrey killed: {1}\nFood eaten: {2}"
-
 #. Key:	HudHealth
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(120)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(120)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(114)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(114)
 msgctxt "PSL,HudHealth"
 msgid "HEALTH"
 msgstr "HEALTH"
 
 #. Key:	HudHealthGlyph
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(120)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(120)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(114)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(114)
 msgctxt "PSL,HudHealthGlyph"
 msgid "+"
 msgstr "+"
 
 #. Key:	HudStamina
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(121)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(121)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(115)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(115)
 msgctxt "PSL,HudStamina"
 msgid "STAMINA"
 msgstr "STAMINA"
 
 #. Key:	HudStaminaGlyph
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(121)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(121)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(115)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(115)
 msgctxt "PSL,HudStaminaGlyph"
 msgid ">"
 msgstr ">"
 
 #. Key:	HudHunger
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(123)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(123)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(117)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(117)
 msgctxt "PSL,HudHunger"
 msgid "HUNGER"
 msgstr "HUNGER"
 
 #. Key:	HudHungerGlyph
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(123)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(123)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(117)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(117)
 msgctxt "PSL,HudHungerGlyph"
 msgid "o"
 msgstr "o"
 
 #. Key:	HudDead
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(136)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(136)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(134)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(134)
 msgctxt "PSL,HudDead"
 msgid "DEAD"
 msgstr "DEAD"
 
 #. Key:	HudPreyDown
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(145)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(145)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(143)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(143)
 msgctxt "PSL,HudPreyDown"
 msgid "PREY DOWN"
 msgstr "PREY DOWN"
 
 #. Key:	HudHit
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(154)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(154)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(152)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(152)
 msgctxt "PSL,HudHit"
 msgid "HIT"
 msgstr "HIT"
 
 #. Key:	HudValueFmt
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(202)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(202)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(200)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(200)
 msgctxt "PSL,HudValueFmt"
 msgid "{0} / {1}"
 msgstr "{0} / {1}"
 
 #. Key:	HudExhausted
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(230)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(230)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(228)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(228)
 msgctxt "PSL,HudExhausted"
 msgid "EXHAUSTED"
 msgstr "EXHAUSTED"
 
 #. Key:	HudSprinting
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(230)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(230)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(228)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(228)
 msgctxt "PSL,HudSprinting"
 msgid "SPRINTING"
 msgstr "SPRINTING"
@@ -224,29 +231,29 @@ msgid "Version {0}"
 msgstr "Version {0}"
 
 #. Key:	Pause_NeverSaved
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(136)
-#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(136)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(141)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(141)
 msgctxt "PSL,Pause_NeverSaved"
 msgid "This run has never been saved."
 msgstr "This run has never been saved."
 
 #. Key:	Pause_UnsavedSince
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(143)
-#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(143)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(148)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(148)
 msgctxt "PSL,Pause_UnsavedSince"
 msgid "Unsaved progress since {0}."
 msgstr "Unsaved progress since {0}."
 
 #. Key:	Pause_Saved
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(202)
-#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(202)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(207)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(207)
 msgctxt "PSL,Pause_Saved"
 msgid "Saved"
 msgstr "Saved"
 
 #. Key:	Pause_SaveRefused
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(202)
-#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(202)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(207)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(207)
 msgctxt "PSL,Pause_SaveRefused"
 msgid "Can't save right now: the dino is starving or badly hurt."
 msgstr "Can't save right now: the dino is starving or badly hurt."
@@ -294,15 +301,15 @@ msgid "Quit"
 msgstr "Quit"
 
 #. Key:	SaveMissing
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(171)
-#: Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(171)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(141)
+#: Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(141)
 msgctxt "PSL,SaveMissing"
 msgid "There is no saved game."
 msgstr "There is no saved game."
 
 #. Key:	SaveUnreadable
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(177)
-#: Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(177)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(147)
+#: Source/PrehistoricSurvivalLab/Private/PSLSaveSubsystem.cpp(147)
 msgctxt "PSL,SaveUnreadable"
 msgid "The save file could not be read."
 msgstr "The save file could not be read."
@@ -483,29 +490,29 @@ msgid "Tiếng Việt"
 msgstr "Tiếng Việt"
 
 #. Key:	Settings_Apply
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(218)
-#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(218)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(221)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(221)
 msgctxt "PSL,Settings_Apply"
 msgid "Apply"
 msgstr "Apply"
 
 #. Key:	Settings_Revert
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(219)
-#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(219)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(222)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(222)
 msgctxt "PSL,Settings_Revert"
 msgid "Revert"
 msgstr "Revert"
 
 #. Key:	Settings_Back
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(220)
-#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(220)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(223)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(223)
 msgctxt "PSL,Settings_Back"
 msgid "Back"
 msgstr "Back"
 
 #. Key:	Settings_Unavailable
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(268)
-#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(268)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(271)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(271)
 msgctxt "PSL,Settings_Unavailable"
 msgid "Settings are unavailable."
 msgstr "Settings are unavailable."
@@ -539,8 +546,8 @@ msgid "Epic"
 msgstr "Epic"
 
 #. Key:	Settings_Applied
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(352)
-#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(352)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(355)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(355)
 msgctxt "PSL,Settings_Applied"
 msgid "Settings applied."
 msgstr "Settings applied."
@@ -553,15 +560,15 @@ msgid "Custom"
 msgstr "Custom"
 
 #. Key:	Settings_ConfirmDiscard
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(377)
-#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(377)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(380)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(380)
 msgctxt "PSL,Settings_ConfirmDiscard"
 msgid "You have unapplied changes. Press Back again to discard them."
 msgstr "You have unapplied changes. Press Back again to discard them."
 
 #. Key:	Settings_PercentValue
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(394)
-#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(394)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(397)
+#: Source/PrehistoricSurvivalLab/Private/PSLSettingsWidget.cpp(397)
 msgctxt "PSL,Settings_PercentValue"
 msgid "{0}%"
 msgstr "{0}%"
@@ -616,29 +623,29 @@ msgid "Windowed"
 msgstr "Windowed"
 
 #. Key:	Species_Confirm
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(110)
-#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(110)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(111)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(111)
 msgctxt "PSL,Species_Confirm"
 msgid "Confirm"
 msgstr "Confirm"
 
 #. Key:	Species_Back
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(112)
-#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(112)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(113)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(113)
 msgctxt "PSL,Species_Back"
 msgid "Back"
 msgstr "Back"
 
 #. Key:	Diet_Carnivore
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(195)
-#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(195)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(196)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(196)
 msgctxt "PSL,Diet_Carnivore"
 msgid "CARNIVORE"
 msgstr "CARNIVORE"
 
 #. Key:	Diet_Herbivore
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(195)
-#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(195)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(196)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(196)
 msgctxt "PSL,Diet_Herbivore"
 msgid "HERBIVORE"
 msgstr "HERBIVORE"
@@ -665,43 +672,43 @@ msgid ">"
 msgstr ">"
 
 #. Key:	Stat_Health
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(91)
-#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(91)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
 msgctxt "PSL,Stat_Health"
 msgid "Health"
 msgstr "Health"
 
 #. Key:	Stat_Speed
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(91)
-#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(91)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
 msgctxt "PSL,Stat_Speed"
 msgid "Speed"
 msgstr "Speed"
 
 #. Key:	Stat_Stamina
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(91)
-#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(91)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
 msgctxt "PSL,Stat_Stamina"
 msgid "Stamina"
 msgstr "Stamina"
 
 #. Key:	Stat_Bite
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
-#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(93)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(93)
 msgctxt "PSL,Stat_Bite"
 msgid "Bite"
 msgstr "Bite"
 
 #. Key:	Stat_Diet
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
-#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(93)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(93)
 msgctxt "PSL,Stat_Diet"
 msgid "Diet"
 msgstr "Diet"
 
 #. Key:	Stat_Hunger
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
-#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(92)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(93)
+#: Source/PrehistoricSurvivalLab/Private/PSLSpeciesSelectWidget.cpp(93)
 msgctxt "PSL,Stat_Hunger"
 msgid "Hunger endurance"
 msgstr "Hunger endurance"

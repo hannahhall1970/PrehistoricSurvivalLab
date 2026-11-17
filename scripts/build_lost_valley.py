@@ -223,6 +223,10 @@ def selftest():
     plants = food_plant_spots(poly, (PATH_POINTS[0][0] + 400.0, PATH_POINTS[0][1] + 300.0))
     assert len(plants) == 6 and len(set(plants)) == 6, plants
     assert all(not excluded(x, y, poly) and abs(x) < EXTENT and abs(y) < EXTENT for x, y in plants), plants
+    decor = [s for s in ("Bush_Common", "Bush_Common_Flowers", "Fern_1", "Plant_1_Big", "Plant_7_Big", "Grass_Common_Tall")
+             if re.search(DECOR_BUSH_RE, s)]
+    assert decor == ["Bush_Common", "Fern_1", "Plant_1_Big", "Plant_7_Big"], decor
+    assert FOOD_PLANT_MESH == "Bush_Common_Flowers" and DECOR_BUSH_SCALE[1] <= 1.05
     print(LOG + "selftest ok (%d trees)" % len(pts))
 
 
@@ -612,7 +616,7 @@ def build_foliage(grid, poly, stems):
     for x, y in rock_pts:
         rock_groups[rng.choice(rocks)].append(
             transform(x, y, z_of(x, y) + (-40.0 if rng.random() < 0.3 else 0.0), rng.uniform(0, 360), rng.uniform(1.0, 3.0)))
-    bushes = pick(stems, r"^(Bush|Fern|Plant)")
+    bushes = pick(stems, DECOR_BUSH_RE)  # the flowering bush is the food mesh only (PSL_FoodPlant_*)
     grass = pick(stems, r"^(Grass|Flower|Clover)")
     stone = pick(stems, r"^(Rock_Small|Pebble)", required=False) or rocks[:1]
     stones = []
@@ -623,7 +627,7 @@ def build_foliage(grid, poly, stems):
     counts = {
         "trees": holder("PSL_Foliage_Trees", split(trees, tree_pts, rng, z_of, (0.9, 1.4)), True, 30000.0),
         "rocks": holder("PSL_Foliage_Rocks", list(rock_groups.items()), True, 30000.0),
-        "bushes": holder("PSL_Foliage_Bushes", split(bushes, scatter(rng, 300, free), rng, z_of, (0.8, 1.3)), False, 12000.0),
+        "bushes": holder("PSL_Foliage_Bushes", split(bushes, scatter(rng, 300, free), rng, z_of, DECOR_BUSH_SCALE), False, 12000.0),
         "grass": holder("PSL_Foliage_Grass", split(grass, scatter(rng, 2500, free), rng, z_of, (0.8, 1.3)), False, 6000.0),
         "pathStones": holder("PSL_PathStones", [(stone[0], stones)], False, 8000.0),
     }
@@ -687,6 +691,30 @@ def food_plant_spots(poly, start_xy):
     return [spots[k * (len(spots) - 1) // (n - 1)] for k in range(n)]
 
 
+CLOUDS_LABEL = "PSL_Clouds"
+DECOR_BUSH_RE = r"^(Bush|Fern|Plant)(?!_Common_Flowers)"  # SM_Bush_Common_Flowers appears only on the food plants
+DECOR_BUSH_SCALE = (0.8, 1.05)  # taller bushes hid the camera view of the path and the food plants
+SKY_INTENSITY = 2.0
+SKY_LOWER_COLOR = (0.10, 0.12, 0.06)
+
+
+def configure_sky(sc):
+    """Lower hemisphere dark olive instead of black: ground-facing surfaces and shadowed undersides stay readable."""
+    sc.set_editor_property("intensity", SKY_INTENSITY)
+    sc.set_editor_property("lower_hemisphere_is_black", False)
+    sc.set_editor_property("lower_hemisphere_color", unreal.LinearColor(*SKY_LOWER_COLOR, 1.0))
+
+
+def spawn_clouds():
+    """One cheap AVolumetricCloud (default material): low layer, reduced sample counts."""
+    actor = spawn(unreal.VolumetricCloud, CLOUDS_LABEL)
+    cc = actor.get_component_by_class(unreal.VolumetricCloudComponent)
+    for prop, value in (("layer_bottom_altitude", 5.0), ("layer_height", 6.0),
+                        ("view_sample_count_scale", 0.5), ("shadow_view_sample_count_scale", 0.5)):
+        cc.set_editor_property(prop, value)
+    return actor
+
+
 def build_lighting():
     sun = spawn(unreal.DirectionalLight, "PSL_Sun", 0, 0, 5000, unreal.Rotator(0.0, -38.0, 135.0))  # Rotator(roll, pitch, yaw)
     sun.root_component.set_mobility(unreal.ComponentMobility.MOVABLE)
@@ -699,7 +727,8 @@ def build_lighting():
     sky.root_component.set_mobility(unreal.ComponentMobility.MOVABLE)
     sc = sky.get_component_by_class(unreal.SkyLightComponent)
     sc.set_editor_property("real_time_capture", True)
-    sc.set_editor_property("intensity", 1.0)
+    configure_sky(sc)
+    spawn_clouds()
     fog = spawn(unreal.ExponentialHeightFog, "PSL_Fog", 0, 0, 0)
     fc = fog.get_component_by_class(unreal.ExponentialHeightFogComponent)
     fc.set_editor_property("fog_density", 0.015)

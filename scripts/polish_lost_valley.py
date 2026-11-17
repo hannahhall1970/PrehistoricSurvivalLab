@@ -34,6 +34,7 @@ PARA_MI_DEST = "/Game/Characters/Prey/Materials"
 MASK_NAME = "T_PSL_PathMask"
 MASK_PATH = B.TEX_DEST + "/" + MASK_NAME
 MASK_RES = 512
+MASK_CORE, MASK_EDGE, MASK_JITTER, MASK_NOISE_CELL = 150.0, 950.0, 0.35, 700.0
 LAND_SIZE = (B.SIZE_VERTS - 1) * B.VERT_STEP
 GRASS_MAX, BUSH_MAX = 2500, 300  # budgets: never above the build script's counts
 SPAWN_ROCKS = "PSL_Landmark_SpawnRocks"
@@ -59,9 +60,11 @@ def palette_color(palette, default, slot):
 
 # ---------------------------------------------------------------- pure helpers
 def mask_pixels(poly, res=MASK_RES):
-    """res*res bytes, row-major (v = y fastest-changing is x). 1 inside PATH_FLAT_RADIUS of the path, smooth to 0 at
-    PATH_BLEND_RADIUS, plus 0.35*noise inside the clearing. Pixel (i, j) covers world (origin + (i+.5)/res*size, ...)."""
-    r_out = B.PATH_BLEND_RADIUS
+    """res*res bytes, row-major (v = y fastest-changing is x). 1 within MASK_CORE of the path, soft noise-broken falloff
+    to 0 at MASK_EDGE (distance scaled by 1 + MASK_JITTER*noise, noise in [-1, 1], so the edge wanders instead of tracing a
+    smooth ribbon), plus 0.35*noise inside the clearing. The mask has its own radii: B.PATH_FLAT_RADIUS/PATH_BLEND_RADIUS
+    drive the height flattening and must not change. Pixel (i, j) covers world (origin + (i+.5)/res*size, ...)."""
+    r_out = MASK_EDGE / (1.0 - MASK_JITTER)  # farthest a pixel can still be non-zero
     dist = [[1e9] * res for _ in range(res)]
     cell = LAND_SIZE / res
     for a, b in zip(poly, poly[1:]):
@@ -82,7 +85,8 @@ def mask_pixels(poly, res=MASK_RES):
         y = B.LAND_ORIGIN + (j + 0.5) * cell
         for i in range(res):
             x = B.LAND_ORIGIN + (i + 0.5) * cell
-            v = 1.0 - B.smoothstep(B.PATH_FLAT_RADIUS, r_out, dist[j][i])
+            d = dist[j][i] * (1.0 + MASK_JITTER * B.value_noise(x, y, MASK_NOISE_CELL))  # 0 stays 0: path core stays solid
+            v = 1.0 - B.smoothstep(MASK_CORE, MASK_EDGE, d)
             if math.hypot(x - cx, y - cy) < cr:
                 v = max(v, 0.35 * (0.6 + 0.4 * B.value_noise(x, y, 400.0)))
             out[j * res + i] = int(round(max(0.0, min(1.0, v)) * 255))
@@ -165,7 +169,13 @@ def selftest():
     j = int((mid[1] - B.LAND_ORIGIN) / (LAND_SIZE / 128))
     assert px[j * 128 + i] >= 250, "mask not ~1 on the path"
     assert px[0] == 0, "mask not 0 far from the path"
-    assert 0 < sum(1 for v in px if v) < 128 * 128 // 2, "mask coverage implausible"
+    nz = sum(1 for v in px if v)
+    assert 0 < nz < 128 * 128 // 4, "mask coverage implausible: %d px" % nz
+    assert px[j * 128 + i] == 255 and max(px[0], px[-1]) == 0, "mask core/far values"
+    decor = [s for s in ("Bush_Common", "Bush_Common_Flowers", "Fern_1", "Plant_1_Big", "Plant_7_Big", "Grass_Common_Tall")
+             if re.search(B.DECOR_BUSH_RE, s)]
+    assert decor == ["Bush_Common", "Fern_1", "Plant_1_Big", "Plant_7_Big"], decor
+    assert B.DECOR_BUSH_SCALE[1] <= 1.05 and B.PATH_FLAT_RADIUS == 250.0 and B.PATH_BLEND_RADIUS == 650.0
     png = png_gray(px, 128)
     assert png[:8] == b"\x89PNG\r\n\x1a\n" and zlib.decompress(png[png.index(b"IDAT") + 4:-16])[0] == 0
     rng = random.Random(1)
@@ -408,9 +418,24 @@ def build_terrain_material(mask):
     link(const(mat, 0.7, -1600, 650), "", pdiff, "B")
     patch = node(mat, unreal.MaterialExpressionSaturate, -1000, 550)
     link(mul(mat, pdiff, const(mat, 8.0, -1400, 650), -1200, 550), "", patch, "")
+    # soft, noise-broken edge: R + (n - 0.5) * 2 * R * (1 - R), so the solid core (R=1) and far grass (R=0) are untouched
+    # and only the falloff band is eroded into a ragged edge instead of a smooth ribbon
+    edge_n = node(mat, unreal.MaterialExpressionNoise, -1600, 700, scale=0.012, output_min=0.0, output_max=1.0)
+    link(wpos, "", edge_n, "Position")
+    edge_c = node(mat, unreal.MaterialExpressionSubtract, -1400, 700)
+    link(edge_n, "", edge_c, "A")
+    link(const(mat, 0.5, -1600, 800), "", edge_c, "B")
+    omr = node(mat, unreal.MaterialExpressionSubtract, -1400, 450)
+    link(const(mat, 1.0, -1600, 450), "", omr, "A")
+    link(path, "R", omr, "B")
+    shape = mul(mat, omr, path, -1200, 450, bo="R")
+    pert = mul(mat, mul(mat, shape, edge_c, -1000, 700), const(mat, 2.0, -1200, 750), -800, 700)
+    path_soft = node(mat, unreal.MaterialExpressionAdd, -800, 500)
+    link(path, "R", path_soft, "A")
+    link(pert, "", path_soft, "B")
     dirt_a = node(mat, unreal.MaterialExpressionSaturate, -800, 400)
     sum_a = node(mat, unreal.MaterialExpressionAdd, -1000, 400)
-    link(path, "R", sum_a, "A")
+    link(path_soft, "", sum_a, "A")
     link(patch, "", sum_a, "B")
     link(sum_a, "", dirt_a, "")
 
@@ -439,11 +464,178 @@ def build_terrain_material(mask):
     bright = node(mat, unreal.MaterialExpressionAdd, -600, 1100)
     link(const(mat, 1.0, -800, 1050), "", bright, "A")
     link(mul(mat, mn, const(mat, 0.08, -800, 1200), -800, 1150), "", bright, "B")
-    final = mul(mat, surface, bright, -200, 0)
+    # large-scale tiling break: the SAME Rocks_Diffuse at 1/3000 (one tile = 30 m), luminance centred on 1 and scaled by
+    # the MacroVariation parameter, so patches of lighter/darker ground read at camera distance (MI-tunable)
+    macro_lum = node(mat, unreal.MaterialExpressionDotProduct, -1450, 1300)
+    link(tex_at("Rocks_Diffuse", 1.0 / 3000.0, 1300), "RGB", macro_lum, "A")
+    link(vec3(0.3, 0.59, 0.11, 1400), "", macro_lum, "B")
+    macro_centred = node(mat, unreal.MaterialExpressionSubtract, -1250, 1300)
+    link(macro_lum, "", macro_centred, "A")
+    link(const(mat, 0.5, -1450, 1450), "", macro_centred, "B")
+    macro = node(mat, unreal.MaterialExpressionAdd, -600, 1300)
+    link(const(mat, 1.0, -800, 1300), "", macro, "A")
+    link(mul(mat, mul(mat, macro_centred, const(mat, 2.0, -1250, 1450), -1050, 1350),
+             scalar_param(mat, "MacroVariation", 0.18, -1050, 1500), -800, 1400), "", macro, "B")
+    # gentle slope tint from ~8 degrees: warmer/darker earth tone on tilted ground (the hard rock switch stays at 25)
+    tilt = node(mat, unreal.MaterialExpressionSaturate, -600, 1500)
+    tdiff = node(mat, unreal.MaterialExpressionSubtract, -1000, 1500)
+    link(const(mat, math.cos(math.radians(8.0)), -1200, 1500), "", tdiff, "A")
+    link(nz, "", tdiff, "B")
+    link(mul(mat, tdiff, const(mat, 6.0, -1000, 1600), -800, 1500), "", tilt, "")
+    tint = node(mat, unreal.MaterialExpressionLinearInterpolate, -400, 1500)
+    link(vec3(1.0, 1.0, 1.0, 1500), "", tint, "A")
+    link(vec3(0.88, 0.82, 0.70, 1600), "", tint, "B")
+    link(tilt, "", tint, "Alpha")
+    final = mul(mat, mul(mat, mul(mat, surface, bright, -200, 0), macro, -100, 0), tint, 0, 0)
     mel().connect_material_property(final, "", unreal.MaterialProperty.MP_BASE_COLOR)
     mel().connect_material_property(const(mat, 0.9, -200, 300), "", unreal.MaterialProperty.MP_ROUGHNESS)
     B.finish_material(mat)
     return mat
+
+
+FADE_START, FADE_RANGE, LEAF_GAIN = 250.0, 300.0, 1.3  # camera fade: opaque beyond START+RANGE uu, gone at START uu
+FOOD_FLOWER_MI = "MI_PSL_FoodFlower"
+FOOD_FLOWER_COLOR = (0.82, 0.22, 0.32)  # warm berry/blossom, reads against green foliage
+LEAF_CLIP = 0.3333  # M_PSL_Leaf's existing OpacityMaskClipValue (Material.h:536 default)
+
+
+def foliage_opacity(mat, alpha=None, alpha_out="A"):
+    """Wire OpacityMask for a masked + dithered foliage material that fades out near the camera.
+
+    Engine math (MaterialTemplate.ush:4569-4572 + BlueNoiseCommon.ush:19-26): with DitherOpacityMask the pixel is kept when
+    (Mask - ClipValue) + 0.83 * blueNoise(0..1) - 0.5 > 0. With ClipValue = 0.3333 that is deterministic at Mask = 1 (always
+    kept: 0.1667 + 0.83n > 0) and Mask = 0 (never kept: max -0.0033), and a screen-door ramp in between. So:
+      cut  = saturate((TexAlpha - 0.3333) * 1000)  -> the original hard leaf cutout (alpha > 0.3333), 0 or 1
+      Mask = cut * Fade, Fade = saturate((PixelDepth - CameraFadeStart) / CameraFadeRange)
+    Far foliage (Fade = 1) keeps exactly the old cutout; near foliage dithers out. ShadowReplace feeds the shadow pass
+    `cut` alone (GetMaterialClippingShadowDepth clips on Mask - ClipValue, MaterialTemplate.ush:4542-4546; shadow flag
+    Common.ush:2290-2297), so the fade never changes shadow depth. alpha=None (no texture) means cut = 1."""
+    depth = node(mat, unreal.MaterialExpressionPixelDepth, -1400, 1600)
+    rel = node(mat, unreal.MaterialExpressionSubtract, -1200, 1600)
+    link(depth, "", rel, "A")
+    link(scalar_param(mat, "CameraFadeStart", FADE_START, -1400, 1700), "", rel, "B")
+    ratio = node(mat, unreal.MaterialExpressionDivide, -1000, 1600)
+    link(rel, "", ratio, "A")
+    link(scalar_param(mat, "CameraFadeRange", FADE_RANGE, -1200, 1800), "", ratio, "B")
+    fade = node(mat, unreal.MaterialExpressionSaturate, -800, 1600)
+    link(ratio, "", fade, "")
+    if alpha is None:
+        cut = const(mat, 1.0, -800, 1500)
+    else:
+        over = node(mat, unreal.MaterialExpressionSubtract, -1200, 1400)
+        link(alpha, alpha_out, over, "A")
+        link(const(mat, LEAF_CLIP, -1400, 1450), "", over, "B")
+        cut = node(mat, unreal.MaterialExpressionSaturate, -800, 1400)
+        link(mul(mat, over, const(mat, 1000.0, -1200, 1500), -1000, 1400), "", cut, "")
+    shadow_switch = node(mat, unreal.MaterialExpressionShadowReplace, -400, 1500)
+    link(mul(mat, cut, fade, -600, 1550), "", shadow_switch, "Default")
+    link(cut, "", shadow_switch, "Shadow")
+    mel().connect_material_property(shadow_switch, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+
+
+def masked_dither_setup(mat):
+    mat.set_editor_property("two_sided", True)
+    mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
+    mat.set_editor_property("dither_opacity_mask", True)
+    mat.set_editor_property("opacity_mask_clip_value", LEAF_CLIP)
+
+
+def build_leaf_material():
+    """M_PSL_Leaf in place (the Leaf MIs keep their Tex override): Tex.RGB * LeafGain, camera-faded dithered mask."""
+    mat = fresh_material("M_PSL_Leaf", B.MAT_DEST)
+    masked_dither_setup(mat)
+    tex = node(mat, unreal.MaterialExpressionTextureSampleParameter2D, -1700, 0, parameter_name="Tex")
+    color = mul(mat, tex, scalar_param(mat, "LeafGain", LEAF_GAIN, -1700, 200), -1400, 0, ao="RGB")
+    foliage_opacity(mat, tex)
+    mel().connect_material_property(color, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    mel().connect_material_property(const(mat, 0.85, -1400, 300), "", unreal.MaterialProperty.MP_ROUGHNESS)
+    B.finish_material(mat, instanced=True)
+    return mat
+
+
+def build_foliage_flat_material():
+    """M_PSL_FoliageFlat: M_PSL_Flat (VectorParameter Color, roughness 0.85) with the same camera-faded dithered mask."""
+    mat = fresh_material("M_PSL_FoliageFlat", B.MAT_DEST)
+    masked_dither_setup(mat)
+    color = node(mat, unreal.MaterialExpressionVectorParameter, -1400, 0, parameter_name="Color",
+                 default_value=unreal.LinearColor(0.5, 0.5, 0.5, 1.0))
+    foliage_opacity(mat)
+    mel().connect_material_property(color, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    mel().connect_material_property(const(mat, 0.85, -1400, 300), "", unreal.MaterialProperty.MP_ROUGHNESS)
+    B.finish_material(mat, instanced=True)
+    return mat
+
+
+def reparent_grass_flower(flat_foliage):
+    """MI_PSL_Grass / MI_PSL_Flower move to M_PSL_FoliageFlat (their Color override is kept); bark/rock/stones stay on M_PSL_Flat."""
+    for name in ("MI_PSL_Grass", "MI_PSL_Flower"):
+        mi = asset_or_fail(B.MAT_DEST + "/" + name)
+        mi.set_editor_property("parent", flat_foliage)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(mi):
+            B.fail("cannot save " + name)
+
+
+def build_food_flower_mi(flat_foliage):
+    """Parent M_PSL_FoliageFlat (not M_PSL_Flat) so the blossoms fade with the leaves of the same plant."""
+    path = B.MAT_DEST + "/" + FOOD_FLOWER_MI
+    mi = unreal.load_asset(path) if B.exists(path) else unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+        FOOD_FLOWER_MI, B.MAT_DEST, unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
+    if mi is None:
+        B.fail("cannot create material instance " + path)
+    mi.set_editor_property("parent", flat_foliage)
+    mel().set_material_instance_vector_parameter_value(mi, "Color", unreal.LinearColor(*FOOD_FLOWER_COLOR, 1.0))
+    if not unreal.EditorAssetLibrary.save_loaded_asset(mi):
+        B.fail("cannot save " + path)
+    return mi
+
+
+def food_plants(found):
+    plant_class = unreal.load_class(None, B.FOOD_PLANT_CLASS)
+    return [found[l] for l in B.FOOD_PLANT_LABELS if l in found and found[l].get_class() == plant_class]
+
+
+def flower_slots(mesh):
+    """Indices of the mesh slots whose slot name says flower (SM_Bush_Common_Flowers: 'Flowers' and 'Leaves_NormalTree', from
+    the FBX material names). Same keyword table as B.slot_kind; the mesh stem is left out because it contains 'Flowers'."""
+    return [i for i, sm in enumerate(mesh.get_editor_property("static_materials"))
+            if B.slot_kind(str(sm.get_editor_property("material_slot_name")), "") == "flower"]
+
+
+def apply_food_flower(found, mi):
+    """Per-component override on each food plant's flower slot(s) only; leaves keep their normal material."""
+    plants = food_plants(found)
+    if len(plants) != len(B.FOOD_PLANT_LABELS):
+        B.fail("expected %d food plants, found %d" % (len(B.FOOD_PLANT_LABELS), len(plants)))
+    for plant in plants:
+        comp = plant.get_editor_property("plant_mesh")
+        slots = flower_slots(comp.get_editor_property("static_mesh"))
+        if not slots:
+            B.fail("%s: no flower slot among %s" % (plant.get_actor_label(), [
+                str(sm.get_editor_property("material_slot_name")) for sm in comp.get_editor_property("static_mesh").get_editor_property("static_materials")]))
+        for i in slots:
+            comp.set_material(i, mi)
+    return len(plants)
+
+
+def expression_exists(mat, cls, name=None):
+    return any(isinstance(e, cls) and (name is None or str(e.get_editor_property("parameter_name")) == name)
+               for e in mel().get_material_expressions(mat))
+
+
+def foliage_material_problems(mat):
+    out, n = [], mat.get_name()
+    if mat.get_editor_property("blend_mode") != unreal.BlendMode.BLEND_MASKED:
+        out.append(n + " is not masked")
+    if not mat.get_editor_property("dither_opacity_mask"):
+        out.append(n + " lacks dither_opacity_mask")
+    if not mat.get_editor_property("two_sided"):
+        out.append(n + " is not two sided")
+    if not expression_exists(mat, unreal.MaterialExpressionScalarParameter, "CameraFadeStart"):
+        out.append(n + " lacks CameraFadeStart param")
+    for cls in (unreal.MaterialExpressionPixelDepth, unreal.MaterialExpressionShadowReplace):
+        if not expression_exists(mat, cls):
+            out.append("%s lacks %s" % (n, cls.__name__))
+    return out
 
 
 def write_report(status, counts=None):
@@ -467,7 +659,7 @@ def need(found, label):
 
 def polish_lighting(found):
     sky = need(found, "PSL_SkyLight").get_component_by_class(unreal.SkyLightComponent)
-    sky.set_editor_property("intensity", 1.3)
+    B.configure_sky(sky)
     sun = need(found, "PSL_Sun").get_component_by_class(unreal.DirectionalLightComponent)
     sun.set_editor_property("intensity", 7.0)
     sun.set_editor_property("contact_shadow_length", 0.05)
@@ -500,13 +692,13 @@ def replace_vegetation(found, grid, poly, stems):
     free = lambda x, y: not B.excluded(x, y, poly)
     anchors = edge_anchors(poly, trees, rng)
     z_of = lambda x, y: B.sample_height(grid, x, y)
-    bushes = B.pick(stems, r"^(Bush|Fern|Plant)")
+    bushes = B.pick(stems, B.DECOR_BUSH_RE)
     grass = B.pick(stems, r"^(Grass|Flower|Clover)")
     counts = {
         "grass": B.holder("PSL_Foliage_Grass", B.split(grass, clustered_points(rng, GRASS_MAX, anchors, free), rng, z_of,
                                                        (0.8, 1.3)), False, 9000.0),
         "bushes": B.holder("PSL_Foliage_Bushes", B.split(bushes, clustered_points(rng, BUSH_MAX, anchors, free), rng, z_of,
-                                                         (0.8, 1.3)), False, 12000.0),
+                                                         B.DECOR_BUSH_SCALE), False, 12000.0),
     }
     if counts["grass"] > GRASS_MAX or counts["bushes"] > BUSH_MAX:
         B.fail("vegetation over budget: %r" % (counts,))
@@ -539,6 +731,47 @@ def terrain_texture_names(mat):
         if t:
             found.setdefault(base(t.get_path_name()), "used_textures")
     return found
+
+
+def ensure_clouds(found):
+    """Spawn PSL_Clouds only if missing (a rerun never duplicates it)."""
+    if B.CLOUDS_LABEL not in found:
+        B.spawn_clouds()
+
+
+def foliage_verify(counts):
+    """Readability-pass checks (kept out of B.check(): a failing check() makes build_lost_valley.py rebuild the map)."""
+    problems = []
+    actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors()
+    found = {a.get_actor_label(): a for a in actors}
+    for name in ("M_PSL_Leaf", "M_PSL_FoliageFlat"):
+        problems += foliage_material_problems(asset_or_fail(B.MAT_DEST + "/" + name))
+    for name in ("MI_PSL_Grass", "MI_PSL_Flower"):
+        par = asset_or_fail(B.MAT_DEST + "/" + name).get_editor_property("parent")
+        if par is None or par.get_name() != "M_PSL_FoliageFlat":
+            problems.append("%s parent is %s, expected M_PSL_FoliageFlat" % (name, par.get_name() if par else None))
+    max_scale, flowering = 0.0, 0
+    for c in need(found, "PSL_Foliage_Bushes").get_components_by_class(unreal.HierarchicalInstancedStaticMeshComponent):
+        if c.get_editor_property("static_mesh").get_name() == "SM_" + B.FOOD_PLANT_MESH:
+            flowering += c.get_instance_count()
+        for i in range(c.get_instance_count()):
+            s = c.get_instance_transform(i, False).scale3d
+            max_scale = max(max_scale, s.x, s.y, s.z)
+    if flowering:
+        problems.append("%d decor bush instances use SM_%s" % (flowering, B.FOOD_PLANT_MESH))
+    if max_scale > B.DECOR_BUSH_SCALE[1] + 1e-3:
+        problems.append("decor bush scale %.3f > %.2f" % (max_scale, B.DECOR_BUSH_SCALE[1]))
+    for plant in food_plants(found):
+        mats = [m.get_name() if m else None for m in plant.get_editor_property("plant_mesh").get_materials()]
+        if FOOD_FLOWER_MI not in mats:
+            problems.append("%s lacks %s (materials %s)" % (plant.get_actor_label(), FOOD_FLOWER_MI, mats))
+    clouds = [a for a in actors if a.get_actor_label() == B.CLOUDS_LABEL and isinstance(a, unreal.VolumetricCloud)]
+    counts["clouds"], counts["decorBushMaxScale"], counts["decorBushFlowering"] = len(clouds), round(max_scale, 3), flowering
+    if len(clouds) != 1 or sum(1 for a in actors if a.get_actor_label() == B.CLOUDS_LABEL) != 1:
+        problems.append("%s count %d, expected exactly 1 VolumetricCloud" % (B.CLOUDS_LABEL, len(clouds)))
+    if need(found, "PSL_SkyLight").get_component_by_class(unreal.SkyLightComponent).get_editor_property("lower_hemisphere_is_black"):
+        problems.append("PSL_SkyLight lower hemisphere is black")
+    return problems
 
 
 def verify(counts):
@@ -575,6 +808,9 @@ def verify(counts):
     for bad in ("Grass", "PathRocks_Diffuse"):
         if bad in tex:
             problems.append("M_PSL_Terrain still samples %s (via %s; all: %s)" % (bad, tex[bad], sorted(tex)))
+    problems += foliage_verify(counts)
+    if not expression_exists(unreal.load_asset(B.MAT_DEST + "/M_PSL_Terrain"), unreal.MaterialExpressionScalarParameter, "MacroVariation"):
+        problems.append("M_PSL_Terrain lacks MacroVariation")
     if problems:
         B.fail("; ".join(problems))
 
@@ -606,6 +842,10 @@ def main():
     trex = assign_character_mis("/Game/Characters/Dino/SK_Trex", "Trex", TREX_MI_DEST, parent, TREX_PALETTE, TREX_DEFAULT)
     para = assign_character_mis(B.PREY_DEST + "/SK_Parasaurolophus", "Para", PARA_MI_DEST, parent, PARA_PALETTE, PARA_DEFAULT)
     build_terrain_material(import_mask())
+    build_leaf_material()
+    flat_foliage = build_foliage_flat_material()
+    reparent_grass_flower(flat_foliage)
+    food_flower = build_food_flower_mi(flat_foliage)
     if not levels.load_level(B.MAP_PATH):
         B.fail("load_level failed for " + B.MAP_PATH)
     found = actors_by_label()
@@ -615,6 +855,8 @@ def main():
     stems = sorted({n.split(".")[0].split("/")[-1][3:] for n in unreal.EditorAssetLibrary.list_assets(B.NATURE_DEST, False, False)
                     if n.split("/")[-1].startswith("SM_")})
     counts = replace_vegetation(found, grid, poly, stems)
+    counts["foodFlowerPlants"] = apply_food_flower(found, food_flower)
+    ensure_clouds(found)
     if not levels.save_current_level():
         B.fail("save_current_level failed")
     counts.update({"trexMaterials": len(trex), "paraMaterials": len(para)})

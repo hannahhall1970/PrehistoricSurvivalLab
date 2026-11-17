@@ -143,8 +143,8 @@ public:
     UFUNCTION(BlueprintCallable, Category="Dino")
     void ApplySpecies(const UPSLDinoSpecies* Species);
 
-    // Set when a bite touched food this dino cannot eat; the HUD shows it. Empty otherwise.
-    const FText& GetFoodHint() const { return FoodHint; }
+    // Transient message from the last bite (food this dino cannot eat) if any, else the proximity "Bite to eat" prompt. The HUD shows it. Empty otherwise.
+    const FText& GetFoodHint() const { return FoodHint.IsEmpty() ? ProximityHint : FoodHint; }
 
     UFUNCTION(BlueprintPure, Category="Components")
     UPSLStatsComponent* GetStatsComponent() const { return StatsComponent; }
@@ -210,4 +210,9 @@ private:
     TObjectPtr<const UPSLDinoSpecies> ActiveSpecies;
 
     FText FoodHint;
+
+    // Herbivore-only "Bite to eat" prompt, refreshed by ProximityHintTimer; transient FoodHint messages take priority in GetFoodHint.
+    FText ProximityHint;
+    FTimerHandle ProximityHintTimer;
+    void UpdateProximityHint();
 };

@@ -169,7 +169,8 @@ bool FPSLLocPoCompleteTest::RunTest(const FString& Parameters)
         {TEXT("PSL,Menu_Title"), TEXT("PREHISTORIC SURVIVAL")}, {TEXT("PSL,Menu_NewGame"), TEXT("New Game")},
         {TEXT("PSL,Species_Heading"), TEXT("CHOOSE YOUR DINO")}, {TEXT("PSL,Pause_Title"), TEXT("PAUSED")},
         {TEXT("PSL,Pause_Save"), TEXT("Save")}, {TEXT("PSL,GameOver_Died"), TEXT("YOU DIED")},
-        {TEXT("PSL,HudHealth"), TEXT("HEALTH")}, {TEXT("PSL,Settings_Title"), TEXT("SETTINGS")}};
+        {TEXT("PSL,HudHealth"), TEXT("HEALTH")}, {TEXT("PSL,Settings_Title"), TEXT("SETTINGS")},
+        {TEXT("PSL,HintBiteToEat"), TEXT("Bite to eat")}};
     for (const TCHAR* const (&Key)[2] : Pinned)
     {
         const FPoEntry* E = En.Find(Key[0]);

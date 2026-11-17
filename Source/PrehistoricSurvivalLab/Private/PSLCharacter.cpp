@@ -233,6 +233,9 @@ void APSLCharacter::BeginPlay()
     {
         UE_LOG(LogTemp, Warning, TEXT("PSL input context NOT added: no player controller at BeginPlay"));
     }
+
+    // Cheap 5 Hz poll; the HUD reads GetFoodHint() every frame.
+    GetWorldTimerManager().SetTimer(ProximityHintTimer, this, &APSLCharacter::UpdateProximityHint, 0.2f, true);
 }
 
 void APSLCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -385,6 +388,8 @@ void APSLCharacter::HandleDeath()
         GetCharacterMovement()->DisableMovement();
     }
     GetWorldTimerManager().ClearTimer(BiteHitTimer);
+    GetWorldTimerManager().ClearTimer(ProximityHintTimer);
+    ProximityHint = FText::GetEmpty();
     if (const USkeletalMeshComponent* SkelMesh = GetMesh())
     {
         if (UPSLDinoAnimInstance* DinoAnim = Cast<UPSLDinoAnimInstance>(SkelMesh->GetAnimInstance()))
@@ -398,6 +403,7 @@ void APSLCharacter::HandleDeath()
 void APSLCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     GetWorldTimerManager().ClearTimer(BiteHitTimer);
+    GetWorldTimerManager().ClearTimer(ProximityHintTimer);
     Super::EndPlay(EndPlayReason);
 }
 
@@ -566,4 +572,30 @@ float APSLCharacter::TryEat(const FVector& Center)
         FoodHint = FText::GetEmpty();
     }
     return Gained;
+}
+
+void APSLCharacter::UpdateProximityHint()
+{
+    ProximityHint = FText::GetEmpty();
+    UWorld* World = GetWorld();
+    // Herbivores only (mirrors TryEat); carnivores get no eat prompt.
+    if (!World || bDeathHandled || !ActiveSpecies || ActiveSpecies->Diet == EPSLDiet::Carnivore)
+    {
+        return;
+    }
+
+    // Same bite point as ResolveBiteHit. The +120 margin is a tuning knob: it lets the prompt show slightly before a bite would land.
+    const FVector Center = GetActorLocation() + GetActorForwardVector() * BiteReach;
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(PSLHint), false, this);
+    TArray<FOverlapResult> Overlaps;
+    World->OverlapMultiByObjectType(Overlaps, Center, FQuat::Identity, FCollisionObjectQueryParams(ECC_WorldDynamic), FCollisionShape::MakeSphere(BiteRadius + 120.0f), Params);
+    for (const FOverlapResult& Overlap : Overlaps)
+    {
+        const APSLFoodPlant* Plant = Cast<APSLFoodPlant>(Overlap.GetActor());
+        if (Plant && Plant->IsAvailable())
+        {
+            ProximityHint = NSLOCTEXT("PSL", "HintBiteToEat", "Bite to eat");
+            return;
+        }
+    }
 }

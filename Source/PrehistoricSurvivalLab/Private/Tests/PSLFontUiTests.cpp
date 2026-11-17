@@ -175,7 +175,8 @@ bool FPSLUiVietnameseLayoutTest::RunTest(const FString& Parameters)
         {TEXT("Species description (Para)"), TEXT("Loài ăn cỏ nhanh nhẹn, linh hoạt. Gặm cây cỏ; vết cắn chỉ gây thương tích nhẹ."), FPSLUiStyle::BodySize, EPSLFontWeight::Regular, 480.0f, Species->GetDescriptionText()},
         {TEXT("Species diet badge Diet_Carnivore"), TEXT("ĂN THỊT"), FPSLUiStyle::BodySize, EPSLFontWeight::SemiBold, 480.0f, Species->GetDietText()},
         {TEXT("HUD state HudSprinting"), TEXT("ĐANG CHẠY NƯỚC RÚT"), 14, EPSLFontWeight::SemiBold, 296.0f, Hud->GetStateText()},
-        {TEXT("HUD hint HintCannotEatPlants"), TEXT("Thú ăn thịt không ăn được cây cỏ. Hãy đi săn con mồi."), 14, EPSLFontWeight::Regular, 296.0f, Hud->GetHintText()}};
+        {TEXT("HUD hint HintCannotEatPlants"), TEXT("Thú ăn thịt không ăn được cây cỏ. Hãy đi săn con mồi."), 14, EPSLFontWeight::Regular, 296.0f, Hud->GetHintText()},
+        {TEXT("HUD hint HintBiteToEat"), TEXT("Cắn để ăn"), 14, EPSLFontWeight::Regular, 296.0f, Hud->GetHintText()}};
     for (const FFontUiBound& Bound : Bounds)
     {
         if (!TestNotNull(FString::Printf(TEXT("%s: text block exists"), Bound.What), Bound.Block))

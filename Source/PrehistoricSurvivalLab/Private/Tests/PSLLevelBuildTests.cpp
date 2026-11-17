@@ -15,6 +15,14 @@
 #include "Materials/MaterialInterface.h"
 #include "Misc/AutomationTest.h"
 #include "Materials/MaterialInstance.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/Level.h"
+#include "Components/SkyLightComponent.h"
+#include "Components/VolumetricCloudComponent.h"
+#include "Engine/SkyLight.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialExpressionPixelDepth.h"
+#include "PSLFoodPlant.h"
 #include "PSLLevelBuildLibrary.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLLandscapeBuildTest, "PSL.Editor.LandscapeBuild", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -135,6 +143,209 @@ bool FPSLFoliageMaterialUsageTest::RunTest(const FString& Parameters)
         TestTrue(Path + TEXT(" is used with instanced static meshes"), Material->GetUsageByFlag(MATUSAGE_InstancedStaticMeshes));
         // An editor-side auto-fix sets the flag in memory and dirties the package; only a saved flag reaches the cook.
         TestFalse(Path + TEXT(" package is not dirty (flag comes from disk)"), Material->GetPackage()->IsDirty());
+    }
+    return true;
+}
+
+namespace
+{
+constexpr const TCHAR* ValleyMatDir = TEXT("/Game/Environment/Materials/");
+
+template <typename T>
+T* LoadValleyAsset(const TCHAR* Name)
+{
+    return LoadObject<T>(nullptr, *FString::Printf(TEXT("%s%s.%s"), ValleyMatDir, Name, Name));
+}
+
+bool HasScalarParam(const UMaterialInterface& Material, const TCHAR* Name, float* OutDefault = nullptr)
+{
+    float Value = 0.0f;
+    const bool bFound = Material.GetScalarParameterDefaultValue(FHashedMaterialParameterInfo(FName(Name)), Value);
+    if (OutDefault)
+    {
+        *OutDefault = Value;
+    }
+    return bFound;
+}
+
+// Depth-first walk over every input of the expression graph feeding `Expression`.
+bool GraphContainsPixelDepth(UMaterialExpression* Expression, TSet<UMaterialExpression*>& Visited)
+{
+    if (!Expression || Visited.Contains(Expression))
+    {
+        return false;
+    }
+    Visited.Add(Expression);
+    if (Expression->IsA<UMaterialExpressionPixelDepth>())
+    {
+        return true;
+    }
+    for (FExpressionInputIterator It{Expression}; It; ++It)
+    {
+        if (GraphContainsPixelDepth(It->Expression, Visited))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+UWorld* LoadValleyWorld()
+{
+    UPackage* Package = LoadPackage(nullptr, TEXT("/Game/Maps/L_LostValley"), LOAD_None);
+    return Package ? UWorld::FindWorldInPackage(Package) : nullptr;
+}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLLostValleyFoliageReadabilityTest, "PSL.Editor.LostValleyFoliageReadability", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+// Camera-fading foliage materials, plain bark/rock, capped decor bushes, and the edible-plant cue (build/polish_lost_valley.py).
+bool FPSLLostValleyFoliageReadabilityTest::RunTest(const FString& Parameters)
+{
+    for (const TCHAR* Name : {TEXT("M_PSL_Leaf"), TEXT("M_PSL_FoliageFlat")})
+    {
+        const UMaterial* Material = LoadValleyAsset<UMaterial>(Name);
+        if (!TestNotNull(FString(Name) + TEXT(" loads"), Material))
+        {
+            continue;
+        }
+        TestTrue(FString(Name) + TEXT(" blend mode is Masked"), Material->GetBlendMode() == BLEND_Masked);
+        TestTrue(FString(Name) + TEXT(" dither opacity mask"), Material->DitherOpacityMask != 0);
+        TestTrue(FString(Name) + TEXT(" two sided"), Material->IsTwoSided());
+        TestTrue(FString(Name) + TEXT(" has CameraFadeStart"), HasScalarParam(*Material, TEXT("CameraFadeStart")));
+        TestTrue(FString(Name) + TEXT(" has CameraFadeRange"), HasScalarParam(*Material, TEXT("CameraFadeRange")));
+        const UMaterialEditorOnlyData* Data = Material->GetEditorOnlyData();
+        TSet<UMaterialExpression*> Visited;
+        TestTrue(FString(Name) + TEXT(" OpacityMask depends on PixelDepth"), Data && GraphContainsPixelDepth(Data->OpacityMask.Expression, Visited));
+    }
+
+    const UMaterial* FoliageFlat = LoadValleyAsset<UMaterial>(TEXT("M_PSL_FoliageFlat"));
+    for (const TCHAR* Name : {TEXT("MI_PSL_Grass"), TEXT("MI_PSL_Flower")})
+    {
+        const UMaterialInstance* Instance = LoadValleyAsset<UMaterialInstance>(Name);
+        if (TestNotNull(FString(Name) + TEXT(" loads"), Instance))
+        {
+            TestTrue(FString(Name) + TEXT(" parent is M_PSL_FoliageFlat"), FoliageFlat && Instance->Parent == FoliageFlat);
+        }
+    }
+    // Solid scenery must not dither away near the camera.
+    for (const TCHAR* Name : {TEXT("MI_PSL_Bark"), TEXT("MI_PSL_Rock")})
+    {
+        const UMaterialInstance* Instance = LoadValleyAsset<UMaterialInstance>(Name);
+        if (TestNotNull(FString(Name) + TEXT(" loads"), Instance))
+        {
+            TestFalse(FString(Name) + TEXT(" has no CameraFadeStart"), HasScalarParam(*Instance, TEXT("CameraFadeStart")));
+            TestTrue(FString(Name) + TEXT(" is not masked"), Instance->GetBlendMode() != BLEND_Masked);
+        }
+    }
+    TestNotNull(TEXT("MI_PSL_FoodFlower loads"), LoadValleyAsset<UMaterialInstance>(TEXT("MI_PSL_FoodFlower")));
+
+    UWorld* World = LoadValleyWorld();
+    if (!TestNotNull(TEXT("L_LostValley world loads"), World))
+    {
+        return false;
+    }
+    int32 FoodPlants = 0;
+    for (AActor* Actor : World->PersistentLevel->Actors)
+    {
+        if (!Actor)
+        {
+            continue;
+        }
+        const FString Label = Actor->GetActorLabel();
+        if (Label == TEXT("PSL_Foliage_Bushes") || Label == TEXT("PSL_Foliage_Grass"))
+        {
+            TArray<UHierarchicalInstancedStaticMeshComponent*> Holders;
+            Actor->GetComponents(Holders);
+            TestTrue(Label + TEXT(" has HISM components"), Holders.Num() > 0);
+            for (const UHierarchicalInstancedStaticMeshComponent* Holder : Holders)
+            {
+                TestTrue(Label + TEXT(" ignores the camera trace"), Holder->GetCollisionResponseToChannel(ECC_Camera) == ECR_Ignore);
+                const UStaticMesh* Mesh = Holder->GetStaticMesh();
+                if (Label != TEXT("PSL_Foliage_Bushes") || !TestNotNull(TEXT("Bush HISM mesh"), Mesh))
+                {
+                    continue;
+                }
+                TestNotEqual(TEXT("Decor bushes never use the food-plant mesh"), Mesh->GetName(), FString(TEXT("SM_Bush_Common_Flowers")));
+                for (int32 I = 0; I < Holder->GetInstanceCount(); ++I)
+                {
+                    FTransform Transform;
+                    Holder->GetInstanceTransform(I, Transform, false);
+                    const FVector Scale = Transform.GetScale3D();
+                    if (Scale.GetMax() > 1.05 + 1.0e-3)
+                    {
+                        AddError(FString::Printf(TEXT("Decor bush instance %d scale %.3f > 1.05"), I, Scale.GetMax()));
+                        break;
+                    }
+                }
+            }
+        }
+        else if (const APSLFoodPlant* Plant = Cast<APSLFoodPlant>(Actor))
+        {
+            ++FoodPlants;
+            const UStaticMeshComponent* Mesh = Plant->PlantMesh;
+            if (!TestNotNull(Label + TEXT(" plant mesh component"), Mesh) || !TestNotNull(Label + TEXT(" plant static mesh"), Mesh->GetStaticMesh().Get()))
+            {
+                continue;
+            }
+            TestEqual(Label + TEXT(" plant mesh asset"), Mesh->GetStaticMesh()->GetName(), FString(TEXT("SM_Bush_Common_Flowers")));
+            bool bFlowerSlot = false;
+            for (int32 Slot = 0; Slot < Mesh->GetNumMaterials(); ++Slot)
+            {
+                const UMaterialInterface* Material = Mesh->GetMaterial(Slot);
+                bFlowerSlot |= Material && Material->GetName() == TEXT("MI_PSL_FoodFlower");
+            }
+            TestTrue(Label + TEXT(" has MI_PSL_FoodFlower on a slot"), bFlowerSlot);
+        }
+    }
+    TestTrue(FString::Printf(TEXT("Valley has food plants (found %d)"), FoodPlants), FoodPlants >= 6);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLLostValleyAtmosphereTest, "PSL.Editor.LostValleyAtmosphere", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+// One volumetric cloud layer, a sky light that bounces ground colour, and a terrain with macro variation.
+bool FPSLLostValleyAtmosphereTest::RunTest(const FString& Parameters)
+{
+    UWorld* World = LoadValleyWorld();
+    if (!TestNotNull(TEXT("L_LostValley world loads"), World))
+    {
+        return false;
+    }
+    int32 Clouds = 0;
+    int32 SkyLights = 0;
+    for (AActor* Actor : World->PersistentLevel->Actors)
+    {
+        if (const AVolumetricCloud* Cloud = Cast<AVolumetricCloud>(Actor))
+        {
+            ++Clouds;
+            const UVolumetricCloudComponent* Component = Cloud->FindComponentByClass<UVolumetricCloudComponent>();
+            if (TestNotNull(TEXT("Cloud component"), Component))
+            {
+                TestFalse(TEXT("Cloud material is set"), Component->Material.IsNull());
+            }
+        }
+        else if (const ASkyLight* Sky = Cast<ASkyLight>(Actor))
+        {
+            ++SkyLights;
+            const USkyLightComponent* Light = Sky->GetLightComponent();
+            if (TestNotNull(TEXT("SkyLight component"), Light))
+            {
+                TestFalse(TEXT("Lower hemisphere is not solid black"), Light->bLowerHemisphereIsBlack);
+            }
+        }
+    }
+    TestEqual(TEXT("Exactly one AVolumetricCloud"), Clouds, 1);
+    TestEqual(TEXT("Exactly one ASkyLight"), SkyLights, 1);
+
+    const UMaterial* Terrain = LoadValleyAsset<UMaterial>(TEXT("M_PSL_Terrain"));
+    if (TestNotNull(TEXT("M_PSL_Terrain loads"), Terrain))
+    {
+        float Macro = 0.0f;
+        if (TestTrue(TEXT("M_PSL_Terrain has MacroVariation"), HasScalarParam(*Terrain, TEXT("MacroVariation"), &Macro)))
+        {
+            TestTrue(FString::Printf(TEXT("MacroVariation default > 0 (%.3f)"), Macro), Macro > 0.0f);
+        }
     }
     return true;
 }
