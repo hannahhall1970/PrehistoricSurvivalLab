@@ -280,7 +280,8 @@ void UPSLSettingsWidget::LoadFromSettings()
     PendingCulture = UPSLGameUserSettings::ResolveCultureName(Settings->CultureName);
     float Normalized, Scale, MinScale, MaxScale;
     Settings->GetResolutionScaleInformationEx(Normalized, Scale, MinScale, MaxScale);
-    ResolutionScaleSlider->SetValue(FMath::Clamp(Scale, 50.0f, 100.0f));
+    // ResolutionQuality 0 = project default (r.ScreenPercentage.Default 100): show 100 so Apply does not drop to the slider minimum.
+    ResolutionScaleSlider->SetValue(Scale > 0.0f ? FMath::Clamp(Scale, 50.0f, 100.0f) : 100.0f);
     VSyncCheck->SetIsChecked(Settings->IsVSyncEnabled());
     MasterSlider->SetValue(Settings->MasterVolume * 100.0f);
     MusicSlider->SetValue(Settings->MusicVolume * 100.0f);

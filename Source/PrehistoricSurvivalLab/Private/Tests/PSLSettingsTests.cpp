@@ -346,6 +346,18 @@ bool FPSLSettingsWidgetTest::RunTest(const FString& Parameters)
         TestTrue(TEXT("Revert restores culture en"), FInternationalization::Get().GetCurrentCulture()->GetName().StartsWith(TEXT("en")));
     }
 
+    // ResolutionQuality 0 is the engine's project-default sentinel: the slider shows 100% and Apply keeps 100% (it used to clamp to 50%).
+    Settings->SetResolutionScaleValueEx(0.0f);
+    Widget->LoadFromSettings();
+    if (TestNotNull(TEXT("Resolution scale slider"), Widget->GetResolutionScaleSlider()))
+    {
+        TestEqual(TEXT("Default scale shows 100%"), Widget->GetResolutionScaleSlider()->GetValue(), 100.0f, 0.01f);
+        TestTrue(TEXT("Apply with default scale succeeds"), Widget->Apply());
+        float Normalized, Scale, MinScale, MaxScale;
+        Settings->GetResolutionScaleInformationEx(Normalized, Scale, MinScale, MaxScale);
+        TestEqual(TEXT("Apply keeps the default scale at 100%"), Scale, 100.0f, 0.01f);
+    }
+
     // Apply persists.
     Widget->GetMasterSlider()->SetValue(25.0f);
     TestTrue(TEXT("Apply succeeds"), Widget->Apply());
