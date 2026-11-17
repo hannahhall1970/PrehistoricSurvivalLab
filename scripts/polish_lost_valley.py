@@ -103,18 +103,25 @@ def png_gray(pixels, res):
             + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
 
 
-def clustered_points(rng, total, anchors, accept, radius=350.0, size=(6, 15)):
+def clusters(rng, total, anchors, accept, radius=350.0, size=(6, 15)):
     """Clusters of 6-15 points around random anchors (x, y); stops at `total` points or after 40*total throws."""
-    pts, tries = [], 0
-    while len(pts) < total and tries < total * 40:
+    out, n_pts, tries = [], 0, 0
+    while n_pts < total and tries < total * 40:
         ax, ay = rng.choice(anchors)
-        n = rng.randint(*size)
-        for _ in range(n):
+        pts = []
+        for _ in range(rng.randint(*size)):
             tries += 1
             x, y = ax + rng.gauss(0, radius * 0.5), ay + rng.gauss(0, radius * 0.5)
-            if abs(x) < B.EXTENT and abs(y) < B.EXTENT and accept(x, y) and len(pts) < total:
+            if abs(x) < B.EXTENT and abs(y) < B.EXTENT and accept(x, y) and n_pts < total:
                 pts.append((x, y))
-    return pts
+                n_pts += 1
+        if pts:
+            out.append(pts)
+    return out
+
+
+def clustered_points(rng, total, anchors, accept, radius=350.0, size=(6, 15)):
+    return [p for c in clusters(rng, total, anchors, accept, radius, size) for p in c]
 
 
 def edge_anchors(poly, tree_xy, rng):
@@ -261,33 +268,58 @@ def fresh_material(name, dest):
 
 
 def build_character_material():
+    """STYLE_CONTRACT dino material: Color (Dead-desaturated) * countershade(normal Z: belly 1.3 / back 0.75 = 1.73:1)
+    * contact darkening (world Z above the component origin = feet; 0.5 at the feet to 1.0 at 40 cm). No Fresnel rim, no
+    textures; emissive is HitFlash only. Roughness param 0.72. Params kept for C++/MIs: Color, Dead, HitFlash."""
     mat = fresh_material("M_PSL_Character", CHAR_DEST)
     mat.set_editor_property("used_with_skeletal_mesh", True)
-    color = node(mat, unreal.MaterialExpressionVectorParameter, -900, 0, parameter_name="Color",
+
+    def lerp3(a, b, alpha, px, py):
+        e = node(mat, unreal.MaterialExpressionLinearInterpolate, px, py)
+        link(a, "", e, "A")
+        link(b, "", e, "B")
+        link(alpha, "", e, "Alpha")
+        return e
+
+    def zmask(cls, px, py):
+        src = node(mat, cls, px, py)
+        e = node(mat, unreal.MaterialExpressionComponentMask, px + 200, py, r=False, g=False, b=True, a=False)
+        link(src, "", e, "")
+        return e
+
+    color = node(mat, unreal.MaterialExpressionVectorParameter, -1800, 0, parameter_name="Color",
                  default_value=unreal.LinearColor(*TREX_DEFAULT, 1.0))
-    dead = scalar_param(mat, "Dead", 0.0, -900, 200)
-    flash = scalar_param(mat, "HitFlash", 0.0, -900, 500)
-    rim = scalar_param(mat, "Rim", 0.12, -900, 350)
-    frac = const(mat, 0.7, -900, 90)
-    desat = node(mat, unreal.MaterialExpressionDesaturation, -800, 100)
+    dead = scalar_param(mat, "Dead", 0.0, -1800, 200)
+    flash = scalar_param(mat, "HitFlash", 0.0, -1800, 500)
+    rough = scalar_param(mat, "Roughness", 0.72, -1800, 700)
+    desat = node(mat, unreal.MaterialExpressionDesaturation, -1600, 100)
     link(color, "", desat, "")
-    link(frac, "", desat, "Fraction")
-    dark = mul(mat, desat, const(mat, 0.7, -900, 120), -650, 60)  # Dead: readable grey-brown, lighter than its shadow
-    base = node(mat, unreal.MaterialExpressionLinearInterpolate, -450, 60)
-    link(color, "", base, "A")
-    link(dark, "", base, "B")
-    link(dead, "", base, "Alpha")
-    fres = node(mat, unreal.MaterialExpressionFresnel, -700, 350, exponent=3.0)
-    rim_term = mul(mat, mul(mat, fres, rim, -500, 350), color, -300, 350)
-    flash_term = mul(mat, flash, node(mat, unreal.MaterialExpressionConstant3Vector, -700, 550,
-                                      constant=unreal.LinearColor(3.0, 1.0, 0.7, 1.0)), -500, 520)
-    emissive = node(mat, unreal.MaterialExpressionAdd, -150, 400)
-    link(rim_term, "", emissive, "A")
-    link(flash_term, "", emissive, "B")
-    rough = const(mat, 0.65, -300, 700)
-    mel().connect_material_property(base, "", unreal.MaterialProperty.MP_BASE_COLOR)
-    mel().connect_material_property(emissive, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    link(const(mat, 0.7, -1600, 200), "", desat, "Fraction")
+    dark = mul(mat, desat, const(mat, 0.7, -1600, 300), -1400, 100)  # Dead: readable grey-brown, lighter than its shadow
+    base = lerp3(color, dark, dead, -1200, 60)
+    # up = saturate(0.5 * normalZ + 0.5): belly (down-facing) x1.3, back (up-facing) x0.75
+    nz = zmask(unreal.MaterialExpressionVertexNormalWS, -1800, 900)
+    up_add = node(mat, unreal.MaterialExpressionAdd, -1200, 900)
+    link(mul(mat, nz, const(mat, 0.5, -1600, 1000), -1400, 900), "", up_add, "A")
+    link(const(mat, 0.5, -1400, 1000), "", up_add, "B")
+    up = node(mat, unreal.MaterialExpressionSaturate, -1000, 900)
+    link(up_add, "", up, "")
+    shaded = lerp3(mul(mat, base, const(mat, 1.3, -1000, 0), -800, 0),
+                   mul(mat, base, const(mat, 0.75, -1000, 120), -800, 120), up, -600, 60)
+    # contact darkening by world Z above the component origin (feet; capsule centre would be the actor origin)
+    h = node(mat, unreal.MaterialExpressionSubtract, -1400, 1200)
+    link(zmask(unreal.MaterialExpressionWorldPosition, -1800, 1200), "", h, "A")
+    link(zmask(unreal.MaterialExpressionObjectPositionWS, -1800, 1320), "", h, "B")
+    t = node(mat, unreal.MaterialExpressionSaturate, -1000, 1200)
+    link(mul(mat, h, const(mat, 1.0 / 40.0, -1400, 1320), -1200, 1200), "", t, "")
+    contact = lerp3(const(mat, 0.5, -1000, 1320), const(mat, 1.0, -1000, 1400), t, -800, 1200)
+    final = mul(mat, shaded, contact, -400, 60)
+    flash_term = mul(mat, flash, node(mat, unreal.MaterialExpressionConstant3Vector, -1000, 550,
+                                      constant=unreal.LinearColor(3.0, 1.0, 0.7, 1.0)), -600, 520)
+    mel().connect_material_property(final, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    mel().connect_material_property(flash_term, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     mel().connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    mel().connect_material_property(const(mat, 0.35, -400, 700), "", unreal.MaterialProperty.MP_SPECULAR)
     B.finish_material(mat)
     return mat
 
@@ -303,7 +335,7 @@ def character_mi(name, dest, parent, rgb):
             B.fail("cannot create material instance " + path)
     mi.set_editor_property("parent", parent)
     mel().set_material_instance_vector_parameter_value(mi, "Color", unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0))
-    for p, v in (("Rim", 0.12), ("HitFlash", 0.0), ("Dead", 0.0)):
+    for p, v in (("HitFlash", 0.0), ("Dead", 0.0)):
         mel().set_material_instance_scalar_parameter_value(mi, p, v)
     if not unreal.EditorAssetLibrary.save_loaded_asset(mi):
         B.fail("cannot save material instance " + path)
@@ -360,9 +392,14 @@ def import_mask():
     return tex
 
 
-def build_terrain_material(mask):
-    """Rewrites M_PSL_Terrain's graph in place so the landscape's material reference stays valid."""
-    mat = fresh_material("M_PSL_Terrain", B.MAT_DEST)
+SOIL_THRESHOLD = 0.64  # M2 sprint: 0.7 gave ~15% soil; 0.64 + gain 8 makes soil the base with clustered grass patches
+
+
+def build_terrain_material(mask, dest=None, name="M_PSL_Terrain"):
+    """Rewrites M_PSL_Terrain's graph in place so the landscape's material reference stays valid.
+    Soil base with clustered grass patches: grass/soil is a height-style blend (the Rocks_Diffuse luminance biases the
+    coverage, so the edge follows the texture instead of a smooth noise contour)."""
+    mat = fresh_material(name, dest or B.MAT_DEST)
     wpos = node(mat, unreal.MaterialExpressionWorldPosition, -2400, 0)
     xy = node(mat, unreal.MaterialExpressionComponentMask, -2200, 0, r=True, g=True, b=False, a=False)
     link(wpos, "", xy, "")
@@ -402,9 +439,9 @@ def build_terrain_material(mask):
         link(noise(scale, -amp, amp, py + 60), "", s, "B")
         return s
 
-    grass = mul(mat, mul(mat, tinted((0.085, 0.16, 0.035), (0.20, 0.27, 0.07), 0.0015, -700), detail, -1100, -700),
+    grass = mul(mat, mul(mat, tinted((0.075, 0.13, 0.035), (0.16, 0.21, 0.06), 0.0015, -700), detail, -1100, -700),
                 one_plus_noise(0.006, 0.1, -600), -950, -650)
-    dirt = mul(mat, tinted((0.24, 0.17, 0.10), (0.36, 0.27, 0.16), 0.004, -450), detail, -1100, -450)
+    dirt = mul(mat, tinted((0.20, 0.14, 0.085), (0.31, 0.225, 0.13), 0.004, -450), detail, -1100, -450)
     desat = node(mat, unreal.MaterialExpressionDesaturation, -1450, 0)
     link(tex_at("Rocks_Diffuse", 1.0 / 600.0, 0), "RGB", desat, "")
     link(const(mat, 0.6, -1700, 100), "", desat, "Fraction")
@@ -422,7 +459,7 @@ def build_terrain_material(mask):
     link(wpos, "", pn, "Position")
     pdiff = node(mat, unreal.MaterialExpressionSubtract, -1400, 550)
     link(pn, "", pdiff, "A")
-    link(const(mat, 0.7, -1600, 650), "", pdiff, "B")
+    link(const(mat, SOIL_THRESHOLD, -1600, 650), "", pdiff, "B")
     patch = node(mat, unreal.MaterialExpressionSaturate, -1000, 550)
     link(mul(mat, pdiff, const(mat, 8.0, -1400, 650), -1200, 550), "", patch, "")
     # soft, noise-broken edge: R + (n - 0.5) * 2 * R * (1 - R), so the solid core (R=1) and far grass (R=0) are untouched
@@ -440,11 +477,25 @@ def build_terrain_material(mask):
     path_soft = node(mat, unreal.MaterialExpressionAdd, -800, 500)
     link(path, "R", path_soft, "A")
     link(pert, "", path_soft, "B")
-    dirt_a = node(mat, unreal.MaterialExpressionSaturate, -800, 400)
     sum_a = node(mat, unreal.MaterialExpressionAdd, -1000, 400)
     link(path_soft, "", sum_a, "A")
     link(patch, "", sum_a, "B")
-    link(sum_a, "", dirt_a, "")
+    # height blend: coverage + (Rocks_Diffuse luminance - 0.45) * 0.7, re-sharpened around 0.5 (x4), so the grass/soil
+    # edge follows the texture instead of a smooth noise contour
+    lum_c = node(mat, unreal.MaterialExpressionSubtract, -1100, 300)
+    link(lum, "", lum_c, "A")
+    link(const(mat, 0.45, -1250, 330), "", lum_c, "B")
+    biased = node(mat, unreal.MaterialExpressionAdd, -900, 400)
+    link(sum_a, "", biased, "A")
+    link(mul(mat, lum_c, const(mat, 0.7, -1100, 360), -1000, 320), "", biased, "B")
+    centred = node(mat, unreal.MaterialExpressionSubtract, -800, 420)
+    link(biased, "", centred, "A")
+    link(const(mat, 0.5, -900, 470), "", centred, "B")
+    sharp = node(mat, unreal.MaterialExpressionAdd, -700, 420)
+    link(mul(mat, centred, const(mat, 4.0, -800, 480), -750, 440), "", sharp, "A")
+    link(const(mat, 0.5, -800, 520), "", sharp, "B")
+    dirt_a = node(mat, unreal.MaterialExpressionSaturate, -600, 420)
+    link(sharp, "", dirt_a, "")
 
     ground = node(mat, unreal.MaterialExpressionLinearInterpolate, -600, -300)
     link(grass, "", ground, "A")
@@ -605,39 +656,136 @@ def masked_dither_setup(mat):
     mat.set_editor_property("opacity_mask_clip_value", LEAF_CLIP)
 
 
-def build_leaf_material():
-    """M_PSL_Leaf in place (the Leaf MIs keep their Tex override): Tex.RGB * LeafGain, camera-faded dithered mask."""
-    mat = fresh_material("M_PSL_Leaf", B.MAT_DEST)
+LEAF_SSS = (0.20, 0.26, 0.06)  # Two Sided Foliage transmission colour (hero h3 value)
+GRADIENT_HEIGHT, GRADIENT_BASE, JITTER = 70.0, 0.55, 0.06  # base-to-tip: x0.55 at the instance pivot -> x1 at 70 uu; +-6% per instance
+
+
+def foliage_shading(mat, rgb, px, py):
+    """rgb * base-to-tip gradient (WorldPosition.z - ObjectPosition.z over GradientHeight) * per-instance value jitter."""
+    wz = node(mat, unreal.MaterialExpressionComponentMask, px, py, r=False, g=False, b=True, a=False)
+    link(node(mat, unreal.MaterialExpressionWorldPosition, px - 200, py), "", wz, "")
+    oz = node(mat, unreal.MaterialExpressionComponentMask, px, py + 120, r=False, g=False, b=True, a=False)
+    link(node(mat, unreal.MaterialExpressionObjectPositionWS, px - 200, py + 120), "", oz, "")
+    h = node(mat, unreal.MaterialExpressionSubtract, px + 200, py)
+    link(wz, "", h, "A")
+    link(oz, "", h, "B")
+    t = node(mat, unreal.MaterialExpressionSaturate, px + 600, py)
+    link(mul(mat, h, scalar_param(mat, "GradientInvHeight", 1.0 / GRADIENT_HEIGHT, px + 200, py + 120), px + 400, py), "", t, "")
+    grad = node(mat, unreal.MaterialExpressionLinearInterpolate, px + 800, py)
+    link(const(mat, GRADIENT_BASE, px + 600, py + 100), "", grad, "A")
+    link(const(mat, 1.0, px + 600, py + 160), "", grad, "B")
+    link(t, "", grad, "Alpha")
+    jit = node(mat, unreal.MaterialExpressionLinearInterpolate, px + 800, py + 240)  # 1 - JITTER .. 1 + JITTER
+    link(const(mat, 1.0 - JITTER, px + 600, py + 240), "", jit, "A")
+    link(const(mat, 1.0 + JITTER, px + 600, py + 300), "", jit, "B")
+    link(node(mat, unreal.MaterialExpressionPerInstanceRandom, px + 600, py + 360), "", jit, "Alpha")
+    return mul(mat, mul(mat, rgb, grad, px + 1000, py), jit, px + 1200, py)
+
+
+def foliage_two_sided(mat, base, transmission):
+    mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_TWO_SIDED_FOLIAGE)
+    mel().connect_material_property(base, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    mel().connect_material_property(transmission, "", unreal.MaterialProperty.MP_SUBSURFACE_COLOR)
+    mel().connect_material_property(const(mat, 0.8, -1400, 300), "", unreal.MaterialProperty.MP_ROUGHNESS)
+
+
+def build_leaf_material(dest=None, name="M_PSL_Leaf"):
+    """M_PSL_Leaf in place (the Leaf MIs keep their Tex override): Tex.RGB * LeafGain * base-to-tip gradient * jitter,
+    Two Sided Foliage, camera-faded dithered mask (fade params unchanged)."""
+    mat = fresh_material(name, dest or B.MAT_DEST)
     masked_dither_setup(mat)
     tex = node(mat, unreal.MaterialExpressionTextureSampleParameter2D, -1700, 0, parameter_name="Tex")
-    color = mul(mat, tex, scalar_param(mat, "LeafGain", LEAF_GAIN, -1700, 200), -1400, 0, ao="RGB")
+    gained = mul(mat, tex, scalar_param(mat, "LeafGain", LEAF_GAIN, -1700, 200), -1400, 0, ao="RGB")
+    color = foliage_shading(mat, gained, -1300, 400)
     foliage_opacity(mat, tex)
-    mel().connect_material_property(color, "", unreal.MaterialProperty.MP_BASE_COLOR)
-    mel().connect_material_property(const(mat, 0.85, -1400, 300), "", unreal.MaterialProperty.MP_ROUGHNESS)
+    foliage_two_sided(mat, color, node(mat, unreal.MaterialExpressionConstant3Vector, -900, 300,
+                                       constant=unreal.LinearColor(*LEAF_SSS, 1.0)))
     B.finish_material(mat, instanced=True)
     return mat
 
 
-def build_foliage_flat_material():
-    """M_PSL_FoliageFlat: M_PSL_Flat (VectorParameter Color, roughness 0.85) with the same camera-faded dithered mask."""
-    mat = fresh_material("M_PSL_FoliageFlat", B.MAT_DEST)
+def build_foliage_flat_material(dest=None, name="M_PSL_FoliageFlat"):
+    """M_PSL_FoliageFlat: Color * base-to-tip gradient * jitter (grass tufts darker at the base), same camera-faded
+    dithered mask. Two Sided Foliage with the Color as transmission tint."""
+    mat = fresh_material(name, dest or B.MAT_DEST)
     masked_dither_setup(mat)
     color = node(mat, unreal.MaterialExpressionVectorParameter, -1400, 0, parameter_name="Color",
                  default_value=unreal.LinearColor(0.5, 0.5, 0.5, 1.0))
     foliage_opacity(mat)
-    mel().connect_material_property(color, "", unreal.MaterialProperty.MP_BASE_COLOR)
-    mel().connect_material_property(const(mat, 0.85, -1400, 300), "", unreal.MaterialProperty.MP_ROUGHNESS)
+    foliage_two_sided(mat, foliage_shading(mat, color, -1300, 400), mul(mat, color, const(mat, 0.5, -1400, 120), -1100, 100))
     B.finish_material(mat, instanced=True)
     return mat
 
 
-def reparent_grass_flower(flat_foliage):
-    """MI_PSL_Grass / MI_PSL_Flower move to M_PSL_FoliageFlat (their Color override is kept); bark/rock/stones stay on M_PSL_Flat."""
-    for name in ("MI_PSL_Grass", "MI_PSL_Flower"):
+GRASS_COLOR = (0.085, 0.15, 0.04)  # linear; value (~0.11) stays below the dino's lit side (STYLE_CONTRACT: grass never brighter)
+
+
+def reparent_grass_flower(flat_foliage, rock_mat):
+    """MI_PSL_Grass / MI_PSL_Flower move to M_PSL_FoliageFlat with the muted palette colours; MI_PSL_Rock moves to
+    M_PSL_Rock (opaque, no fade params); bark/stones stay on M_PSL_Flat."""
+    for name, parent, rgb in (("MI_PSL_Grass", flat_foliage, GRASS_COLOR), ("MI_PSL_Flower", flat_foliage, FLOWER_COLOR),
+                              ("MI_PSL_Rock", rock_mat, None)):
         mi = asset_or_fail(B.MAT_DEST + "/" + name)
-        mi.set_editor_property("parent", flat_foliage)
+        mi.set_editor_property("parent", parent)
+        if rgb:
+            mel().set_material_instance_vector_parameter_value(mi, "Color", unreal.LinearColor(*rgb, 1.0))
         if not unreal.EditorAssetLibrary.save_loaded_asset(mi):
             B.fail("cannot save " + name)
+
+
+
+ROCK_TINT, ROCK_MOSS, ROCK_RING = (0.32, 0.28, 0.24), (0.07, 0.10, 0.035), (0.05, 0.085, 0.03)  # linear; mean albedo ~0.22 (contract 0.18-0.30)
+FLOWER_COLOR = (0.45, 0.36, 0.18)  # linear luminance ~0.38 (contract <= 0.45)
+
+
+ROCK_RING_H = 45.0  # uu above the instance pivot that fade to the grass/soil ring colour
+
+
+def build_rock_material(dest=None, name="M_PSL_Rock"):
+    """World-aligned Rocks_Diffuse at 120 uu (h3: 250 uu was too coarse) as luminance variation on ONE warm-grey tint
+    family (ROCK_TINT), moss/soil on up-facing world normals, grass ring in the lowest RING_H uu above the instance pivot
+    (rocks are sunk, the ring hides the seam). Opaque, no CameraFadeStart (the test requires solid scenery not to dither)."""
+    mat = fresh_material(name, dest or B.MAT_DEST)
+    wat = node(mat, unreal.MaterialExpressionMaterialFunctionCall, -1500, 0)
+    wat.set_editor_property("material_function", asset_or_fail("/Engine/Functions/Engine_MaterialFunctions01/Texturing/WorldAlignedTexture"))
+    link(node(mat, unreal.MaterialExpressionTextureObject, -1800, 0, texture=asset_or_fail(B.TEX_DEST + "/Rocks_Diffuse")), "", wat, "TextureObject")
+    link(const(mat, 120.0, -1800, 120), "", wat, "TextureSize")
+    lum = node(mat, unreal.MaterialExpressionDotProduct, -1300, 0)
+    link(wat, "XYZ Texture", lum, "A")
+    link(node(mat, unreal.MaterialExpressionConstant3Vector, -1500, 150, constant=unreal.LinearColor(0.3, 0.59, 0.11, 1.0)), "", lum, "B")
+    # Rocks_Diffuse mean luminance ~0.085: ratio 1 = average; clamp keeps highlights/pits inside the albedo band
+    ratio = node(mat, unreal.MaterialExpressionClamp, -900, 0, min_default=0.6, max_default=1.5)
+    link(mul(mat, lum, const(mat, 1.0 / 0.085, -1100, 100), -1100, 0), "", ratio, "")
+    rock = mul(mat, ratio, node(mat, unreal.MaterialExpressionConstant3Vector, -900, 150, constant=unreal.LinearColor(*ROCK_TINT, 1.0)), -700, 0)
+    nz = node(mat, unreal.MaterialExpressionComponentMask, -1300, 400, r=False, g=False, b=True, a=False)
+    link(node(mat, unreal.MaterialExpressionVertexNormalWS, -1500, 400), "", nz, "")
+    moss_t = node(mat, unreal.MaterialExpressionSaturate, -900, 400)  # saturate((nz - 0.6) * 3.4)
+    nz_c = node(mat, unreal.MaterialExpressionSubtract, -1100, 400, const_b=0.6)
+    link(nz, "", nz_c, "A")
+    link(mul(mat, nz_c, const(mat, 3.4, -1100, 480), -1000, 400), "", moss_t, "")
+    mossy = node(mat, unreal.MaterialExpressionLinearInterpolate, -500, 100)
+    link(rock, "", mossy, "A")
+    link(node(mat, unreal.MaterialExpressionConstant3Vector, -700, 300, constant=unreal.LinearColor(*ROCK_MOSS, 1.0)), "", mossy, "B")
+    link(moss_t, "", mossy, "Alpha")
+    wz = node(mat, unreal.MaterialExpressionComponentMask, -1300, 650, r=False, g=False, b=True, a=False)
+    link(node(mat, unreal.MaterialExpressionWorldPosition, -1500, 650), "", wz, "")
+    oz = node(mat, unreal.MaterialExpressionComponentMask, -1300, 780, r=False, g=False, b=True, a=False)
+    link(node(mat, unreal.MaterialExpressionObjectPositionWS, -1500, 780), "", oz, "")
+    h = node(mat, unreal.MaterialExpressionSubtract, -1100, 700)
+    link(wz, "", h, "A")
+    link(oz, "", h, "B")
+    ring_t = node(mat, unreal.MaterialExpressionSaturate, -700, 700)  # 1 at the pivot plane, 0 at RING_H above it
+    one_minus = node(mat, unreal.MaterialExpressionOneMinus, -850, 700)
+    link(mul(mat, h, const(mat, 1.0 / ROCK_RING_H, -1000, 780), -950, 700), "", one_minus, "")
+    link(one_minus, "", ring_t, "")
+    final = node(mat, unreal.MaterialExpressionLinearInterpolate, -300, 100)
+    link(mossy, "", final, "A")
+    link(node(mat, unreal.MaterialExpressionConstant3Vector, -500, 600, constant=unreal.LinearColor(*ROCK_RING, 1.0)), "", final, "B")
+    link(ring_t, "", final, "Alpha")
+    mel().connect_material_property(final, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    mel().connect_material_property(const(mat, 0.9, -300, 400), "", unreal.MaterialProperty.MP_ROUGHNESS)
+    B.finish_material(mat, instanced=True)
+    return mat
 
 
 def build_food_flower_mi(flat_foliage):
@@ -723,18 +871,38 @@ def need(found, label):
     return found[label]
 
 
+SUN_COLOR, SUN_ROTATION, SUN_INTENSITY = (255, 220, 180), (0.0, -30.0, 135.0), 6.5  # ~4800 K, 30 deg (contract 15-30); round 1 (-24 deg, 7.0, fill 1.4) crushed 20-40% of pixels to black
+SKY_COLOR, SKY_FILL = (200, 220, 255), 3.0  # cool fill (round 1: 1.4 left shadows near-black; production is 2.0 neutral)
+FOG = {"fog_density": 0.02, "fog_height_falloff": 0.2, "start_distance": 1200.0,
+       "fog_inscattering_luminance": (0.30, 0.38, 0.46), "directional_inscattering_luminance": (0.50, 0.36, 0.22),
+       "directional_inscattering_exponent": 6.0}  # cool body, warm sun-side lobe; low density so distance is blue-grey, not milky
+
+
 def polish_lighting(found):
     sky = need(found, "PSL_SkyLight").get_component_by_class(unreal.SkyLightComponent)
     B.configure_sky(sky)
-    sun = need(found, "PSL_Sun").get_component_by_class(unreal.DirectionalLightComponent)
-    sun.set_editor_property("intensity", 7.0)
-    sun.set_editor_property("contact_shadow_length", 0.05)
+    sky.set_editor_property("intensity", SKY_FILL)
+    sky.set_editor_property("light_color", unreal.Color(*SKY_COLOR, 255))
+    sun_actor = need(found, "PSL_Sun")
+    sun_actor.set_actor_rotation(unreal.Rotator(*SUN_ROTATION), False)  # Rotator(roll, pitch, yaw)
+    sun = sun_actor.get_component_by_class(unreal.DirectionalLightComponent)
+    sun.set_editor_property("intensity", SUN_INTENSITY)
+    sun.set_editor_property("light_color", unreal.Color(*SUN_COLOR, 255))
+    sun.set_editor_property("contact_shadow_length", 0.1)  # screen-space, cheap: grounds the dino and rocks
+    fc = need(found, "PSL_Fog").get_component_by_class(unreal.ExponentialHeightFogComponent)
+    for k, v in FOG.items():
+        fc.set_editor_property(k, unreal.LinearColor(*v, 1.0) if isinstance(v, tuple) else v)
     pp = need(found, "PSL_PostProcess")
     s = pp.get_editor_property("settings")
-    s.set_editor_property("override_auto_exposure_bias", True)
-    s.set_editor_property("auto_exposure_bias", 0.0)
-    s.set_editor_property("override_motion_blur_amount", True)
-    s.set_editor_property("motion_blur_amount", 0.0)
+    # exposure stays fixed (build_lighting pins min = max brightness = 1.0); post within STYLE_CONTRACT limits
+    for flag, prop, value in (("override_auto_exposure_bias", "auto_exposure_bias", 0.0),
+                              ("override_motion_blur_amount", "motion_blur_amount", 0.0),
+                              ("override_bloom_intensity", "bloom_intensity", 0.25),
+                              ("override_color_saturation", "color_saturation", unreal.Vector4(0.98, 0.98, 0.98, 1.0)),
+                              ("override_color_contrast", "color_contrast", unreal.Vector4(1.03, 1.03, 1.03, 1.0)),
+                              ("override_white_temp", "white_temp", 6500.0)):
+        s.set_editor_property(flag, True)
+        s.set_editor_property(prop, value)
     pp.set_editor_property("settings", s)
 
 
@@ -747,11 +915,68 @@ def tree_positions(found):
     return out
 
 
+ROCK_SINK, ROCK_TREE_GAP, ROCK_MAX_SLOPE = 0.2, 450.0, 0.35  # sunk fraction of height (contract >= 0.15); min gap to a trunk; max footprint rise/run
+
+
+def clump_groups(stems, pts_by_cluster, rng, z_of, scale_range):
+    """One species per cluster (single-species clumps): [(stem, [Transform])]."""
+    groups = {s: [] for s in stems}
+    for pts in pts_by_cluster:
+        stem = rng.choice(stems)
+        for x, y in pts:
+            groups[stem].append(B.transform(x, y, z_of(x, y), rng.uniform(0, 360), rng.uniform(*scale_range)))
+    return list(groups.items())
+
+
+def settle_rock(mesh, x, y, yaw, scale, z_of):
+    """Transform sunk ROCK_SINK of its height below the LOWEST footprint height, or None on a steep footprint (cliff face)."""
+    ext = mesh.get_bounds().box_extent
+    r = ext.x * scale * 0.7
+    zs = [z_of(x + r * math.cos(a), y + r * math.sin(a)) for a in (k * math.pi / 4 for k in range(8))] + [z_of(x, y)]
+    if (max(zs) - min(zs)) / (2 * r) > ROCK_MAX_SLOPE:
+        return None
+    return B.transform(x, y, min(zs) - ROCK_SINK * 2 * ext.z * scale, yaw, scale)
+
+
+def rebuild_rocks(found, stems, trees, z_of):
+    """PSL_Foliage_Rocks: drop rocks near trunks (trunk-through-boulder) and on steep footprints (floating on a cliff), sink the
+    rest. Same label/collision/cull as the build script."""
+    groups = {}
+    for c in need(found, "PSL_Foliage_Rocks").get_components_by_class(unreal.HierarchicalInstancedStaticMeshComponent):
+        mesh = c.get_editor_property("static_mesh")
+        for i in range(c.get_instance_count()):
+            t = c.get_instance_transform(i, True)
+            tx, ty = t.translation.x, t.translation.y
+            if any(math.hypot(tx - ax, ty - ay) < ROCK_TREE_GAP for ax, ay in trees):
+                continue
+            nt = settle_rock(mesh, tx, ty, t.rotation.rotator().yaw, t.scale3d.x, z_of)
+            if nt is not None:
+                groups.setdefault(mesh.get_name()[3:], []).append(nt)
+    unreal.get_editor_subsystem(unreal.EditorActorSubsystem).destroy_actor(found["PSL_Foliage_Rocks"])
+    return B.holder("PSL_Foliage_Rocks", list(groups.items()), True, 30000.0)
+
+
+def rebuild_path_stones(poly, rng, stone, z_of):
+    """PSL_PathStones: the build script's alternating 180 uu row reads as a pebble line. Irregular trios/pairs 1-3 m apart,
+    80-320 uu off the path centre line on random sides."""
+    pts, d = [], 0.0
+    for x, y, tx, ty in B.resample(poly, 60.0):
+        d -= 60.0
+        if d > 0:
+            continue
+        d = rng.uniform(120.0, 420.0) * (1.0 + 2.0 * (rng.random() < 0.35))
+        side, off = rng.choice((-1.0, 1.0)), rng.uniform(80.0, 320.0)
+        for _ in range(rng.choice((1, 1, 2, 3))):
+            pts.append((x - ty * off * side + rng.uniform(-70, 70), y + tx * off * side + rng.uniform(-70, 70)))
+    ts = [B.transform(x, y, z_of(x, y) - 6.0, rng.uniform(0, 360), rng.uniform(0.35, 0.8)) for x, y in pts]
+    return B.holder("PSL_PathStones", [(stone, ts)], False, 8000.0)
+
+
 def replace_vegetation(found, grid, poly, stems):
-    """Destroy and re-create only the grass/bush holders and the spawn-rock landmark."""
+    """Destroy and re-create the grass/bush holders, the path stones and the spawn-rock landmark; re-settle the rocks."""
     subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     trees = tree_positions(found)
-    for label in ("PSL_Foliage_Grass", "PSL_Foliage_Bushes", SPAWN_ROCKS):
+    for label in ("PSL_Foliage_Grass", "PSL_Foliage_Bushes", "PSL_PathStones", SPAWN_ROCKS):
         if label in found:
             subsystem.destroy_actor(found[label])
     rng = random.Random(B.SEED + 9)
@@ -760,11 +985,14 @@ def replace_vegetation(found, grid, poly, stems):
     z_of = lambda x, y: B.sample_height(grid, x, y)
     bushes = B.pick(stems, B.DECOR_BUSH_RE)
     grass = B.pick(stems, r"^(Grass|Flower|Clover)")
+    stone = (B.pick(stems, r"^(Rock_Small|Pebble)", required=False) or B.pick(stems, r"^Rock_Medium_1$"))[0]
     counts = {
-        "grass": B.holder("PSL_Foliage_Grass", B.split(grass, clustered_points(rng, GRASS_MAX, anchors, free), rng, z_of,
-                                                       (0.8, 1.3)), False, 9000.0),
-        "bushes": B.holder("PSL_Foliage_Bushes", B.split(bushes, clustered_points(rng, BUSH_MAX, anchors, free), rng, z_of,
-                                                         B.DECOR_BUSH_SCALE), False, 12000.0),
+        "grass": B.holder("PSL_Foliage_Grass", clump_groups(grass, clusters(rng, GRASS_MAX, anchors, free), rng, z_of, (0.8, 1.3)),
+                          False, 9000.0),
+        "bushes": B.holder("PSL_Foliage_Bushes", clump_groups(bushes, clusters(rng, BUSH_MAX, anchors, free, size=(3, 8)), rng, z_of,
+                                                              B.DECOR_BUSH_SCALE), False, 12000.0),
+        "pathStones": rebuild_path_stones(poly, rng, stone, z_of),
+        "rocks": rebuild_rocks(found, stems, trees, z_of),
     }
     if counts["grass"] > GRASS_MAX or counts["bushes"] > BUSH_MAX:
         B.fail("vegetation over budget: %r" % (counts,))
@@ -773,9 +1001,8 @@ def replace_vegetation(found, grid, poly, stems):
     rock = B.pick(stems, r"^Rock_Medium_1$")[0]
     actor = B.spawn(unreal.Actor, SPAWN_ROCKS)
     mesh = asset_or_fail(B.NATURE_DEST + "/SM_" + rock)
-    ts = []
-    for rx, ry, yaw, s in rocks:
-        ts.append(B.transform(rx, ry, z_of(rx, ry), yaw, s))
+    ext = mesh.get_bounds().box_extent
+    ts = [B.transform(rx, ry, z_of(rx, ry) - ROCK_SINK * 2 * ext.z * s, yaw, s) for rx, ry, yaw, s in rocks]
     if unreal.PSLLevelBuildLibrary.add_mesh_instances(actor, mesh, ts, True, 0.0) is None:
         B.fail("spawn rocks failed")
     return counts
@@ -916,7 +1143,7 @@ def main():
     build_terrain_material(import_mask())
     build_leaf_material()
     flat_foliage = build_foliage_flat_material()
-    reparent_grass_flower(flat_foliage)
+    reparent_grass_flower(flat_foliage, build_rock_material())
     food_flower = build_food_flower_mi(flat_foliage)
     if not levels.load_level(B.MAP_PATH):
         B.fail("load_level failed for " + B.MAP_PATH)
@@ -955,5 +1182,5 @@ def run():
 
 if "--selftest" in sys.argv:
     selftest()
-else:
+elif os.environ.get("PSL_POLISH_IMPORT_ONLY") != "1":  # the SprintValley prototype driver imports the builders without running main()
     run()

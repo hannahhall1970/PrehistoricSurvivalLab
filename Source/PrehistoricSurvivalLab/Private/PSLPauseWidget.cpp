@@ -74,7 +74,13 @@ void UPSLPauseWidget::BuildTree()
     ToastText = FPSLUiStyle::MakeText(WidgetTree, FText::GetEmpty(), FPSLUiStyle::BodySize, FPSLUiStyle::Accent());
     ToastText->SetAutoWrapText(true);
     ToastText->SetWrapTextAt(432.0f);
-    Column->AddChildToVerticalBox(ToastText)->SetPadding(FMargin(0.0f, 12.0f, 0.0f, 0.0f));
+    // Toast sits on a dark strip so it reads over the dimmed scene; the strip collapses with the text.
+    ToastBox = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ToastBox"));
+    ToastBox->SetBrushColor(FPSLUiStyle::Backing());
+    ToastBox->SetPadding(FMargin(12.0f, 6.0f));
+    ToastBox->SetVisibility(ESlateVisibility::Collapsed);
+    ToastBox->SetContent(ToastText);
+    Column->AddChildToVerticalBox(ToastBox)->SetPadding(FMargin(0.0f, 12.0f, 0.0f, 0.0f));
     WarningText = FPSLUiStyle::MakeText(WidgetTree, FText::GetEmpty(), FPSLUiStyle::BodySize, FPSLUiStyle::Danger());
     WarningText->SetAutoWrapText(true);
     WarningText->SetWrapTextAt(432.0f);
@@ -98,9 +104,11 @@ void UPSLPauseWidget::NativeConstruct()
     {
         CultureHandle = FInternationalization::Get().OnCultureChanged().AddUObject(this, &UPSLPauseWidget::HandleCultureChanged);
     }
-    if (ToastText)
+    if (ToastText && ToastBox)
     {
         ToastText->SetText(FText::GetEmpty());
+        ToastBox->SetVisibility(ESlateVisibility::Collapsed);
+        ToastRemaining = 0.0f;
     }
     RefreshTexts();
     SetKeyboardFocus();
@@ -114,6 +122,34 @@ void UPSLPauseWidget::NativeDestruct()
         CultureHandle.Reset();
     }
     Super::NativeDestruct();
+}
+
+void UPSLPauseWidget::ShowToast(const FText& Text, bool bSuccess)
+{
+    ToastText->SetText(Text);
+    ToastText->SetColorAndOpacity(FSlateColor(bSuccess ? FPSLUiStyle::Accent() : FPSLUiStyle::Danger()));
+    ToastText->SetFont(FPSLUiStyle::Font(FPSLUiStyle::BodySize, bSuccess ? EPSLFontWeight::SemiBold : EPSLFontWeight::Regular));
+    ToastBox->SetVisibility(ESlateVisibility::HitTestInvisible);
+    ToastRemaining = FPSLUiStyle::ToastSeconds;
+}
+
+void UPSLPauseWidget::TickToast(float DeltaSeconds)
+{
+    if (ToastRemaining > 0.0f)
+    {
+        ToastRemaining -= DeltaSeconds;
+        if (ToastRemaining <= 0.0f)
+        {
+            ToastBox->SetVisibility(ESlateVisibility::Collapsed);
+            ToastText->SetText(FText::GetEmpty());
+        }
+    }
+}
+
+void UPSLPauseWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+    Super::NativeTick(MyGeometry, InDeltaTime);
+    TickToast(InDeltaTime);
 }
 
 void UPSLPauseWidget::HandleCultureChanged()
@@ -204,7 +240,7 @@ void UPSLPauseWidget::OnSave()
     UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
     UPSLSaveSubsystem* Saves = GI ? GI->GetSubsystem<UPSLSaveSubsystem>() : nullptr;
     const bool bSaved = Saves && Saves->SaveCheckpoint(EPSLSaveReason::Pause);
-    ToastText->SetText(bSaved ? LOCTEXT("Pause_Saved", "Saved") : LOCTEXT("Pause_SaveRefused", "Can't save right now: the dino is starving or badly hurt."));
+    ShowToast(bSaved ? LOCTEXT("Pause_Saved", "Saved") : LOCTEXT("Pause_SaveRefused", "Can't save right now: the dino is starving or badly hurt."), bSaved);
     RefreshWarning();
 }
 

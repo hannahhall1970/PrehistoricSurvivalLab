@@ -18,6 +18,21 @@ struct PREHISTORICSURVIVALLAB_API FPSLUiStyle
     static FLinearColor Danger()   { return FLinearColor::FromSRGBColor(FColor(0xB5, 0x46, 0x2E)); }
     static FLinearColor Disabled() { return FLinearColor::FromSRGBColor(FColor(0x6E, 0x6A, 0x5E)); }
 
+    // Sprint additions (the colours above stay pinned by PSL.UI.Style). Warm bone/umber, no neon.
+    static FLinearColor Backing()     { return FLinearColor::FromSRGBColor(FColor(0x1B, 0x14, 0x0D)).CopyWithNewOpacity(0.72f); } // umber scrim behind HUD/toast text
+    static FLinearColor BarTrack()    { return FLinearColor::FromSRGBColor(FColor(0x2A, 0x20, 0x16)).CopyWithNewOpacity(0.90f); }
+    static FLinearColor HoverFill()   { return FLinearColor::FromSRGBColor(FColor(0xE3, 0xA6, 0x3B)).CopyWithNewOpacity(0.16f); }
+    static FLinearColor PressFill()   { return FLinearColor::FromSRGBColor(FColor(0xE3, 0xA6, 0x3B)).CopyWithNewOpacity(0.32f); }
+    static FLinearColor HealthFill()  { return FLinearColor::FromSRGBColor(FColor(0xB5, 0x46, 0x2E)); } // rust
+    static FLinearColor StaminaFill() { return FLinearColor::FromSRGBColor(FColor(0x7F, 0x9A, 0x4B)); } // moss
+    static FLinearColor SpentFill()   { return FLinearColor::FromSRGBColor(FColor(0xC9, 0x7A, 0x2B)); } // burnt orange (exhausted)
+
+    // Seconds the save toast and HUD messages stay up.
+    static constexpr float ToastSeconds = 2.5f;
+
+    // Dark track plus `Fill` colour for a progress bar (the engine default track is light grey and washes out low values).
+    static void StyleBar(class UProgressBar* Bar, const FLinearColor& Fill);
+
     static constexpr int32 TitleSize = 64;
     static constexpr int32 HeadingSize = 32;
     static constexpr int32 ButtonSize = 26;

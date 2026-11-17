@@ -61,19 +61,19 @@ namespace
         Row->AddChildToHorizontalBox(MakeIcon(Tree, Glyph, Fill, GlyphLabel))->SetVerticalAlignment(VAlign_Center);
         OutGlyphs.Add(GlyphLabel);
 
-        UTextBlock* CaptionLabel = MakeLabel(Tree, Caption, 16, FLinearColor::White, EPSLFontWeight::SemiBold);
+        UTextBlock* CaptionLabel = MakeLabel(Tree, Caption, 16, FPSLUiStyle::Text(), EPSLFontWeight::SemiBold);
         OutCaptions.Add(CaptionLabel);
         UHorizontalBoxSlot* LabelSlot = Row->AddChildToHorizontalBox(CaptionLabel);
         LabelSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
         LabelSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
         LabelSlot->SetVerticalAlignment(VAlign_Center);
 
-        OutValue = MakeLabel(Tree, FText::GetEmpty(), 16, FLinearColor::White);
+        OutValue = MakeLabel(Tree, FText::GetEmpty(), 16, FPSLUiStyle::Text());
         Row->AddChildToHorizontalBox(OutValue)->SetVerticalAlignment(VAlign_Center);
         Parent->AddChildToVerticalBox(Row)->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 2.0f));
 
         UProgressBar* Bar = Tree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass());
-        Bar->SetFillColorAndOpacity(Fill);
+        FPSLUiStyle::StyleBar(Bar, Fill);
         Bar->SetPercent(1.0f);
         Parent->AddChildToVerticalBox(Bar)->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 4.0f));
         return Bar;
@@ -98,7 +98,7 @@ void UPSLHudWidget::BuildTree()
 
     // Bottom-left panel, 320 wide.
     UBorder* Panel = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("Panel"));
-    Panel->SetBrushColor(FLinearColor(0.02f, 0.02f, 0.02f, 0.6f));
+    Panel->SetBrushColor(FPSLUiStyle::Backing());
     Panel->SetPadding(FMargin(12.0f));
     UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(Panel);
     PanelSlot->SetAnchors(FAnchors(0.0f, 1.0f, 0.0f, 1.0f));
@@ -111,27 +111,37 @@ void UPSLHudWidget::BuildTree()
 
     UTextBlock* HealthValue = nullptr;
     UTextBlock* StaminaValue = nullptr;
-    HealthBar = MakeBar(WidgetTree, Column, LOCTEXT("HudHealth", "HEALTH"), LOCTEXT("HudHealthGlyph", "+"), FLinearColor(0.8f, 0.1f, 0.1f, 1.0f), HealthValue, CaptionTexts, GlyphTexts);
-    StaminaBar = MakeBar(WidgetTree, Column, LOCTEXT("HudStamina", "STAMINA"), LOCTEXT("HudStaminaGlyph", ">"), FLinearColor(0.2f, 0.8f, 0.3f, 1.0f), StaminaValue, CaptionTexts, GlyphTexts);
+    HealthBar = MakeBar(WidgetTree, Column, LOCTEXT("HudHealth", "HEALTH"), LOCTEXT("HudHealthGlyph", "+"), FPSLUiStyle::HealthFill(), HealthValue, CaptionTexts, GlyphTexts);
+    StaminaBar = MakeBar(WidgetTree, Column, LOCTEXT("HudStamina", "STAMINA"), LOCTEXT("HudStaminaGlyph", ">"), FPSLUiStyle::StaminaFill(), StaminaValue, CaptionTexts, GlyphTexts);
     UTextBlock* HungerValue = nullptr;
     HungerBar = MakeBar(WidgetTree, Column, LOCTEXT("HudHunger", "HUNGER"), LOCTEXT("HudHungerGlyph", "o"), FPSLUiStyle::Accent(), HungerValue, CaptionTexts, GlyphTexts);
     HealthValueText = HealthValue;
     StaminaValueText = StaminaValue;
     HungerValueText = HungerValue;
 
-    StateText = MakeLabel(WidgetTree, FText::GetEmpty(), 14, FLinearColor::White, EPSLFontWeight::SemiBold);
+    StateText = MakeLabel(WidgetTree, FText::GetEmpty(), 14, FPSLUiStyle::Text(), EPSLFontWeight::SemiBold);
     // vi "ĐANG CHẠY NƯỚC RÚT" (19 chars) fits the 296 px content width at 14 SemiBold (checked in PSL.UI.VietnameseLayout); wrap is a safety net.
     StateText->SetAutoWrapText(true);
     Column->AddChildToVerticalBox(StateText)->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 0.0f));
 
-    // Diet hint (e.g. "Carnivores can't eat plants"); empty until a bite touched the wrong food.
-    HintText = MakeLabel(WidgetTree, FText::GetEmpty(), 14, FPSLUiStyle::Accent());
-    // vi hint is ~48 chars: wrap inside the 296 px panel content width instead of overflowing it.
+    // Prompt/diet hint ("Bite to eat"): own umber strip with parchment text, bottom centre above the message strip, so it
+    // stays legible over bright ground. Collapsed while empty. 296 keeps the vi wrap bound pinned by PSL.UI.VietnameseLayout.
+    HintBox = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("HintBox"));
+    HintBox->SetBrushColor(FPSLUiStyle::Backing());
+    HintBox->SetPadding(FMargin(14.0f, 6.0f));
+    HintBox->SetVisibility(ESlateVisibility::Collapsed);
+    HintText = MakeLabel(WidgetTree, FText::GetEmpty(), 14, FPSLUiStyle::Text());
     HintText->SetAutoWrapText(true);
-    Column->AddChildToVerticalBox(HintText)->SetPadding(FMargin(0.0f, 2.0f, 0.0f, 0.0f));
+    HintText->SetWrapTextAt(296.0f);
+    HintBox->SetContent(HintText);
+    UCanvasPanelSlot* HintSlot = Root->AddChildToCanvas(HintBox);
+    HintSlot->SetAnchors(FAnchors(0.5f, 1.0f, 0.5f, 1.0f));
+    HintSlot->SetAlignment(FVector2D(0.5f, 1.0f));
+    HintSlot->SetAutoSize(true);
+    HintSlot->SetPosition(FVector2D(0.0f, -176.0f));
 
     // Centered DEAD text.
-    DeadText = MakeLabel(WidgetTree, LOCTEXT("HudDead", "DEAD"), 64, FLinearColor(0.85f, 0.1f, 0.1f, 1.0f));
+    DeadText = MakeLabel(WidgetTree, LOCTEXT("HudDead", "DEAD"), 64, FPSLUiStyle::Danger(), EPSLFontWeight::Bold);
     DeadText->SetVisibility(ESlateVisibility::Collapsed);
     UCanvasPanelSlot* DeadSlot = Root->AddChildToCanvas(DeadText);
     DeadSlot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
@@ -140,7 +150,7 @@ void UPSLHudWidget::BuildTree()
     DeadSlot->SetPosition(FVector2D::ZeroVector);
 
     // Kill banner, top centre; hidden until a prey dies to the owning player.
-    KillBannerText = MakeLabel(WidgetTree, LOCTEXT("HudPreyDown", "PREY DOWN"), 32, FLinearColor(1.0f, 0.75f, 0.2f, 1.0f));
+    KillBannerText = MakeLabel(WidgetTree, LOCTEXT("HudPreyDown", "PREY DOWN"), 32, FPSLUiStyle::Accent(), EPSLFontWeight::Bold);
     KillBannerText->SetVisibility(ESlateVisibility::Collapsed);
     UCanvasPanelSlot* BannerSlot = Root->AddChildToCanvas(KillBannerText);
     BannerSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
@@ -149,13 +159,48 @@ void UPSLHudWidget::BuildTree()
     BannerSlot->SetPosition(FVector2D(0.0f, 60.0f));
 
     // Hit marker, just right of and below the crosshair (screen centre).
-    HitMarkerText = MakeLabel(WidgetTree, LOCTEXT("HudHit", "HIT"), 16, FLinearColor(1.0f, 0.9f, 0.3f, 1.0f));
+    HitMarkerText = MakeLabel(WidgetTree, LOCTEXT("HudHit", "HIT"), 16, FPSLUiStyle::Accent(), EPSLFontWeight::SemiBold);
     HitMarkerText->SetVisibility(ESlateVisibility::Collapsed);
     UCanvasPanelSlot* HitSlot = Root->AddChildToCanvas(HitMarkerText);
     HitSlot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
     HitSlot->SetAlignment(FVector2D(0.0f, 0.0f));
     HitSlot->SetAutoSize(true);
     HitSlot->SetPosition(FVector2D(24.0f, 16.0f));
+
+    // Hunting/feeding message, bottom centre on its own backing; hidden until ShowMessage.
+    MessageBox = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("MessageBox"));
+    MessageBox->SetBrushColor(FPSLUiStyle::Backing());
+    MessageBox->SetPadding(FMargin(20.0f, 8.0f));
+    MessageBox->SetVisibility(ESlateVisibility::Collapsed);
+    MessageText = MakeLabel(WidgetTree, FText::GetEmpty(), FPSLUiStyle::BodySize, FPSLUiStyle::Text(), EPSLFontWeight::SemiBold);
+    MessageBox->SetContent(MessageText);
+    UCanvasPanelSlot* MessageSlot = Root->AddChildToCanvas(MessageBox);
+    MessageSlot->SetAnchors(FAnchors(0.5f, 1.0f, 0.5f, 1.0f));
+    MessageSlot->SetAlignment(FVector2D(0.5f, 1.0f));
+    MessageSlot->SetAutoSize(true);
+    MessageSlot->SetPosition(FVector2D(0.0f, -120.0f));
+}
+
+FText UPSLHudWidget::MessageForKey(FName Key)
+{
+    if (Key == FName(TEXT("PreyNearby"))) { return LOCTEXT("HudMsg_PreyNearby", "Prey nearby"); }
+    if (Key == FName(TEXT("EatCarcass"))) { return LOCTEXT("HudMsg_EatCarcass", "Hold to eat the carcass"); }
+    if (Key == FName(TEXT("PreyEscaped"))) { return LOCTEXT("HudMsg_PreyEscaped", "The prey got away"); }
+    return FText::GetEmpty();
+}
+
+bool UPSLHudWidget::ShowMessage(FName Key)
+{
+    const FText Text = MessageForKey(Key);
+    if (!MessageBox || !MessageText || Text.IsEmpty())
+    {
+        return false;
+    }
+    MessageKey = Key;
+    MessageRemaining = FPSLUiStyle::ToastSeconds;
+    MessageText->SetText(Text);
+    MessageBox->SetVisibility(ESlateVisibility::HitTestInvisible);
+    return true;
 }
 
 void UPSLHudWidget::NativeConstruct()
@@ -190,6 +235,10 @@ void UPSLHudWidget::RefreshTexts()
     DeadText->SetText(LOCTEXT("HudDead", "DEAD"));
     KillBannerText->SetText(LOCTEXT("HudPreyDown", "PREY DOWN"));
     HitMarkerText->SetText(LOCTEXT("HudHit", "HIT"));
+    if (MessageBox && MessageText && MessageKey != NAME_None)
+    {
+        MessageText->SetText(MessageForKey(MessageKey));
+    }
     // The food hint is passed in by the HUD every tick, so only the value/state texts need replaying.
     if (bHaveValues)
     {
@@ -222,8 +271,8 @@ void UPSLHudWidget::SetValues(float Health, float MaxHealth, float Stamina, floa
     HealthValueText->SetText(FText::Format(LOCTEXT("HudValueFmt", "{0} / {1}"), FText::AsNumber(FMath::RoundToInt(Health)), FText::AsNumber(FMath::RoundToInt(MaxHealth))));
     StaminaValueText->SetText(FText::Format(LOCTEXT("HudValueFmt", "{0} / {1}"), FText::AsNumber(FMath::RoundToInt(Stamina)), FText::AsNumber(FMath::RoundToInt(MaxStamina))));
 
-    HealthBar->SetFillColorAndOpacity(bDead ? FLinearColor(0.4f, 0.4f, 0.4f, 1.0f) : FLinearColor(0.8f, 0.1f, 0.1f, 1.0f));
-    StaminaBar->SetFillColorAndOpacity(bExhausted ? FLinearColor(0.9f, 0.5f, 0.0f, 1.0f) : FLinearColor(0.2f, 0.8f, 0.3f, 1.0f));
+    HealthBar->SetFillColorAndOpacity(bDead ? FPSLUiStyle::Disabled() : FPSLUiStyle::HealthFill());
+    StaminaBar->SetFillColorAndOpacity(bExhausted ? FPSLUiStyle::SpentFill() : FPSLUiStyle::StaminaFill());
 
     const FText State = bExhausted ? LOCTEXT("HudExhausted", "EXHAUSTED") : (bSprinting ? LOCTEXT("HudSprinting", "SPRINTING") : FText::GetEmpty());
     StateText->SetText(State);
@@ -247,6 +296,10 @@ void UPSLHudWidget::SetHunger(float Hunger, float MaxHunger, bool bStarving, con
         HungerBar->SetFillColorAndOpacity(FPSLUiStyle::Accent());
     }
     HintText->SetText(Hint);
+    if (HintBox)
+    {
+        HintBox->SetVisibility(Hint.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+    }
 }
 
 void UPSLHudWidget::HandlePreyKilled(APSLPreyCharacter* Prey, AActor* Killer)
@@ -287,6 +340,15 @@ void UPSLHudWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
     Super::NativeTick(MyGeometry, InDeltaTime);
 
+    if (MessageRemaining > 0.0f)
+    {
+        MessageRemaining -= InDeltaTime;
+        if (MessageRemaining <= 0.0f && MessageBox)
+        {
+            MessageBox->SetVisibility(ESlateVisibility::Collapsed);
+            MessageKey = NAME_None;
+        }
+    }
     if (KillBannerRemaining > 0.0f)
     {
         KillBannerRemaining -= InDeltaTime;

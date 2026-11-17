@@ -2,6 +2,7 @@
 
 #include "Misc/AutomationTest.h"
 #include "Blueprint/WidgetTree.h"
+#include "Components/Border.h"
 #include "Components/ProgressBar.h"
 #include "Engine/Font.h"
 #include "Internationalization/Culture.h"
@@ -234,6 +235,37 @@ bool FPSLUiRefreshTextsUnbuiltTest::RunTest(const FString& Parameters)
     TestFalse(TEXT("Main menu version filled"), Menu->GetVersionText()->GetText().IsEmpty());
     TestFalse(TEXT("Pause Resume label refreshed"), Pause->GetResumeButton()->GetLabel()->GetText().ToString() == Sentinel.ToString());
     TestFalse(TEXT("Pause warning refreshed"), Pause->GetWarningText()->GetText().ToString() == Sentinel.ToString());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLUiSaveToastTest, "PSL.UI.SaveToast", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPSLUiSaveToastTest::RunTest(const FString& Parameters)
+{
+    UPSLPauseWidget* Pause = MakeScreen<UPSLPauseWidget>(*this, TEXT("Pause"));
+    if (!Pause || !TestNotNull(TEXT("Toast box"), Pause->GetToastBox()))
+    {
+        return false;
+    }
+    TestEqual(TEXT("Toast starts hidden"), Pause->GetToastBox()->GetVisibility(), ESlateVisibility::Collapsed);
+
+    const FText Saved = NSLOCTEXT("PSL", "Pause_Saved", "Saved");
+    Pause->ShowToast(Saved, true);
+    TestNotEqual(TEXT("Toast visible after a save"), Pause->GetToastBox()->GetVisibility(), ESlateVisibility::Collapsed);
+    TestEqual(TEXT("Toast text"), Pause->GetToastText()->GetText().ToString(), Saved.ToString());
+
+    Pause->TickToast(FPSLUiStyle::ToastSeconds * 0.5f);
+    TestNotEqual(TEXT("Toast still visible halfway"), Pause->GetToastBox()->GetVisibility(), ESlateVisibility::Collapsed);
+    Pause->TickToast(FPSLUiStyle::ToastSeconds);
+    TestEqual(TEXT("Toast hides after ToastSeconds"), Pause->GetToastBox()->GetVisibility(), ESlateVisibility::Collapsed);
+    TestTrue(TEXT("Toast text cleared"), Pause->GetToastText()->GetText().IsEmpty());
+
+    // A second toast restarts the timer.
+    Pause->ShowToast(Saved, true);
+    Pause->TickToast(FPSLUiStyle::ToastSeconds * 0.9f);
+    Pause->ShowToast(Saved, true);
+    Pause->TickToast(FPSLUiStyle::ToastSeconds * 0.9f);
+    TestNotEqual(TEXT("Re-shown toast restarts its timer"), Pause->GetToastBox()->GetVisibility(), ESlateVisibility::Collapsed);
     return true;
 }
 

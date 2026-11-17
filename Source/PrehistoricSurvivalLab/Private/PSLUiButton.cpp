@@ -14,7 +14,13 @@ UPSLUiButton* UPSLUiButton::Make(UWidgetTree* Tree, const FText& Text)
     FButtonStyle Style;
     FSlateBrush Clear;
     Clear.DrawAs = ESlateBrushDrawType::NoDrawType;
-    Style.SetNormal(Clear).SetHovered(Clear).SetPressed(Clear).SetDisabled(Clear);
+    // Hover/press: translucent amber wash behind the label. The swap is immediate (one frame, far under the 150 ms budget).
+    FSlateBrush Hover;
+    Hover.DrawAs = ESlateBrushDrawType::Image;
+    Hover.TintColor = FSlateColor(FPSLUiStyle::HoverFill());
+    FSlateBrush Press = Hover;
+    Press.TintColor = FSlateColor(FPSLUiStyle::PressFill());
+    Style.SetNormal(Clear).SetHovered(Hover).SetPressed(Press).SetDisabled(Clear);
     Button->SetStyle(Style);
 
     UVerticalBox* Column = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());

@@ -100,7 +100,7 @@ void UPSLSpeciesSelectWidget::BuildTree()
         LabelSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
         LabelSlot->SetVerticalAlignment(VAlign_Center);
         UProgressBar* Bar = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass());
-        Bar->SetFillColorAndOpacity(FPSLUiStyle::Accent());
+        FPSLUiStyle::StyleBar(Bar, FPSLUiStyle::Accent());
         UHorizontalBoxSlot* BarSlot = Row->AddChildToHorizontalBox(Bar);
         BarSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
         BarSlot->SetVerticalAlignment(VAlign_Center);

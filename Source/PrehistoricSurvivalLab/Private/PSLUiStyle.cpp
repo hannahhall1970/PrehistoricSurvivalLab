@@ -1,5 +1,6 @@
 #include "PSLUiStyle.h"
 
+#include "Components/ProgressBar.h"
 #include "Blueprint/WidgetTree.h"
 #include "PSLAudio.h"
 #include "Components/TextBlock.h"
@@ -43,6 +44,20 @@ static void PlayCue(const UObject* WorldContext, const TCHAR* Path)
 
 void FPSLUiStyle::PlayClick(const UObject* WorldContext) { PlayCue(WorldContext, ClickSoundPath); }
 void FPSLUiStyle::PlayHover(const UObject* WorldContext) { PlayCue(WorldContext, HoverSoundPath); }
+
+void FPSLUiStyle::StyleBar(UProgressBar* Bar, const FLinearColor& Fill)
+{
+    FProgressBarStyle Style = Bar->GetWidgetStyle(); // ProgressBar.h:72
+    FSlateBrush Track;
+    Track.DrawAs = ESlateBrushDrawType::Image; // no resource: solid tint
+    Track.TintColor = FSlateColor(BarTrack());
+    FSlateBrush Solid;
+    Solid.DrawAs = ESlateBrushDrawType::Image;
+    Solid.TintColor = FSlateColor(FLinearColor::White);
+    Style.SetBackgroundImage(Track).SetFillImage(Solid).SetEnableFillAnimation(false); // SlateTypes.h:1182,1187,1198
+    Bar->SetWidgetStyle(Style); // ProgressBar.h:75
+    Bar->SetFillColorAndOpacity(Fill);
+}
 
 UTextBlock* FPSLUiStyle::MakeText(UWidgetTree* Tree, const FText& Text, int32 Size, const FLinearColor& Color, EPSLFontWeight Weight)
 {

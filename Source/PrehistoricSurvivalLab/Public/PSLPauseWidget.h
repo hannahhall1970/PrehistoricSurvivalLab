@@ -34,10 +34,17 @@ public:
     // Re-sets every static label from its LOCTEXT (called on construction and when the culture changes).
     void RefreshTexts();
 
+    // Shows the toast on its backing strip for FPSLUiStyle::ToastSeconds (success = accent semi-bold, failure = rust).
+    void ShowToast(const FText& Text, bool bSuccess);
+    // Advances the toast timer; called from NativeTick, public so tests can drive it without a viewport.
+    void TickToast(float DeltaSeconds);
+    UBorder* GetToastBox() const { return ToastBox; }
+
 protected:
     virtual void NativeConstruct() override;
     virtual void NativeDestruct() override;
     virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
+    virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 private:
     void BuildTree();
@@ -51,6 +58,8 @@ private:
     UFUNCTION() void OnSettings();
     UFUNCTION() void OnSettingsClosed();
 
+    UPROPERTY(Transient) TObjectPtr<UBorder> ToastBox;
+    float ToastRemaining = 0.0f;
     UPROPERTY(Transient) TObjectPtr<UPSLUiButton> ResumeButton;
     UPROPERTY(Transient) TObjectPtr<UPSLUiButton> SaveButton;
     UPROPERTY(Transient) TObjectPtr<UPSLUiButton> SettingsButton;

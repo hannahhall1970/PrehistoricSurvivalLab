@@ -4,8 +4,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Game\n"
-"POT-Creation-Date: 2026-11-17 00:33\n"
-"PO-Revision-Date: 2026-11-17 00:33\n"
+"POT-Creation-Date: 2026-11-17 15:33\n"
+"PO-Revision-Date: 2026-11-17 15:33\n"
 "Language-Team: \n"
 "Language: vi\n"
 "MIME-Version: 1.0\n"
@@ -28,8 +28,8 @@ msgid "Herbivores can't eat meat. Find plants instead."
 msgstr "Thú ăn cỏ không ăn được thịt. Hãy tìm cây cỏ."
 
 #. Key:	HintBiteToEat
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(597)
-#: Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(597)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(601)
+#: Source/PrehistoricSurvivalLab/Private/PSLCharacter.cpp(601)
 msgctxt "PSL,HintBiteToEat"
 msgid "Bite to eat"
 msgstr "Cắn để ăn"
@@ -147,43 +147,64 @@ msgid "o"
 msgstr "o"
 
 #. Key:	HudDead
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(134)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(134)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(144)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(144)
 msgctxt "PSL,HudDead"
 msgid "DEAD"
 msgstr "ĐÃ CHẾT"
 
 #. Key:	HudPreyDown
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(143)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(143)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(153)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(153)
 msgctxt "PSL,HudPreyDown"
 msgid "PREY DOWN"
 msgstr "HẠ CON MỒI"
 
 #. Key:	HudHit
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(152)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(152)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(162)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(162)
 msgctxt "PSL,HudHit"
 msgid "HIT"
 msgstr "TRÚNG"
 
+#. Key:	HudMsg_PreyNearby
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(186)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(186)
+msgctxt "PSL,HudMsg_PreyNearby"
+msgid "Prey nearby"
+msgstr "Có con mồi gần đây"
+
+#. Key:	HudMsg_EatCarcass
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(187)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(187)
+msgctxt "PSL,HudMsg_EatCarcass"
+msgid "Hold to eat the carcass"
+msgstr "Giữ để ăn xác con mồi"
+
+#. Key:	HudMsg_PreyEscaped
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(188)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(188)
+msgctxt "PSL,HudMsg_PreyEscaped"
+msgid "The prey got away"
+msgstr "Con mồi đã chạy thoát"
+
 #. Key:	HudValueFmt
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(200)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(200)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(249)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(249)
 msgctxt "PSL,HudValueFmt"
 msgid "{0} / {1}"
 msgstr "{0} / {1}"
 
 #. Key:	HudExhausted
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(228)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(228)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(277)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(277)
 msgctxt "PSL,HudExhausted"
 msgid "EXHAUSTED"
 msgstr "KIỆT SỨC"
 
 #. Key:	HudSprinting
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(228)
-#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(228)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(277)
+#: Source/PrehistoricSurvivalLab/Private/PSLHudWidget.cpp(277)
 msgctxt "PSL,HudSprinting"
 msgid "SPRINTING"
 msgstr "ĐANG CHẠY NƯỚC RÚT"
@@ -231,29 +252,29 @@ msgid "Version {0}"
 msgstr "Phiên bản {0}"
 
 #. Key:	Pause_NeverSaved
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(141)
-#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(141)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(177)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(177)
 msgctxt "PSL,Pause_NeverSaved"
 msgid "This run has never been saved."
 msgstr "Lượt chơi này chưa từng được lưu."
 
 #. Key:	Pause_UnsavedSince
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(148)
-#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(148)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(184)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(184)
 msgctxt "PSL,Pause_UnsavedSince"
 msgid "Unsaved progress since {0}."
 msgstr "Tiến trình chưa lưu kể từ {0}."
 
 #. Key:	Pause_Saved
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(207)
-#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(207)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(243)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(243)
 msgctxt "PSL,Pause_Saved"
 msgid "Saved"
 msgstr "Đã lưu"
 
 #. Key:	Pause_SaveRefused
-#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(207)
-#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(207)
+#. SourceLocation:	Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(243)
+#: Source/PrehistoricSurvivalLab/Private/PSLPauseWidget.cpp(243)
 msgctxt "PSL,Pause_SaveRefused"
 msgid "Can't save right now: the dino is starving or badly hurt."
 msgstr "Không thể lưu lúc này: khủng long đang đói lả hoặc bị thương nặng."

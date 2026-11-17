@@ -578,12 +578,13 @@ void APSLCharacter::UpdateProximityHint()
 {
     ProximityHint = FText::GetEmpty();
     UWorld* World = GetWorld();
-    // Herbivores only (mirrors TryEat); carnivores get no eat prompt.
-    if (!World || bDeathHandled || !ActiveSpecies || ActiveSpecies->Diet == EPSLDiet::Carnivore)
+    // Mirrors TryEat: herbivores are offered plants, carnivores carcasses that still have meat.
+    if (!World || bDeathHandled || !ActiveSpecies)
     {
         return;
     }
 
+    const bool bCarnivore = ActiveSpecies->Diet == EPSLDiet::Carnivore;
     // Same bite point as ResolveBiteHit. The +120 margin is a tuning knob: it lets the prompt show slightly before a bite would land.
     const FVector Center = GetActorLocation() + GetActorForwardVector() * BiteReach;
     FCollisionQueryParams Params(SCENE_QUERY_STAT(PSLHint), false, this);
@@ -591,10 +592,11 @@ void APSLCharacter::UpdateProximityHint()
     World->OverlapMultiByObjectType(Overlaps, Center, FQuat::Identity, FCollisionObjectQueryParams(ECC_WorldDynamic), FCollisionShape::MakeSphere(BiteRadius + 120.0f), Params);
     for (const FOverlapResult& Overlap : Overlaps)
     {
-        const APSLFoodPlant* Plant = Cast<APSLFoodPlant>(Overlap.GetActor());
-        if (Plant && Plant->IsAvailable())
+        const APSLFoodPlant* Plant = bCarnivore ? nullptr : Cast<APSLFoodPlant>(Overlap.GetActor());
+        const APSLPreyCharacter* Carcass = bCarnivore ? Cast<APSLPreyCharacter>(Overlap.GetActor()) : nullptr;
+        if ((Plant && Plant->IsAvailable()) || (Carcass && Carcass->IsDead() && Carcass->MeatRemaining > 0.0f))
         {
-            // A stale misbite message ("cannot eat meat") must not mask the prompt once the dino faces an edible plant.
+            // A stale misbite message ("cannot eat meat/plants") must not mask the prompt once the dino faces edible food.
             FoodHint = FText::GetEmpty();
             ProximityHint = NSLOCTEXT("PSL", "HintBiteToEat", "Bite to eat");
             return;

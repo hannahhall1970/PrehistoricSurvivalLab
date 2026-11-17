@@ -78,7 +78,7 @@ void UPSLMainMenuWidget::BuildTree()
     ProjectVersionString = ProjectVersion;
     VersionText = FPSLUiStyle::MakeText(WidgetTree,
         FText::Format(LOCTEXT("Menu_Version", "Version {0}"), FText::AsCultureInvariant(ProjectVersion)),
-        FPSLUiStyle::BodySize, FPSLUiStyle::Disabled());
+        FPSLUiStyle::BodySize, FPSLUiStyle::Text().CopyWithNewOpacity(0.85f));
     Column->AddChildToVerticalBox(VersionText)->SetPadding(FMargin(12.0f, 20.0f, 0.0f, 0.0f));
 
     // Species screen overlays the whole screen while New Game is open.

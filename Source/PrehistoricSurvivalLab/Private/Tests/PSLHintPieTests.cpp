@@ -239,4 +239,67 @@ bool FPSLHintCarnivoreNoEatHintTest::RunTest(const FString& Parameters)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLHintCarnivoreCarcassHintTest, "PSL.PIE.Hint.CarnivoreCarcassHint", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+// Regression caught: a T-Rex standing at a fresh kill gets no cue to bite the corpse (client acceptance, hunt audit).
+bool FPSLHintCarnivoreCarcassHintTest::RunTest(const FString& Parameters)
+{
+    const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("Hint_CarnivoreCarcassHint"));
+    if (!QueuePieStart(*this, Context))
+    {
+        return false;
+    }
+    const TSharedRef<TWeakObjectPtr<APSLFoodPlant>> Target = MakeShared<TWeakObjectPtr<APSLFoodPlant>>();
+    const TSharedRef<TWeakObjectPtr<APSLPreyCharacter>> Prey = MakeShared<TWeakObjectPtr<APSLPreyCharacter>>();
+    QueueStandAtPlant(*this, Context, UPSLDinoSpecies::TRexId, Target);
+
+    AddPieStep(Context, TEXT("StandAtCarcass"), 3.0f, [Prey](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable())
+        {
+            return true;
+        }
+        TActorIterator<APSLPreyCharacter> PreyIt(Ctx.World);
+        if (!PreyIt)
+        {
+            Ctx.MarkInvalid(TEXT("No prey in L_LostValley"));
+            return true;
+        }
+        *Prey = *PreyIt;
+        // Kill first (a living prey would flee); same placement as the herbivore misbite step: the bite point lands 70 uu past the corpse centre.
+        PreyIt->GetStatsComponent()->ApplyDamage(1000.0f);
+        const FVector Stand = PreyIt->GetActorLocation() - FVector::ForwardVector * (Ctx.Character->BiteReach - 70.0f) + FVector(0.0, 0.0, 60.0);
+        Ctx.Character->SetActorLocation(Stand, false, nullptr, ETeleportType::TeleportPhysics);
+        Ctx.Character->GetCharacterMovement()->StopMovementImmediately();
+        Face(Ctx, FVector::ForwardVector);
+        return true;
+    });
+    AddSettleStep(Context, TEXT("HintOnCarcassWithMeat"), 0.6, [Prey](FPSLPieCtx& Ctx)
+    {
+        Ctx.Test->TestTrue(TEXT("Prey is dead"), Prey->IsValid() && Prey->Get()->IsDead());
+        Ctx.Test->TestTrue(TEXT("Carnivore facing a carcass with meat shows Bite to eat"), ShowsBiteToEat(Ctx));
+        Face(Ctx, -FVector::ForwardVector);
+    });
+    AddSettleStep(Context, TEXT("HintClearedFacingAway"), 0.6, [Prey](FPSLPieCtx& Ctx)
+    {
+        Ctx.Test->TestTrue(TEXT("Facing away from the carcass leaves the hint empty"), Ctx.Character->GetFoodHint().IsEmpty());
+        Face(Ctx, FVector::ForwardVector);
+    });
+    AddSettleStep(Context, TEXT("HintShownAgain"), 0.6, [Prey](FPSLPieCtx& Ctx)
+    {
+        Ctx.Test->TestTrue(TEXT("Facing the carcass again shows Bite to eat"), ShowsBiteToEat(Ctx));
+        if (APSLPreyCharacter* Dead = Prey->Get())
+        {
+            Dead->MeatRemaining = 0.0f;
+        }
+    });
+    AddSettleStep(Context, TEXT("HintClearedWhenMeatGone"), 0.6, [](FPSLPieCtx& Ctx)
+    {
+        Ctx.Test->TestTrue(TEXT("A carcass with no meat left shows no hint"), Ctx.Character->GetFoodHint().IsEmpty());
+        Record(Ctx, TEXT("carnivore_carcass_hint"));
+    });
+    QueuePieEnd(Context);
+    return true;
+}
+
 #endif

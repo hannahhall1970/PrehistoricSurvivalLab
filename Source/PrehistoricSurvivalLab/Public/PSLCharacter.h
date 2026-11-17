@@ -211,7 +211,7 @@ private:
 
     FText FoodHint;
 
-    // Herbivore-only "Bite to eat" prompt, refreshed by ProximityHintTimer; transient FoodHint messages take priority in GetFoodHint.
+    // "Bite to eat" prompt (herbivore: plant, carnivore: carcass with meat), refreshed by ProximityHintTimer; transient FoodHint messages take priority in GetFoodHint.
     FText ProximityHint;
     FTimerHandle ProximityHintTimer;
     void UpdateProximityHint();

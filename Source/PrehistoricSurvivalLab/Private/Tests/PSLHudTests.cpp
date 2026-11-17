@@ -2,6 +2,8 @@
 
 #include "Misc/AutomationTest.h"
 #include "Blueprint/WidgetTree.h"
+#include "PSLUiStyle.h"
+#include "Components/Border.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
 #include "PSLHudWidget.h"
@@ -79,6 +81,60 @@ bool FPSLHudWidgetTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Hunger clamps to 0"), Hunger->GetPercent(), 0.0f, 1.0e-4f);
     Widget->SetHunger(250.0f, 100.0f, false, FText::GetEmpty());
     TestEqual(TEXT("Hunger clamps to 1"), Hunger->GetPercent(), 1.0f, 1.0e-4f);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLHudMessageTest, "PSL.Hud.Message", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPSLHudMessageTest::RunTest(const FString& Parameters)
+{
+    UPSLHudWidget* Widget = NewObject<UPSLHudWidget>(GetTransientPackage(), UPSLHudWidget::StaticClass());
+    if (!TestNotNull(TEXT("Widget created"), Widget))
+    {
+        return false;
+    }
+    Widget->Initialize();
+    if (!TestNotNull(TEXT("Message box"), Widget->GetMessageBox()) || !TestNotNull(TEXT("Message text"), Widget->GetMessageText()))
+    {
+        return false;
+    }
+    TestEqual(TEXT("Message hidden by default"), Widget->GetMessageBox()->GetVisibility(), ESlateVisibility::Collapsed);
+    TestFalse(TEXT("Unknown key is refused"), Widget->ShowMessage(FName(TEXT("NoSuchKey"))));
+    TestEqual(TEXT("Unknown key shows nothing"), Widget->GetMessageBox()->GetVisibility(), ESlateVisibility::Collapsed);
+
+    for (const TCHAR* Key : {TEXT("PreyNearby"), TEXT("EatCarcass"), TEXT("PreyEscaped")})
+    {
+        TestTrue(FString::Printf(TEXT("%s accepted"), Key), Widget->ShowMessage(FName(Key)));
+        TestNotEqual(FString::Printf(TEXT("%s visible"), Key), Widget->GetMessageBox()->GetVisibility(), ESlateVisibility::Collapsed);
+        TestEqual(FString::Printf(TEXT("%s text"), Key), Widget->GetMessageText()->GetText().ToString(), UPSLHudWidget::MessageForKey(FName(Key)).ToString());
+        TestFalse(FString::Printf(TEXT("%s text non-empty"), Key), Widget->GetMessageText()->GetText().IsEmpty());
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLHudHintBackingTest, "PSL.Hud.HintBacking", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPSLHudHintBackingTest::RunTest(const FString& Parameters)
+{
+    UPSLHudWidget* Widget = NewObject<UPSLHudWidget>(GetTransientPackage(), UPSLHudWidget::StaticClass());
+    if (!TestNotNull(TEXT("Widget created"), Widget))
+    {
+        return false;
+    }
+    Widget->Initialize();
+    if (!TestNotNull(TEXT("Hint box"), Widget->GetHintBox()) || !TestNotNull(TEXT("Hint text"), Widget->GetHintText()))
+    {
+        return false;
+    }
+    TestEqual(TEXT("Hint strip hidden while empty"), Widget->GetHintBox()->GetVisibility(), ESlateVisibility::Collapsed);
+    const FText Bite = NSLOCTEXT("PSL", "HintBiteToEat", "Bite to eat");
+    Widget->SetHunger(50.0f, 100.0f, false, Bite);
+    TestNotEqual(TEXT("Hint strip shown with a hint"), Widget->GetHintBox()->GetVisibility(), ESlateVisibility::Collapsed);
+    TestEqual(TEXT("Hint text kept"), Widget->GetHintText()->GetText().ToString(), Bite.ToString());
+    TestTrue(TEXT("Hint strip has the umber backing"), Widget->GetHintBox()->GetBrushColor().Equals(FPSLUiStyle::Backing()));
+    TestTrue(TEXT("Hint text is parchment"), Widget->GetHintText()->GetColorAndOpacity().GetSpecifiedColor().Equals(FPSLUiStyle::Text()));
+    Widget->SetHunger(50.0f, 100.0f, false, FText::GetEmpty());
+    TestEqual(TEXT("Hint strip hides when cleared"), Widget->GetHintBox()->GetVisibility(), ESlateVisibility::Collapsed);
     return true;
 }
 

@@ -4,6 +4,7 @@
 #include "Blueprint/UserWidget.h"
 #include "PSLHudWidget.generated.h"
 
+class UBorder;
 class UProgressBar;
 class UTextBlock;
 
@@ -24,9 +25,17 @@ public:
     // Hunger row and diet hint. Starving flashes the bar rust; Hint is the localized food hint (may be empty).
     void SetHunger(float Hunger, float MaxHunger, bool bStarving, const FText& Hint);
 
+    // Hunting/feeding messages by key: "PreyNearby", "EatCarcass", "PreyEscaped". Shows the localized text on a backed
+    // strip above the bars for FPSLUiStyle::ToastSeconds. Returns false (nothing shown) for an unknown key.
+    bool ShowMessage(FName Key);
+    static FText MessageForKey(FName Key);
+    UTextBlock* GetMessageText() const { return MessageText; }
+    UBorder* GetMessageBox() const { return MessageBox; }
+
     UProgressBar* GetHungerBar() const { return HungerBar; }
     UTextBlock* GetHungerValueText() const { return HungerValueText; }
     UTextBlock* GetHintText() const { return HintText; }
+    UBorder* GetHintBox() const { return HintBox; }
 
     UProgressBar* GetHealthBar() const { return HealthBar; }
     UProgressBar* GetStaminaBar() const { return StaminaBar; }
@@ -92,8 +101,20 @@ private:
     TObjectPtr<UTextBlock> HintText;
 
     UPROPERTY(Transient)
+    TObjectPtr<UBorder> HintBox;
+
+    UPROPERTY(Transient)
     TObjectPtr<UProgressBar> HealthBar;
 
+
+    UPROPERTY(Transient)
+    TObjectPtr<UTextBlock> MessageText;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UBorder> MessageBox;
+
+    FName MessageKey;
+    float MessageRemaining = 0.0f;
     UPROPERTY(Transient)
     TObjectPtr<UProgressBar> StaminaBar;
 
