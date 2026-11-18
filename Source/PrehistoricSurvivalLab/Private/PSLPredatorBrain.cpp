@@ -1,0 +1,52 @@
+#include "PSLPredatorBrain.h"
+
+EPSLPredatorState DecidePredatorState(const FPSLPredatorSenses& Senses, const FPSLPredatorTuning& Tuning, EPSLPredatorState Current)
+{
+    using E = EPSLPredatorState;
+
+    if (Senses.bDead || Current == E::Dead)
+    {
+        return E::Dead;
+    }
+
+    // An attack always ends in a recovery window, so the player gets a fair opening.
+    if (Current == E::Attack)
+    {
+        return E::Recover;
+    }
+
+    if (Current == E::Recover && !Senses.bStateTimerExpired)
+    {
+        return E::Recover;
+    }
+
+    if (Senses.bTargetVisible)
+    {
+        if (Senses.TargetDistance <= Tuning.AttackRange)
+        {
+            return Senses.bAttackReady ? E::Attack : E::Chase;
+        }
+
+        // Hysteresis: start chasing inside DetectRadius, keep chasing until beyond LoseRadius.
+        const float Limit = (Current == E::Chase) ? Tuning.LoseRadius : Tuning.DetectRadius;
+        if (Senses.TargetDistance <= Limit)
+        {
+            return E::Chase;
+        }
+    }
+
+    if ((Current == E::Chase || Current == E::Investigate) && Senses.bHasLastKnownPosition && !Senses.bStateTimerExpired)
+    {
+        return E::Investigate;
+    }
+
+    switch (Current)
+    {
+    case E::Idle:
+        return Senses.bStateTimerExpired ? E::Patrol : E::Idle;
+    case E::Patrol:
+        return Senses.bStateTimerExpired ? E::Idle : E::Patrol;
+    default:
+        return E::Idle;
+    }
+}
