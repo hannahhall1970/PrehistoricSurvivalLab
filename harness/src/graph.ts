@@ -34,6 +34,11 @@ import {
 	type TaskSpec,
 	type TaskState,
 } from "./types.ts";
+import {
+	MAX_REVIEW_PROTOCOL_TRIES,
+	REVIEW_FORMAT,
+	normalizeReview,
+} from "./review.ts";
 import type { ContextBuilder } from "./context.ts";
 import type { Gates } from "./gates.ts";
 import type { Store } from "./store.ts";
@@ -1688,91 +1693,135 @@ export class Runner {
 			{ kind: "stage_start", stage: from, attempt: task.attempt },
 			from,
 		);
-		const key = `${run.id}:${task.id}:reviewer:${task.attempt}`;
-		const prompt = await this.context.forTask(
+		const baseKey = `${run.id}:${task.id}:reviewer:${task.attempt}`;
+		const basePrompt = await this.context.forTask(
 			run,
 			task,
 			"reviewer",
 			this.gateEvidence(run.id, task.id, task.attempt),
 		);
-		const result = await this.awaitWithLeases(run, () =>
-			this.agents.run(
-				{
-					role: "reviewer",
-					idempotencyKey: key,
-					title: `Review ${task.id}: ${task.title}`,
-					prompt,
-					cwd: this.taskCwd(run),
-					outputSchema: REVIEW_SCHEMA,
-					timeoutMs: task.budgetMs,
-					labels: {
-						"harness.key": key,
-						"harness.runId": run.id,
-						"harness.taskId": task.id,
-						"harness.role": "reviewer",
+		const snapshot = this.treeFingerprint(run);
+		let verdict: ReviewVerdict | undefined;
+		let result!: AgentResult;
+		let handoffPath: string | undefined;
+		let protocolError: string | undefined;
+		while (!verdict) {
+			const total = this.reviewProtocolErrors(run.id, task);
+			const key = total === 0 ? baseKey : `${baseKey}:p${total}`;
+			const prompt = protocolError
+				? `${basePrompt}\n\n## Previous reply rejected\n${protocolError}. Reply again with exactly one top-level JSON object: ${REVIEW_FORMAT}`
+				: basePrompt;
+			result = await this.awaitWithLeases(run, () =>
+				this.agents.run(
+					{
+						role: "reviewer",
+						idempotencyKey: key,
+						title: `Review ${task.id}: ${task.title}`,
+						prompt,
+						cwd: this.taskCwd(run),
+						outputSchema: REVIEW_SCHEMA,
+						timeoutMs: task.budgetMs,
+						labels: {
+							"harness.key": key,
+							"harness.runId": run.id,
+							"harness.taskId": task.id,
+							"harness.role": "reviewer",
+						},
 					},
-				},
-				signal,
-				{
-					onCreated: (agentId: string) => {
-						task.reviewerAgentId = agentId;
-						this.saveRun(run, [task]);
+					signal,
+					{
+						onCreated: (agentId: string) => {
+							task.reviewerAgentId = agentId;
+							this.saveRun(run, [task]);
+						},
 					},
-				},
-			),
-		);
-		task.reviewerAgentId = result.agentId;
-		if (
-			result.status === "timeout" &&
-			!(await this.stopTimedOutAgent(run, from, result.agentId))
-		)
-			return;
-		const handoffPath = this.writeHandoff(run, task, "reviewer", result);
-		if (result.status === "permission") {
-			const permissionFailure = resultFailure(result);
-			task.lastFailure = permissionFailure;
-			this.parkForApproval(run, from, permissionFailure);
+				),
+			);
+			task.reviewerAgentId = result.agentId;
+			if (
+				result.status === "timeout" &&
+				!(await this.stopTimedOutAgent(run, from, result.agentId))
+			)
+				return;
+			handoffPath = this.writeHandoff(run, task, "reviewer", result);
+			if (result.status === "permission") {
+				const permissionFailure = resultFailure(result);
+				task.lastFailure = permissionFailure;
+				this.parkForApproval(run, from, permissionFailure);
+				this.checkpoint(
+					run,
+					[task],
+					{
+						kind: "agent",
+						role: "reviewer",
+						status: result.status,
+						agentId: result.agentId,
+						handoffPath,
+					},
+					from,
+				);
+				return;
+			}
+			if (result.status !== "idle") {
+				this.failTask(
+					run,
+					task,
+					from,
+					resultFailure(result),
+					result.status === "timeout" ? "TIMEOUT" : "FAILURE",
+					handoffPath,
+				);
+				return;
+			}
+			const parsed = normalizeReview(result.structured, result.text);
+			if (parsed.ok) {
+				verdict = parsed.verdict;
+				break;
+			}
+			// Reviewer formatting fault: never charge the implementer. Retry only the reviewer
+			// on the same verified tree, then park the run for a human.
+			protocolError = parsed.error;
+			const protocolFailure = failure("REVIEW_PROTOCOL_ERROR", parsed.error);
+			task.lastFailure = protocolFailure;
 			this.checkpoint(
 				run,
 				[task],
 				{
-					kind: "agent",
-					role: "reviewer",
-					status: result.status,
+					kind: "review_protocol_error",
+					attempt: task.attempt,
+					error: parsed.error,
 					agentId: result.agentId,
 					handoffPath,
 				},
 				from,
 			);
-			return;
-		}
-		if (result.status !== "idle") {
-			this.failTask(
-				run,
-				task,
-				from,
-				resultFailure(result),
-				result.status === "timeout" ? "TIMEOUT" : "FAILURE",
-				handoffPath,
-			);
-			return;
-		}
-		const verdict = parseStructured<ReviewVerdict>(
-			result.structured,
-			result.text,
-		);
-		const verdictError = this.validateReview(verdict);
-		if (verdictError || !verdict) {
-			const reviewError = verdictError ?? "reviewer output is missing";
-			this.failTask(
-				run,
-				task,
-				from,
-				failure("AGENT_ERROR", reviewError),
-				"FAILURE",
-				handoffPath,
-			);
-			return;
+			if (this.treeFingerprint(run) !== snapshot) {
+				this.failTask(
+					run,
+					task,
+					from,
+					failure(
+						"AGENT_ERROR",
+						"tree changed during review; verification evidence invalidated",
+					),
+					"FAILURE",
+					handoffPath,
+				);
+				return;
+			}
+			if (
+				this.reviewProtocolErrors(run.id, task) >= MAX_REVIEW_PROTOCOL_TRIES
+			) {
+				run.stage = "BLOCKED";
+				run.parkedReason = this.parkedReason(from, protocolFailure);
+				this.checkpoint(
+					run,
+					[task],
+					{ kind: "blocked", failure: protocolFailure, handoffPath },
+					from,
+				);
+				return;
+			}
 		}
 		const blockers = verdict.findings.filter(
 			(finding) => finding.severity === "blocker",
@@ -1995,30 +2044,15 @@ export class Runner {
 			);
 	}
 
-	private validateReview(
-		verdict: ReviewVerdict | undefined,
-	): string | undefined {
-		if (
-			!verdict ||
-			(verdict.verdict !== "approve" && verdict.verdict !== "reject")
-		) {
-			return "reviewer output must contain verdict approve or reject";
-		}
-		if (!Array.isArray(verdict.findings))
-			return "reviewer output findings must be an array";
-		for (const finding of verdict.findings) {
-			if (
-				!record(finding) ||
-				typeof finding.id !== "string" ||
-				typeof finding.detail !== "string" ||
-				!(["blocker", "major", "minor"] as const).includes(
-					finding.severity as never,
-				)
-			) {
-				return "reviewer finding is invalid";
-			}
-		}
-		return undefined;
+	private reviewProtocolErrors(runId: string, task: TaskState): number {
+		return this.store
+			.events(runId)
+			.filter(
+				(event) =>
+					event.taskId === task.id &&
+					event.kind === "review_protocol_error" &&
+					Number(event.data.attempt) === task.attempt,
+			).length;
 	}
 
 	private writeHandoff(

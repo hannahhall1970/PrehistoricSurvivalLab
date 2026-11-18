@@ -153,7 +153,7 @@ describe("verify_test_report.py", () => {
 		}, false);
 	});
 
-	it("matches the four current tests in the real source tree", () => {
+	it("matches the fifteen current tests in the real source tree", () => {
 		const root = mkdtempSync(join(tmpdir(), "psl-report-real-"));
 		try {
 			const report = join(root, "index.json");
@@ -163,9 +163,20 @@ describe("verify_test_report.py", () => {
 				"PSL.Survival.Stamina",
 				"PSL.Survival.ZeroStaminaRequiresRelease",
 				"PSL.Stats.DamageAndDeath",
+				"PSL.Hud.BarFraction",
+				"PSL.Input.DefaultBindings",
+				"PSL.Character.SprintSpeed",
+				"PSL.PIE.PlayerSpawn",
+				"PSL.PIE.MoveInput",
+				"PSL.PIE.LookInput",
+				"PSL.PIE.JumpInput",
+				"PSL.PIE.SprintInput",
+				"PSL.PIE.StaminaExhaustion",
+				"PSL.PIE.SprintRelease",
+				"PSL.PIE.HUD",
 			];
 			writeReport(report, {
-				succeeded: 4,
+				succeeded: names.length,
 				succeededWithWarnings: 0,
 				failed: 0,
 				notRun: 0,

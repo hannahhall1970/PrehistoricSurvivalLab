@@ -8,6 +8,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { isAbsolute, join, sep } from "node:path";
+import { REVIEW_FORMAT } from "./review.ts";
 import type { Failure, Role, RunState, TaskState } from "./types.ts";
 import { WorktreeValidationError, validateWorktree } from "./worktree.ts";
 
@@ -302,7 +303,7 @@ export class RepoContextBuilder implements ContextBuilder {
 		if (role === "implementer")
 			return "## Instructions\nEdit only the allowed task files. Never run a full UE build; the harness runs deterministic gates. End with JSON summary.";
 		if (role === "reviewer")
-			return "## Instructions\nIndependent review of the Git diff above against the acceptance criteria and gate evidence. Your write/shell tools are disabled; use read/grep for more context. End with ReviewVerdict JSON (approve/reject and findings).";
+			return `## Instructions\nIndependent review of the Git diff above against the acceptance criteria and gate evidence. Your write/shell tools are disabled; use read/grep for more context. Your final message MUST end with exactly one JSON object, top-level, in this shape: ${REVIEW_FORMAT}. verdict is "approve" or "reject"; every finding has string id, severity one of blocker|major|minor, and string detail. Only a blocker finding blocks approval.`;
 		return "## Instructions\nProduce PlanOutput JSON with validated tasks, acceptance criteria, dependencies, files, and budgets.";
 	}
 

@@ -82,6 +82,7 @@ export type FailureClass =
 	| "AGENT_ERROR" // worker crashed / returned invalid structured output
 	| "CONTRACT_INVALID" // plan/task contract failed validation
 	| "REVIEW_REJECTED"
+	| "REVIEW_PROTOCOL_ERROR" // reviewer reply not in a documented format; never an implementer fault
 	| "CANCELLED"
 	| "UNKNOWN";
 

@@ -710,6 +710,108 @@ describe("PSL.Runner", () => {
 		expect(store.getTasks(run.id)[0]?.attempt).toBe(2);
 	});
 
+	it("accepts a nested ReviewVerdict envelope without spending an implementer attempt", async () => {
+		let implementerCalls = 0;
+		const agents = new FakeAgents((request) => {
+			if (request.role === "implementer") implementerCalls += 1;
+			return request.role === "reviewer"
+				? {
+						status: "idle",
+						agentId: "reviewer",
+						structured: { ReviewVerdict: { verdict: "approve", findings: [] } },
+					}
+				: { status: "idle", agentId: "worker" };
+		});
+		const { runner: instance } = runner(dbPath(), agents);
+		const run = await instance.start("nested", { tasks: [task(false, 2)] });
+		expect(run.stage).toBe("DONE");
+		expect(implementerCalls).toBe(1);
+	});
+
+	it("retries only the reviewer after a protocol error and keeps the implementer attempt", async () => {
+		let implementerCalls = 0;
+		let reviewerCalls = 0;
+		const agents = new FakeAgents((request) => {
+			if (request.role === "implementer") implementerCalls += 1;
+			if (request.role !== "reviewer")
+				return { status: "idle", agentId: "worker" };
+			reviewerCalls += 1;
+			return reviewerCalls === 1
+				? { status: "idle", agentId: "reviewer-1", text: "I approve." }
+				: {
+						status: "idle",
+						agentId: "reviewer-2",
+						structured: { verdict: "approve", findings: [] },
+					};
+		});
+		const { runner: instance, store } = runner(dbPath(), agents);
+		const run = await instance.start("protocol", { tasks: [task(false, 2)] });
+		expect(run.stage).toBe("DONE");
+		expect(implementerCalls).toBe(1);
+		expect(reviewerCalls).toBe(2);
+		expect(store.getTasks(run.id)[0]?.attempt).toBe(1);
+		expect(
+			store.events(run.id).filter((e) => e.kind === "review_protocol_error"),
+		).toHaveLength(1);
+	});
+
+	it("parks the run as BLOCKED after bounded reviewer protocol errors, never failing the task", async () => {
+		let implementerCalls = 0;
+		let reviewerCalls = 0;
+		const agents = new FakeAgents((request) => {
+			if (request.role === "implementer") implementerCalls += 1;
+			if (request.role === "reviewer") {
+				reviewerCalls += 1;
+				return {
+					status: "idle",
+					agentId: `reviewer-${reviewerCalls}`,
+					text: "{broken",
+				};
+			}
+			return { status: "idle", agentId: "worker" };
+		});
+		const { runner: instance, store } = runner(dbPath(), agents);
+		const run = await instance.start("blocked", { tasks: [task(false, 3)] });
+		expect(run.stage).toBe("BLOCKED");
+		expect(run.parkedReason).toContain("resumeStage=INDEPENDENT_REVIEW");
+		expect(reviewerCalls).toBe(3);
+		expect(implementerCalls).toBe(1);
+		const stored = store.getTasks(run.id)[0];
+		expect(stored?.attempt).toBe(1);
+		expect(stored?.lastFailure?.cls).toBe("REVIEW_PROTOCOL_ERROR");
+	});
+
+	it("does not approve a conflicting verdict and still passes through reject", async () => {
+		let reviewerCalls = 0;
+		const agents = new FakeAgents((request) => {
+			if (request.role !== "reviewer")
+				return { status: "idle", agentId: "worker" };
+			reviewerCalls += 1;
+			return {
+				status: "idle",
+				agentId: `reviewer-${reviewerCalls}`,
+				structured:
+					reviewerCalls === 1
+						? {
+								verdict: "approve",
+								findings: [],
+								ReviewVerdict: { verdict: "approve", findings: [] },
+							}
+						: {
+								ReviewVerdict: {
+									verdict: "reject",
+									findings: [{ id: "F1", severity: "blocker", detail: "bad" }],
+								},
+							},
+			};
+		});
+		const { runner: instance, store } = runner(dbPath(), agents);
+		const run = await instance.start("conflict", { tasks: [task(false, 1)] });
+		expect(run.stage).toBe("FAILED");
+		expect(store.getTasks(run.id)[0]?.lastFailure?.cls).toBe("REVIEW_REJECTED");
+		expect(reviewerCalls).toBe(2);
+	});
+
 	it("parks permission and resumes with the same worker key", async () => {
 		const agents = new FakeAgents((request, call) => {
 			if (request.role === "implementer" && call === 1) {
