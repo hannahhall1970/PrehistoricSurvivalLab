@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "assets": [
+    {
+      "id": "trex-a",
+      "category": "dino/trex",
+      "role": "production",
+      "source": {
+        "path": "SourceArt/Dino/Trex.fbx",
+        "sha256": "db4ae6f657f32ce2253851c3eeca70602be2572b7f5e7fdda3c4c6e7132dea8c",
+        "license_ref": "SourceArt/Dino/LICENSE.txt",
+        "note": "Quaternius upstream FBX, no .blend exists. The checkout holds a Git LFS pointer (sha256 of the pointer file itself is f3999464091be74ecf94a21a0d4acf9c0f332628d657372df1e479256ecbd72e, 132 bytes); sha256 above is the LFS oid of the real 1074060-byte content."
+      },
+      "export": {
+        "path": "SourceArt/Dino/Trex.fbx",
+        "sha256": "db4ae6f657f32ce2253851c3eeca70602be2572b7f5e7fdda3c4c6e7132dea8c",
+        "exporter": "Quaternius (upstream, unmodified copy)",
+        "exporter_version": null,
+        "unit_scale": null,
+        "up_axis": null,
+        "triangle_count": null,
+        "bone_count": null,
+        "lod_count": null,
+        "note": "null = not measured; no fbx_lint evidence exists yet"
+      },
+      "import": {
+        "package": "/Game/Characters/Dino",
+        "script": "scripts/import_dino.py",
+        "skeleton": "/Game/Characters/Dino/SKEL_Trex"
+      },
+      "stages": {
+        "blender_export": { "status": "pending", "evidence": null, "note": "n/a upstream FBX; no Blender step recorded" },
+        "fbx_lint": { "status": "pending", "evidence": null },
+        "ue_import": { "status": "pending", "evidence": null },
+        "ue_automation": {
+          "status": "pending",
+          "evidence": null,
+          "tests": ["PSL.Character.DinoDefaults", "PSL.Species.Assets"]
+        },
+        "packaged_capture": { "status": "pending", "evidence": null },
+        "human_art_review": { "status": "pending", "evidence": null, "reviewer": null, "date": null, "verdict": null }
+      }
+    },
+    {
+      "id": "trex-c",
+      "category": "dino/trex",
+      "role": "experimental",
+      "partial": true,
+      "source": {
+        "path": "/Users/quyen/PSL-private-assets/free-staging/variantC/trex_c.glb",
+        "sha256": "2407c4c25b4150c66918929b1de25372eaeeb103c5df4d19a30fc87acba46119",
+        "license_ref": "CC BY 4.0 (AnimalAnimator.com); attribution + change notice required; license page not yet archived (see MIGRATION-PLAN.md section 6)"
+      },
+      "import": {
+        "package": "/Game/Dev/ArtMig/TrexC",
+        "script": "scripts/import_dino.py",
+        "skeleton": "/Game/Dev/ArtMig/TrexC/Tirannosaurus_Rex_v3_Skeleton"
+      },
+      "stages": {
+        "blender_export": { "status": "pending", "evidence": null },
+        "fbx_lint": { "status": "pending", "evidence": null },
+        "ue_import": { "status": "pending", "evidence": null },
+        "ue_automation": { "status": "pending", "evidence": null },
+        "packaged_capture": { "status": "pending", "evidence": null },
+        "human_art_review": { "status": "pending", "evidence": null, "reviewer": null, "date": null, "verdict": null }
+      }
+    }
+  ]
+}

@@ -79,4 +79,27 @@ describe("classifyLog", () => {
 		const result = classifyLog("PREFLIGHT", 1, "Disk available=1 KB\nDISK_LOW: 1 KB free, need 20 GB on /r\n");
 		expect(result.cls).toBe("DISK_LOW");
 	});
+
+	it("classifies UE crash markers as ENGINE_CRASH", () => {
+		for (const line of [
+			"LogCore: Fatal error: [File:Foo.cpp] [Line: 1]",
+			"Assertion failed: UploadDataProxy == nullptr [RendererPrivateUtils.h:317]",
+			"Unhandled Exception: SIGSEGV: invalid attempt to read memory",
+			"=== Critical error: ===",
+			"Signal: SIGSEGV",
+		])
+			expect(classifyLog("TEST", 1, `starting\n${line}\n`).cls).toBe("ENGINE_CRASH");
+	});
+
+	it("does not let a crash marker mask a real test failure", () => {
+		const log =
+			"LogAutomationController: Error: Test Completed. Result={Fail} Name={X} Path={PSL.X}\nFatal error: shutdown\n";
+		expect(classifyLog("TEST", 1, log).cls).toBe("TEST_FAILURE");
+	});
+
+	it("does not let toolchain noise mask a real test failure", () => {
+		const log =
+			"warning: No SDK found for plugin\nLogAutomationController: Error: Test Completed. Result={Fail} Name={X} Path={PSL.X}\n";
+		expect(classifyLog("TEST", 1, log).cls).toBe("TEST_FAILURE");
+	});
 });

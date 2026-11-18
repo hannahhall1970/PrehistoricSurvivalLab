@@ -96,17 +96,18 @@ def report_name(entry: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def matches(candidate: str | None, required: str) -> bool:
-    return candidate == required or (candidate is not None and candidate.endswith("." + required))
-
-
 def is_psl_test(name: str | None) -> bool:
     return bool(name) and (name == "PSL" or name.startswith("PSL.") or ".PSL." in name)
 
 
-def summary(succeeded: object, required: int, failed: object, not_run: object, report_path: str) -> None:
+def normalized(name: str) -> str:
+    """Strip any UE prefix ("Project.Functional Tests.") so only the exact PSL.* path remains."""
+    return name[name.index("PSL.") :] if "PSL." in name and not name.startswith("PSL.") else name
+
+
+def summary(succeeded: object, warned: object, required: int, failed: object, not_run: object, report_path: str) -> None:
     print(
-        f"PSL_REPORT: succeeded={succeeded} required={required} "
+        f"PSL_REPORT: succeeded={succeeded} succeededWithWarnings={warned} required={required} "
         f"failed={failed} notRun={not_run} report={report_path}"
     )
 
@@ -124,22 +125,22 @@ def main(argv: list[str]) -> int:
         with open(report_path, encoding="utf-8-sig") as handle:
             report = json.load(handle)
     except (OSError, UnicodeError) as exc:
-        summary(0, len(required), 0, 0, report_path)
+        summary(0, 0, len(required), 0, 0, report_path)
         print(f"{FAIL_PREFIX} unable to read report: {exc}")
         return 1
     except json.JSONDecodeError as exc:
-        summary(0, len(required), 0, 0, report_path)
+        summary(0, 0, len(required), 0, 0, report_path)
         print(f"{FAIL_PREFIX} invalid JSON: {exc.msg}")
         return 1
 
     if not isinstance(report, dict):
-        summary(0, len(required), 0, 0, report_path)
+        summary(0, 0, len(required), 0, 0, report_path)
         print(f"{FAIL_PREFIX} report root is not an object")
         return 1
 
     tests = report.get("tests")
     if not isinstance(tests, list):
-        summary(report.get("succeeded", 0), len(required), report.get("failed", 0), report.get("notRun", 0), report_path)
+        summary(report.get("succeeded", 0), report.get("succeededWithWarnings", 0), len(required), report.get("failed", 0), report.get("notRun", 0), report_path)
         print(f"{FAIL_PREFIX} report tests is not a list")
         return 1
 
@@ -147,23 +148,24 @@ def main(argv: list[str]) -> int:
     succeeded_with_warnings = counter(report, "succeededWithWarnings", errors)
     failed = counter(report, "failed", errors)
     not_run = counter(report, "notRun", errors)
-    psl_entries: list[tuple[str | None, object]] = []
+    psl_entries: list[tuple[str, object]] = []
     if not required:
         errors.append("no PSL tests declared in source")
-    success_entries = 0
     for entry in tests:
-        if isinstance(entry, dict) and entry.get("state") == "Success":
-            success_entries += 1
         name = report_name(entry)
         if is_psl_test(name):
-            psl_entries.append((name, entry.get("state") if isinstance(entry, dict) else None))
+            psl_entries.append((normalized(name), entry.get("state") if isinstance(entry, dict) else None))
 
+    seen: dict[str, int] = {}
+    for name, _ in psl_entries:
+        seen[name] = seen.get(name, 0) + 1
+    reported = set(seen)
     for name in required:
-        matching = [(path, state) for path, state in psl_entries if matches(path, name)]
-        if not matching:
+        if name not in reported:
             errors.append(f"required test missing from report: {name}")
-        elif len(matching) > 1:
-            errors.append(f"duplicate report entries for required test: {name}")
+    for name, count in seen.items():
+        if count > 1:
+            errors.append(f"duplicate report entries for PSL test: {name} x{count}")
 
     for name, state in psl_entries:
         if state != "Success":
@@ -175,14 +177,20 @@ def main(argv: list[str]) -> int:
         errors.append(f"report header notRun={not_run}")
     if not tests:
         errors.append("report contains zero PSL tests")
-    if sum(1 for name, state in psl_entries if state == "Success") < len(required):
+    psl_success = sum(1 for _, state in psl_entries if state == "Success")
+    if psl_success < len(required):
         errors.append("successful PSL test count is less than required test count")
-    if succeeded + succeeded_with_warnings != success_entries:
+    # UE header counters cover every test in the report, and a warned test keeps state "Success"
+    # (AutomationControllerManager only splits succeeded/succeededWithWarnings in the header).
+    all_success = sum(1 for entry in tests if isinstance(entry, dict) and entry.get("state") == "Success")
+    if succeeded + succeeded_with_warnings != all_success:
         errors.append(
-            f"inconsistent success counters: header={succeeded + succeeded_with_warnings} entries={success_entries}"
+            "inconsistent success counters: "
+            f"header succeeded+succeededWithWarnings={succeeded + succeeded_with_warnings} "
+            f"entries with state Success={all_success}"
         )
 
-    summary(succeeded, len(required), failed, not_run, report_path)
+    summary(succeeded, succeeded_with_warnings, len(required), failed, not_run, report_path)
     for error in errors:
         print(f"{FAIL_PREFIX} {error}")
     return 1 if errors else 0

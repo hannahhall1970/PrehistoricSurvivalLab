@@ -70,6 +70,58 @@ describe("CommandGates", () => {
 		rmSync(env.root, { recursive: true, force: true });
 	});
 
+	it("returns promptly when a grandchild ignores SIGTERM and holds the pipes", async () => {
+		const env = setup();
+		const marker = join(env.root, "survivor.pid");
+		const gates = new CommandGates({
+			repoRoot: env.root,
+			config: makeConfig(
+				[
+					"sh",
+					"-c",
+					`trap "" TERM; (trap "" TERM; echo $$ > ${marker}; exec sleep 30) & wait`,
+				],
+				200,
+			),
+			logDir: env.logDir,
+			lock: env.lock,
+			killGraceMs: 300,
+		});
+		const started = Date.now();
+		const result = await gates.preflight();
+		const elapsed = Date.now() - started;
+		console.log(`grandchild gate elapsed=${elapsed}ms`);
+		expect(result.outcome).toBe("TIMEOUT");
+		expect(elapsed).toBeLessThan(3000);
+		const pid = Number((await Bun.file(marker).text()).trim());
+		expect(pid).toBeGreaterThan(0);
+		let alive = true;
+		try {
+			process.kill(pid, 0);
+		} catch {
+			alive = false;
+		}
+		expect(alive).toBe(false);
+		rmSync(env.root, { recursive: true, force: true });
+	});
+
+	it("reports external abort as CANCELLED, not TIMEOUT", async () => {
+		const env = setup();
+		const gates = new CommandGates({
+			repoRoot: env.root,
+			config: makeConfig(["bash", "-c", "sleep 5"], 10_000),
+			logDir: env.logDir,
+			lock: env.lock,
+			killGraceMs: 300,
+		});
+		const controller = new AbortController();
+		setTimeout(() => controller.abort(), 50);
+		const result = await gates.preflight(controller.signal);
+		expect(result.failure?.cls).toBe("CANCELLED");
+		expect(result.outcome).toBe("FAILURE");
+		rmSync(env.root, { recursive: true, force: true });
+	});
+
 	it("reports a live lock as BUILD_LOCKED", async () => {
 		const env = setup();
 		env.lock.tryAcquire("other");

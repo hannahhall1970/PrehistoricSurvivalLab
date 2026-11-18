@@ -33,6 +33,18 @@ const killGroup = (pid: number, signal: "SIGTERM" | "SIGKILL"): void => {
 	}
 };
 
+/** True while any member of the process group is still alive (signal 0 only probes). */
+const groupAlive = (pid: number): boolean => {
+	try {
+		process.kill(-pid, 0);
+		return true;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "EPERM";
+	}
+};
+
+const defaultGraceMs = 10_000;
+
 async function execute(
 	command: string[],
 	cwd: string,
@@ -40,11 +52,13 @@ async function execute(
 	timeoutMs: number,
 	signal?: AbortSignal,
 	onSpawn?: (pid: number) => void,
+	graceMs = defaultGraceMs,
 ): Promise<{
 	exitCode: number | null;
 	durationMs: number;
 	tail: string;
 	timedOut: boolean;
+	cancelled: boolean;
 }> {
 	writeFileSync(logPath, "");
 	const started = Date.now();
@@ -64,20 +78,26 @@ async function execute(
 			durationMs: Date.now() - started,
 			tail: text,
 			timedOut: false,
+			cancelled: false,
 		};
 	}
 	onSpawn?.(processHandle.pid);
+	const pid = processHandle.pid;
 	let tail = "";
+	const readers: { cancel(): Promise<void> }[] = [];
 	const consume = async (
 		stream: ReadableStream<Uint8Array> | null,
 	): Promise<void> => {
 		if (!stream) return;
+		const reader = stream.getReader();
+		readers.push(reader);
 		const decoder = new TextDecoder();
-		for await (const chunk of stream) {
-			const text =
-				typeof chunk === "string"
-					? chunk
-					: decoder.decode(chunk, { stream: true });
+		for (;;) {
+			const { done, value } = await reader
+				.read()
+				.catch(() => ({ done: true as const, value: undefined }));
+			if (done) break;
+			const text = decoder.decode(value, { stream: true });
 			appendFileSync(logPath, text);
 			tail = tailAppend(tail, text);
 		}
@@ -99,45 +119,58 @@ async function execute(
 				: null,
 		),
 	]);
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	let abortHandler: (() => void) | undefined;
-	const stopPromise = new Promise<"stop">((resolve) => {
-		timer = setTimeout(() => resolve("stop"), timeoutMs);
-		abortHandler = () => resolve("stop");
-		if (signal?.aborted) resolve("stop");
-		else signal?.addEventListener("abort", abortHandler, { once: true });
-	});
+	// A surviving grandchild can hold the pipes open forever: bound the drain, then SIGKILL the group and cancel readers.
+	const drain = async (): Promise<void> => {
+		const deadline = Promise.withResolvers<boolean>();
+		const drainTimer = setTimeout(() => deadline.resolve(false), graceMs);
+		const drained = await Promise.race([
+			pumps.then(() => true),
+			deadline.promise,
+		]);
+		clearTimeout(drainTimer);
+		if (drained) return;
+		killGroup(pid, "SIGKILL");
+		for (const reader of readers) await reader.cancel().catch(() => undefined);
+		await pumps;
+	};
+	const stop = Promise.withResolvers<"timeout" | "abort">();
+	const timer = setTimeout(() => stop.resolve("timeout"), timeoutMs);
+	const abortHandler = () => stop.resolve("abort");
+	if (signal?.aborted) stop.resolve("abort");
+	else signal?.addEventListener("abort", abortHandler, { once: true });
 	const result = await Promise.race([
 		processHandle.exited.then((exitCode) => ({
 			kind: "exit" as const,
 			exitCode,
 		})),
-		stopPromise.then(() => ({ kind: "stop" as const })),
+		stop.promise.then((reason) => ({ kind: "stop" as const, reason })),
 	]);
-	if (timer) clearTimeout(timer);
-	if (abortHandler) signal?.removeEventListener("abort", abortHandler);
+	clearTimeout(timer);
+	signal?.removeEventListener("abort", abortHandler);
 	if (result.kind === "stop") {
-		killGroup(processHandle.pid, "SIGTERM");
-		const killTimer = setTimeout(
-			() => killGroup(processHandle.pid, "SIGKILL"),
-			10_000,
-		);
+		killGroup(pid, "SIGTERM");
+		// Grace covers the whole group: a grandchild may ignore SIGTERM after the leader exits.
+		const killDeadline = Date.now() + graceMs;
+		while (groupAlive(pid) && Date.now() < killDeadline) await Bun.sleep(25);
+		killGroup(pid, "SIGKILL");
 		await processHandle.exited.catch(() => undefined);
-		clearTimeout(killTimer);
-		await pumps;
+		await drain();
 		return {
 			exitCode: null,
 			durationMs: Date.now() - started,
 			tail,
-			timedOut: true,
+			timedOut: result.reason === "timeout",
+			cancelled: result.reason === "abort",
 		};
 	}
-	await pumps;
+	// Leader exited on its own; a lingering grandchild must not hold the gate open.
+	await drain();
 	return {
 		exitCode: result.exitCode,
 		durationMs: Date.now() - started,
 		tail,
 		timedOut: false,
+		cancelled: false,
 	};
 }
 
@@ -146,16 +179,20 @@ export class CommandGates implements Gates {
 	private readonly config: HarnessConfig;
 	private readonly logDir: string;
 	private readonly lock: BuildLock;
+	private readonly graceMs: number | undefined;
 	constructor(opts: {
 		repoRoot: string;
 		config: HarnessConfig;
 		logDir: string;
 		lock: BuildLock;
+		/** SIGTERM->SIGKILL grace and pipe-drain bound; default 10s. */
+		killGraceMs?: number;
 	}) {
 		this.repoRoot = opts.repoRoot;
 		this.config = opts.config;
 		this.logDir = opts.logDir;
 		this.lock = opts.lock;
+		this.graceMs = opts.killGraceMs;
 		mkdirSync(this.logDir, { recursive: true });
 	}
 
@@ -262,7 +299,24 @@ export class CommandGates implements Gates {
 			timeoutMs,
 			signal,
 			onSpawn,
+			this.graceMs,
 		);
+		if (executed.cancelled) {
+			return {
+				gate,
+				outcome: "FAILURE",
+				exitCode: null,
+				durationMs: executed.durationMs,
+				command: [...command],
+				logPath,
+				failure: {
+					cls: "CANCELLED",
+					summary: `${gate} cancelled`,
+					excerpt: executed.tail.split(/\r?\n/).slice(-40).join("\n"),
+					logPath,
+				},
+			};
+		}
 		if (executed.timedOut) {
 			return {
 				gate,

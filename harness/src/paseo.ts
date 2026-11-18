@@ -43,6 +43,7 @@ type AgentSnapshot = {
 
 type TimelineEntry = {
 	item?: unknown;
+	stopReason?: unknown;
 };
 
 type AgentHandle = {
@@ -290,13 +291,20 @@ function labelsFromSnapshot(
 	);
 }
 
-function jsonCandidates(text: string): string[] {
-	const candidates: string[] = [];
+type JsonCandidate = { text: string; start: number; end: number };
+
+function jsonCandidates(text: string): JsonCandidate[] {
+	const candidates: JsonCandidate[] = [];
 	const fenced = /```(?:json)?\s*([\s\S]*?)```/gi;
 	for (const match of text.matchAll(fenced)) {
-		if (match[1]) candidates.push(match[1].trim());
+		if (match[1])
+			candidates.push({
+				text: match[1].trim(),
+				start: match.index,
+				end: match.index + match[0].length,
+			});
 	}
-	candidates.push(text.trim());
+	candidates.push({ text: text.trim(), start: 0, end: text.length });
 	for (let start = 0; start < text.length; start += 1) {
 		if (text[start] !== "{" && text[start] !== "[") continue;
 		let depth = 0;
@@ -317,7 +325,7 @@ function jsonCandidates(text: string): string[] {
 			if (character === "{" || character === "[") depth += 1;
 			else if (character === "}" || character === "]") depth -= 1;
 			if (depth === 0) {
-				candidates.push(text.slice(start, index + 1));
+				candidates.push({ text: text.slice(start, index + 1), start, end: index + 1 });
 				break;
 			}
 		}
@@ -325,13 +333,22 @@ function jsonCandidates(text: string): string[] {
 	return candidates;
 }
 
+/**
+ * Agents are told to END their final message with the JSON object, so the candidate that ends
+ * last wins (outermost first on ties). Taking the first parseable candidate let a JSON block
+ * quoted earlier in the message (e.g. copied from an implementer's diff) override the real
+ * trailing verdict.
+ */
 export function extractStructuredOutput(
 	text: string | null | undefined,
 ): unknown {
 	if (!text) return undefined;
-	for (const candidate of jsonCandidates(text)) {
+	const ordered = jsonCandidates(text).sort(
+		(a, b) => b.end - a.end || a.start - b.start,
+	);
+	for (const candidate of ordered) {
 		try {
-			return JSON.parse(candidate) as unknown;
+			return JSON.parse(candidate.text) as unknown;
 		} catch (error) {
 			if (!(error instanceof SyntaxError)) throw error;
 		}
@@ -339,19 +356,32 @@ export function extractStructuredOutput(
 	return undefined;
 }
 
-function assistantText(
-	entries: TimelineEntry[] | undefined,
-): string | undefined {
-	if (!entries) return undefined;
+/**
+ * Last assistant message plus its provider stop reason. @getpaseo/protocol 's timeline
+ * items and agent snapshots declare no stop-reason field (checked AgentTimelineItem,
+ * AgentTimelineEntryPayloadSchema, AgentSnapshotPayload), so a string `stopReason` on
+ * the item/entry is read only if a daemon adds one. Error turns do expose it, embedded
+ * in the error text as "(stopReason=X"; resultFromWait falls back to that.
+ */
+function assistantTail(entries: TimelineEntry[] | undefined): {
+	text?: string;
+	stopReason?: string;
+} {
+	if (!entries) return {};
 	for (const entry of [...entries].reverse()) {
 		if (!isRecord(entry.item)) continue;
 		if (
 			entry.item.type === "assistant_message" &&
 			typeof entry.item.text === "string"
-		)
-			return entry.item.text;
+		) {
+			const reason = entry.item.stopReason ?? entry.stopReason;
+			return {
+				text: entry.item.text,
+				...(typeof reason === "string" ? { stopReason: reason } : {}),
+			};
+		}
 	}
-	return undefined;
+	return {};
 }
 
 function isConflict(error: unknown): boolean {
@@ -791,7 +821,17 @@ export class PaseoAgentPort implements AgentPort {
 		wait: WaitResult,
 	): Promise<AgentResult> {
 		const snapshot = isRecord(wait.final) ? wait.final : undefined;
-		const text = wait.lastMessage ?? (await this.timelineText(handle));
+		const tail = await this.timelineTail(handle);
+		const text = wait.lastMessage ?? tail.text;
+		// Error text is only trusted for an errored turn; a stale snapshot.lastError from an
+		// earlier turn must not mark a successful idle result as a length stop (REV-3).
+		const stopReason =
+			tail.stopReason ??
+			(wait.status === "error"
+				? (wait.error ?? stringValue(snapshot?.lastError))?.match(
+						/\(stopReason=([A-Za-z_-]+)/,
+					)?.[1]
+				: undefined);
 		const workspaceId =
 			stringValue(handle.workspaceId) ?? stringValue(snapshot?.workspaceId);
 		return {
@@ -803,27 +843,30 @@ export class PaseoAgentPort implements AgentPort {
 				: {}),
 			...(text ? { text } : {}),
 			...(wait.error ? { error: wait.error } : {}),
+			...(stopReason ? { stopReason } : {}),
 			...(wait.status === "permission"
 				? { permission: permissionFromSnapshot(snapshot, handle) }
 				: {}),
 		};
 	}
 
-	private async timelineText(handle: AgentHandle): Promise<string | undefined> {
-		if (!handle.timeline) return undefined;
+	private async timelineTail(
+		handle: AgentHandle,
+	): Promise<{ text?: string; stopReason?: string }> {
+		if (!handle.timeline) return {};
 		try {
 			const result = await handle.timeline.refetch({
 				direction: "tail",
 				limit: 50,
 				projection: "canonical",
 			});
-			return assistantText(result.entries);
+			return assistantTail(result.entries);
 		} catch (error) {
 			this.logger?.debug(
 				{ error: errorMessage(error) },
 				"Paseo timeline refetch failed",
 			);
-			return undefined;
+			return {};
 		}
 	}
 

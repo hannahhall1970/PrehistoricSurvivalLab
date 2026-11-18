@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { classifyLog } from "../src/classify.ts";
 
 const scriptPath = join(import.meta.dir, "../../scripts/verify_test_report.py");
@@ -153,39 +153,113 @@ describe("verify_test_report.py", () => {
 		}, false);
 	});
 
-	it("matches the fifteen current tests in the real source tree", () => {
+	it("accepts exactly the tests declared in the real source tree and rejects one missing", () => {
 		const root = mkdtempSync(join(tmpdir(), "psl-report-real-"));
 		try {
 			const report = join(root, "index.json");
 			const sourceDir = join(import.meta.dir, "../../Source");
-			const names = [
-				"PSL.Stats.InitialValues",
-				"PSL.Survival.Stamina",
-				"PSL.Survival.ZeroStaminaRequiresRelease",
-				"PSL.Stats.DamageAndDeath",
-				"PSL.Hud.BarFraction",
-				"PSL.Input.DefaultBindings",
-				"PSL.Character.SprintSpeed",
-				"PSL.PIE.PlayerSpawn",
-				"PSL.PIE.MoveInput",
-				"PSL.PIE.LookInput",
-				"PSL.PIE.JumpInput",
-				"PSL.PIE.SprintInput",
-				"PSL.PIE.StaminaExhaustion",
-				"PSL.PIE.SprintRelease",
-				"PSL.PIE.HUD",
-			];
-			writeReport(report, {
-				succeeded: names.length,
-				succeededWithWarnings: 0,
-				failed: 0,
-				notRun: 0,
-				tests: names.map((name) => ({ fullTestPath: name, state: "Success" })),
-			});
-			const result = runValidator(report, sourceDir);
-			expect(result.exitCode).toBe(0);
+			// Same discovery the validator uses, so the list tracks Source as tests are added.
+			const discovered = Bun.spawnSync(
+				[
+					"python3",
+					"-c",
+					"import sys, json; sys.path.insert(0, sys.argv[1]); import verify_test_report as v; print(json.dumps(v.declared_tests(sys.argv[2])))",
+					dirname(scriptPath),
+					sourceDir,
+				],
+				{ stdout: "pipe", stderr: "pipe" },
+			);
+			const names: string[] = JSON.parse(
+				new TextDecoder().decode(discovered.stdout),
+			);
+			expect(discovered.exitCode).toBe(0);
+			expect(names).toContain("PSL.PIE.PlayerSpawn");
+			expect(names).toContain("PSL.Survival.Stamina");
+			const write = (list: string[]) =>
+				writeReport(report, {
+					succeeded: list.length,
+					succeededWithWarnings: 0,
+					failed: 0,
+					notRun: 0,
+					tests: list.map((name) => ({ fullTestPath: name, state: "Success" })),
+				});
+			write(names);
+			expect(runValidator(report, sourceDir).exitCode).toBe(0);
+			write(names.slice(1));
+			const missing = runValidator(report, sourceDir);
+			expect(missing.exitCode).toBe(1);
+			expect(missing.output).toContain(names[0] as string);
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
+	});
+
+	it("accepts warned tests in UE's real shape: entry state Success, header split", () => {
+		// Same shape as .harness/evidence/pie-gui-20261112T144713Z/report/index.json (7 + 8 warned).
+		withReport((report, sourceDir) => {
+			writeReport(report, {
+				succeeded: 1,
+				succeededWithWarnings: 1,
+				failed: 0,
+				notRun: 0,
+				tests: [
+					{ fullTestPath: "PSL.Test.One", state: "Success", warnings: 0 },
+					{ fullTestPath: "PSL.Test.Two", state: "Success", warnings: 1 },
+				],
+			});
+			const result = runValidator(report, sourceDir);
+			expect(result.output).toContain("succeededWithWarnings=1");
+			expect(result.exitCode).toBe(0);
+		});
+	});
+
+	it("counts non-PSL entries in the header the way UE does", () => {
+		withReport((report, sourceDir) => {
+			const base = passingReport();
+			writeReport(report, {
+				...base,
+				succeeded: 3,
+				tests: [...base.tests, { fullTestPath: "System.Other", state: "Success" }],
+			});
+			expect(runValidator(report, sourceDir).exitCode).toBe(0);
+		});
+	});
+
+	it("fails duplicate report entries", () => {
+		withReport((report, sourceDir) => {
+			const base = passingReport();
+			writeReport(report, {
+				...base,
+				succeeded: 3,
+				tests: [...base.tests, { fullTestPath: "PSL.Test.One", state: "Success" }],
+			});
+			const result = runValidator(report, sourceDir);
+			expect(result.exitCode).toBe(1);
+			expect(result.output).toContain("duplicate report entries");
+		});
+	});
+
+	it("does not let a suffix collision satisfy a required test", () => {
+		withReport((report, sourceDir) => {
+			writeReport(report, {
+				succeeded: 2,
+				succeededWithWarnings: 0,
+				failed: 0,
+				notRun: 0,
+				tests: [
+					{ fullTestPath: "PSL.Test.One", state: "Success" },
+					{ fullTestPath: "PSL.X.PSL.Test.Two", state: "Success" },
+				],
+			});
+			const result = runValidator(report, sourceDir);
+			expect(result.exitCode).toBe(1);
+			expect(result.output).toContain("required test missing from report: PSL.Test.Two");
+		});
+	});
+
+	it("classifies a crash after a complete report as ENGINE_CRASH", () => {
+		const log =
+			"PSL_REPORT: succeeded=2 required=2 failed=0 notRun=0\nLogCore: Fatal error: Assertion failed: x\nPSL_REPORT_FAIL: report contains zero PSL tests";
+		expect(classifyLog("TEST", 1, log).cls).toBe("ENGINE_CRASH");
 	});
 });

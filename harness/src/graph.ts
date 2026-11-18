@@ -6,6 +6,7 @@ import {
 	readFileSync,
 	readlinkSync,
 	realpathSync,
+	writeFileSync,
 } from "node:fs";
 import {
 	dirname,
@@ -385,12 +386,31 @@ function resultText(result: AgentResult): string {
 	return result.error ?? result.status;
 }
 
+/** The model stopped because it hit its output-token cap; the reply is truncated even if status is idle. */
+function isLengthStop(result: AgentResult): boolean {
+	return (
+		result.stopReason === "length" &&
+		result.status !== "permission" &&
+		result.status !== "timeout"
+	);
+}
+
+function outputBudgetSection(partialPath?: string): string {
+	return `\n\n## OUTPUT BUDGET\nThe previous attempt hit the output-token cap and its reply was cut off. Make edits in small pieces (one file or one hunk per tool call), keep your final reply short, and do not restate file contents.${partialPath ? ` Continue from the saved partial output at ${partialPath}.` : ""}`;
+}
+
 function resultFailure(result: AgentResult): Failure {
 	if (result.status === "timeout") return failure("TIMEOUT", "agent timed out");
 	if (result.status === "permission") {
 		return failure(
 			"PERMISSION_REQUIRED",
 			result.permission?.description ?? "agent permission required",
+		);
+	}
+	if (isLengthStop(result)) {
+		return failure(
+			"AGENT_LENGTH_STOP",
+			"agent hit the output-token cap (stopReason=length)",
 		);
 	}
 	return failure(
@@ -869,7 +889,12 @@ export class Runner {
 			kind: "planner_start",
 			data: { attempt },
 		});
-		const prompt = await this.context.forPlanner(run);
+		const lastPlannerFailure = this.lastPlannerFailure(run.id);
+		const prompt =
+			(await this.context.forPlanner(run)) +
+			(lastPlannerFailure?.cls === "AGENT_LENGTH_STOP"
+				? outputBudgetSection(lastPlannerFailure.logPath)
+				: "");
 		const key = `${run.id}:${plannerTask.id}:planner:${attempt}`;
 		const result = await this.awaitWithLeases(run, () =>
 			this.agents.run(
@@ -915,13 +940,19 @@ export class Runner {
 			});
 			return;
 		}
-		if (result.status !== "idle") {
+		if (result.status !== "idle" || isLengthStop(result)) {
 			if (
 				result.status === "timeout" &&
 				!(await this.stopTimedOutAgent(run, from, result.agentId))
 			)
 				return;
-			const agentFailure = resultFailure(result);
+			const agentFailure = this.failureFor(
+				run,
+				plannerTask.id,
+				attempt,
+				result,
+				handoffPath,
+			);
 			this.store.appendEvent({
 				runId: run.id,
 				stage: from,
@@ -1484,7 +1515,11 @@ export class Runner {
 			from,
 		);
 		const key = `${run.id}:${task.id}:implementer:${task.attempt}`;
-		const prompt = await this.context.forTask(run, task, "implementer");
+		const prompt =
+			(await this.context.forTask(run, task, "implementer")) +
+			(task.lastFailure?.cls === "AGENT_LENGTH_STOP"
+				? outputBudgetSection(task.lastFailure.logPath)
+				: "");
 		const result = await this.awaitWithLeases(run, () =>
 			this.agents.run(
 				{
@@ -1535,12 +1570,12 @@ export class Runner {
 			);
 			return;
 		}
-		if (result.status !== "idle") {
+		if (result.status !== "idle" || isLengthStop(result)) {
 			this.failTask(
 				run,
 				task,
 				from,
-				resultFailure(result),
+				this.failureFor(run, task.id, task.attempt, result, handoffPath),
 				result.status === "timeout" ? "TIMEOUT" : "FAILURE",
 				handoffPath,
 			);
@@ -1634,6 +1669,8 @@ export class Runner {
 				result.outcome === "TIMEOUT" ? "TIMEOUT" : "UNKNOWN",
 				`${gate} failed`,
 			);
+		// A user stop is not a task failure: no attempt consumed; loop() records STOPPED.
+		if (gateFailure.cls === "CANCELLED" && signal.aborted) return;
 		if (BLOCKING_FAILURES.has(gateFailure.cls)) {
 			task.lastFailure = gateFailure;
 			run.stage = "BLOCKED";
@@ -1709,7 +1746,7 @@ export class Runner {
 			const total = this.reviewProtocolErrors(run.id, task);
 			const key = total === 0 ? baseKey : `${baseKey}:p${total}`;
 			const prompt = protocolError
-				? `${basePrompt}\n\n## Previous reply rejected\n${protocolError}. Reply again with exactly one top-level JSON object: ${REVIEW_FORMAT}`
+				? `${basePrompt}\n\n## Previous reply rejected\n${protocolError}. Reply again with exactly one top-level JSON object: ${REVIEW_FORMAT}${protocolError.startsWith("reviewer hit the output-token cap") ? outputBudgetSection() : ""}`
 				: basePrompt;
 			result = await this.awaitWithLeases(run, () =>
 				this.agents.run(
@@ -1767,13 +1804,22 @@ export class Runner {
 					run,
 					task,
 					from,
-					resultFailure(result),
+					this.failureFor(run, task.id, task.attempt, result, handoffPath),
 					result.status === "timeout" ? "TIMEOUT" : "FAILURE",
 					handoffPath,
 				);
 				return;
 			}
-			const parsed = normalizeReview(result.structured, result.text);
+			// A reviewer length stop is a reviewer fault (REV-2): keep its partial, then take the
+			// reviewer-only retry path below instead of charging the implementer an attempt.
+			if (isLengthStop(result))
+				this.failureFor(run, task.id, task.attempt, result, handoffPath);
+			const parsed = isLengthStop(result)
+				? ({
+						ok: false,
+						error: "reviewer hit the output-token cap (stopReason=length)",
+					} as const)
+				: normalizeReview(result.structured, result.text);
 			if (parsed.ok) {
 				verdict = parsed.verdict;
 				break;
@@ -1844,6 +1890,21 @@ export class Runner {
 			task.needsBuild,
 		);
 		const fingerprint = this.treeFingerprint(run);
+		// SEC-G2: the approval only covers the tree the reviewer was shown.
+		if (fingerprint === null || fingerprint !== snapshot) {
+			this.failTask(
+				run,
+				task,
+				from,
+				failure(
+					"AGENT_ERROR",
+					"tree changed during review; verification evidence invalidated",
+				),
+				"FAILURE",
+				handoffPath,
+			);
+			return;
+		}
 		const gateEvents = this.store.events(run.id);
 		const requiredGates = ["BUILD", "TEST"] as const;
 		const gatesValid =
@@ -1956,6 +2017,49 @@ export class Runner {
 		);
 	}
 
+	/** Failure for a non-success agent result; a length stop first persists the truncated reply. */
+	private failureFor(
+		run: RunState,
+		taskId: string,
+		attempt: number,
+		result: AgentResult,
+		handoffPath?: string,
+	): Failure {
+		const base = resultFailure(result);
+		if (base.cls !== "AGENT_LENGTH_STOP") return base;
+		const dir = handoffPath
+			? dirname(handoffPath)
+			: join(this.repoRoot, ".harness", "runs", run.id, taskId);
+		const body =
+			result.text ||
+			"(no partial output: the model hit the output-token cap before emitting any text)";
+		try {
+			mkdirSync(dir, { recursive: true });
+			for (let n = 1; ; n++) {
+				const name = `partial-${taskId}-attempt${attempt}${n > 1 ? `-${n}` : ""}.md`;
+				const path = join(dir, name);
+				try {
+					writeFileSync(path, `${body}\n`, { flag: "wx" });
+					return { ...base, logPath: path };
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+				}
+			}
+		} catch {
+			return base;
+		}
+	}
+
+	private lastPlannerFailure(runId: string): Failure | undefined {
+		const last = this.store
+			.events(runId)
+			.filter((event) => event.kind === "planner_result")
+			.at(-1);
+		return last?.data.outcome === "failure"
+			? (last.data.failure as Failure | undefined)
+			: undefined;
+	}
+
 	private currentTask(run: RunState): TaskState | undefined {
 		if (!run.currentTaskId) return undefined;
 		return this.store
@@ -2065,7 +2169,10 @@ export class Runner {
 			return this.context.writeHandoff(run, task, {
 				role,
 				summary: resultText(result),
-				failure: result.status === "idle" ? undefined : resultFailure(result),
+				failure:
+					result.status === "idle" && !isLengthStop(result)
+						? undefined
+						: resultFailure(result),
 				agentId: result.agentId,
 				evidence: this.worktreeEvidence(run),
 			});

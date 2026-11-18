@@ -125,6 +125,9 @@ class FakeAgentPort implements AgentPort {
 			status: "idle",
 			agentId: record.agentId,
 			text: JSON.stringify({ summary: "fake worker turn ended" }),
+			...(process.env.HARNESS_FAKE_STOP_REASON
+				? { stopReason: process.env.HARNESS_FAKE_STOP_REASON }
+				: {}),
 		};
 	}
 

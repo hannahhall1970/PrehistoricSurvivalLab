@@ -80,6 +80,8 @@ export type FailureClass =
 	| "TIMEOUT"
 	| "PERMISSION_REQUIRED"
 	| "AGENT_ERROR" // worker crashed / returned invalid structured output
+	| "AGENT_LENGTH_STOP" // model hit its output-token cap; retry must change the prompt/contract
+	| "ENGINE_CRASH" // UE process crashed (Fatal error / assertion / signal); distinct from a test failure
 	| "CONTRACT_INVALID" // plan/task contract failed validation
 	| "REVIEW_REJECTED"
 	| "REVIEW_PROTOCOL_ERROR" // reviewer reply not in a documented format; never an implementer fault
@@ -188,6 +190,8 @@ export interface AgentResult {
 	structured?: unknown; // parsed JSON when outputSchema was given
 	text?: string;
 	error?: string;
+	/** Provider stop reason of the last assistant turn when known; "length" = output-token cap hit. */
+	stopReason?: string;
 	permission?: { requestId: string; description: string };
 }
 

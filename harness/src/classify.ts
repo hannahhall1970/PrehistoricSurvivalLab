@@ -26,6 +26,14 @@ export function classifyLog(
 ): Failure {
 	const lines = logText.split(/\r?\n/);
 	const nonEmpty = lines.filter((line) => line.trim());
+	// Unambiguous test verdicts win over everything below: stray "No SDK"/"Assertion failed:" noise must not mask them.
+	const realFail = lines.filter((line) =>
+		/Test Completed\. Result=\{Fail\}|PSL_REPORT_FAIL: PSL test failed:/i.test(
+			line,
+		),
+	);
+	if (gate === "TEST" && realFail.length)
+		return failure("TEST_FAILURE", realFail[0] ?? "Test failed", realFail);
 	// Messages emitted by scripts/{preflight,build,run_tests}.sh and Xcode when the toolchain is absent.
 	const toolchain = lines.filter((line) =>
 		/TOOLCHAIN_MISSING|Unreal Engine not found|(Build\.sh|UnrealEditor-Cmd) not found|requires Xcode|xcode-select:\s*error|No SDK/i.test(
@@ -41,8 +49,17 @@ export function classifyLog(
 	const disk = lines.filter((line) => /^DISK_LOW:/.test(line.trim()));
 	if (disk.length) return failure("DISK_LOW", disk[0] ?? "Disk low", disk);
 
+	// A crash explains any report-completeness failures that follow it (missing tests, zero tests).
+	const crash = lines.filter((line) =>
+		/Fatal error:|Assertion failed:|Unhandled Exception:\s*SIG|=== Critical error: ===|Signal:\s*SIG[A-Z]+/.test(
+			line,
+		),
+	);
+	if (gate === "TEST" && crash.length)
+		return failure("ENGINE_CRASH", crash[0] ?? "Engine crashed", crash);
+
 	const automation = lines.filter((line) =>
-		/Test Completed\. Result=\{Fail\}|AutomationController:\s*Error:|LogAutomationController:\s*Error:|PSL_REPORT_FAIL/i.test(
+		/AutomationController:\s*Error:|LogAutomationController:\s*Error:|PSL_REPORT_FAIL/i.test(
 			line,
 		),
 	);

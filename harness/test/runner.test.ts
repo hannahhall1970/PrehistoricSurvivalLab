@@ -453,6 +453,35 @@ describe("PSL.Runner", () => {
 		);
 	});
 
+	it("fails an approve when the tree changed during a no-gate review (SEC-G2)", async () => {
+		const repo = gitRepoPath();
+		const agents = new FakeAgents(async (request) => {
+			if (request.role === "reviewer") {
+				writeFileSync(join(request.cwd, "docs-late.md"), "unreviewed\n");
+				return {
+					status: "idle",
+					agentId: "reviewer",
+					structured: { verdict: "approve", findings: [] },
+				};
+			}
+			return { status: "idle", agentId: "worker" };
+		});
+		const { runner: instance, store } = runner(
+			dbPath(),
+			agents,
+			new FakeGates(),
+			"test-owner",
+			repo,
+		);
+		const run = await instance.start("no-gate review mutation", {
+			tasks: [task(false, 1)],
+		});
+		expect(run.stage).toBe("FAILED");
+		expect(store.getTasks(run.id)[0]?.lastFailure?.summary).toContain(
+			"tree changed during review",
+		);
+	});
+
 	it("invalidates gate evidence when review stages a post-test change", async () => {
 		const repo = gitRepoPath();
 		const agents = new FakeAgents(async (request) => {
@@ -969,6 +998,33 @@ describe("PSL.Runner", () => {
 		first.runner.requestStop(run.id);
 		const stopped = await started;
 		expect(stopped.stage).toBe("STOPPED");
+	});
+
+	it("does not record a task failure when the user stops a running gate", async () => {
+		let gateStarted!: () => void;
+		const started = new Promise<void>((resolve) => (gateStarted = resolve));
+		class StoppableGates extends FakeGates {
+			override async build(signal?: AbortSignal): Promise<GateResult> {
+				gateStarted();
+				await new Promise<void>((resolve) =>
+					signal?.addEventListener("abort", () => resolve(), { once: true }),
+				);
+				return gate("BUILD", "FAILURE", "CANCELLED");
+			}
+		}
+		const { runner: instance, store } = runner(
+			dbPath(),
+			new FakeAgents(),
+			new StoppableGates(),
+		);
+		const running = instance.start("stop gate", { tasks: [task(true, 2)] });
+		await started;
+		instance.requestStop(store.listRuns()[0]!.id);
+		const stopped = await running;
+		expect(stopped.stage).toBe("STOPPED");
+		const [stoppedTask] = store.getTasks(stopped.id);
+		expect(stoppedTask?.lastFailure).toBeUndefined();
+		expect(store.events(stopped.id).some((e) => e.kind === "failure")).toBe(false);
 	});
 
 	it("rejects a second active repo writer and reclaims an expired lease", async () => {
