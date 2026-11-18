@@ -52,6 +52,16 @@ public:
     // Re-sets every static label (HEALTH, DEAD, PREY DOWN, HIT...) and replays the last value/state texts (culture change).
     void RefreshTexts();
 
+    // Hunt messages (carnivore only): near range with hysteresis, 2D uu.
+    static constexpr float PreyNearRadius = 2500.0f;
+    static constexpr float PreyFarRadius = 3500.0f;
+
+    // Hysteresis: far -> near at <= PreyNearRadius, near -> far at >= PreyFarRadius. NearestDist = TNumericLimits<float>::Max() when no live prey.
+    static bool NextPreyNear(bool bWasNear, float NearestDist);
+
+    // Edge decision: "PreyNearby" on rising edge; "PreyEscaped" on falling edge after a bite hit with no kill; else NAME_None.
+    static FName DecideHuntMessage(bool bWasNear, bool bNowNear, bool bHitWhileNear, bool bKilledWhileNear);
+
 protected:
     virtual void NativeConstruct() override;
     virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
@@ -68,6 +78,9 @@ private:
 
     UFUNCTION()
     void HandleBiteHit();
+    bool bPreyNear = false;
+    bool bHitWhileNear = false;
+    bool bKilledWhileNear = false;
     FDelegateHandle CultureHandle;
 
     // Last pushed values, replayed by RefreshTexts so value/state texts follow a culture change without waiting for a tick.

@@ -138,4 +138,33 @@ bool FPSLHudHintBackingTest::RunTest(const FString& Parameters)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLHudHuntDecisionTest, "PSL.Hud.HuntDecision", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPSLHudHuntDecisionTest::RunTest(const FString& Parameters)
+{
+    const FName Nearby(TEXT("PreyNearby"));
+    const FName Escaped(TEXT("PreyEscaped"));
+    TestEqual(TEXT("Rising edge -> PreyNearby"), UPSLHudWidget::DecideHuntMessage(false, true, false, false), Nearby);
+    TestEqual(TEXT("Falling edge, hit, no kill -> PreyEscaped"), UPSLHudWidget::DecideHuntMessage(true, false, true, false), Escaped);
+    TestEqual(TEXT("Falling edge without hit -> none"), UPSLHudWidget::DecideHuntMessage(true, false, false, false), NAME_None);
+    TestEqual(TEXT("Falling edge with kill -> none"), UPSLHudWidget::DecideHuntMessage(true, false, true, true), NAME_None);
+    TestEqual(TEXT("Falling edge with kill, no hit -> none"), UPSLHudWidget::DecideHuntMessage(true, false, false, true), NAME_None);
+    TestEqual(TEXT("Steady near -> none"), UPSLHudWidget::DecideHuntMessage(true, true, true, false), NAME_None);
+    TestEqual(TEXT("Steady far -> none"), UPSLHudWidget::DecideHuntMessage(false, false, true, false), NAME_None);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLHudPreyNearHysteresisTest, "PSL.Hud.PreyNearHysteresis", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPSLHudPreyNearHysteresisTest::RunTest(const FString& Parameters)
+{
+    TestTrue(TEXT("2400 from far -> near"), UPSLHudWidget::NextPreyNear(false, 2400.0f));
+    TestTrue(TEXT("3000 while near stays near"), UPSLHudWidget::NextPreyNear(true, 3000.0f));
+    TestFalse(TEXT("3000 from far stays far"), UPSLHudWidget::NextPreyNear(false, 3000.0f));
+    TestFalse(TEXT("3600 while near -> far"), UPSLHudWidget::NextPreyNear(true, 3600.0f));
+    TestFalse(TEXT("No live prey (Max) from far -> far"), UPSLHudWidget::NextPreyNear(false, TNumericLimits<float>::Max()));
+    TestFalse(TEXT("No live prey (Max) while near -> far"), UPSLHudWidget::NextPreyNear(true, TNumericLimits<float>::Max()));
+    return true;
+}
+
 #endif

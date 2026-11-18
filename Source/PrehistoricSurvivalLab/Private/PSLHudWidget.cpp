@@ -13,12 +13,14 @@
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/SizeBox.h"
+#include "EngineUtils.h"
 #include "Engine/World.h"
 #include "PSLPreyCharacter.h"
 #include "PSLCharacter.h"
 #include "PSLHUD.h"
 #include "PSLUiStyle.h"
 #include "PSLStatsComponent.h"
+#include "PSLDinoSpecies.h"
 #include "PSLSurvivalComponent.h"
 
 #define LOCTEXT_NAMESPACE "PSL"
@@ -309,6 +311,11 @@ void UPSLHudWidget::HandlePreyKilled(APSLPreyCharacter* Prey, AActor* Killer)
         KillBannerRemaining = KillBannerSeconds;
         KillBannerText->SetVisibility(ESlateVisibility::HitTestInvisible);
     }
+    if (Killer && Killer == GetOwningPlayerPawn() && bPreyNear)
+    {
+        bKilledWhileNear = true;
+        bHitWhileNear = false;
+    }
 }
 
 void UPSLHudWidget::HandleBiteHit()
@@ -318,6 +325,28 @@ void UPSLHudWidget::HandleBiteHit()
         HitMarkerRemaining = HitMarkerSeconds;
         HitMarkerText->SetVisibility(ESlateVisibility::HitTestInvisible);
     }
+    if (bPreyNear)
+    {
+        bHitWhileNear = true;
+    }
+}
+
+bool UPSLHudWidget::NextPreyNear(bool bWasNear, float NearestDist)
+{
+    return bWasNear ? NearestDist < PreyFarRadius : NearestDist <= PreyNearRadius;
+}
+
+FName UPSLHudWidget::DecideHuntMessage(bool bWasNear, bool bNowNear, bool bHitWhileNear, bool bKilledWhileNear)
+{
+    if (!bWasNear && bNowNear)
+    {
+        return FName(TEXT("PreyNearby"));
+    }
+    if (bWasNear && !bNowNear && bHitWhileNear && !bKilledWhileNear)
+    {
+        return FName(TEXT("PreyEscaped"));
+    }
+    return NAME_None;
 }
 
 void UPSLHudWidget::NativeDestruct()
@@ -375,10 +404,42 @@ void UPSLHudWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
             Old->OnBiteHit.RemoveAll(this);
         }
         BoundCharacter = Character;
+        bPreyNear = bHitWhileNear = bKilledWhileNear = false;
         if (Character)
         {
             Character->OnBiteHit.AddDynamic(this, &UPSLHudWidget::HandleBiteHit);
         }
+    }
+
+    // Hunt messages: carnivore pawns only.
+    const UPSLDinoSpecies* Species = Character ? Character->GetSpecies() : nullptr;
+    if (Species && Species->Diet == EPSLDiet::Carnivore)
+    {
+        float NearestSq = TNumericLimits<float>::Max();
+        const FVector Here = Character->GetActorLocation();
+        for (TActorIterator<APSLPreyCharacter> It(GetWorld()); It; ++It)
+        {
+            if (!It->IsDead())
+            {
+                NearestSq = FMath::Min(NearestSq, static_cast<float>(FVector::DistSquared2D(Here, It->GetActorLocation())));
+            }
+        }
+        const float Nearest = NearestSq == TNumericLimits<float>::Max() ? NearestSq : FMath::Sqrt(NearestSq);
+        const bool bNowNear = NextPreyNear(bPreyNear, Nearest);
+        const FName Message = DecideHuntMessage(bPreyNear, bNowNear, bHitWhileNear, bKilledWhileNear);
+        if (!Message.IsNone())
+        {
+            ShowMessage(Message);
+        }
+        if (bNowNear != bPreyNear)
+        {
+            bHitWhileNear = bKilledWhileNear = false;
+        }
+        bPreyNear = bNowNear;
+    }
+    else
+    {
+        bPreyNear = bHitWhileNear = bKilledWhileNear = false;
     }
     const UPSLStatsComponent* Stats = Character ? Character->GetStatsComponent() : nullptr;
     const UPSLSurvivalComponent* Survival = Character ? Character->GetSurvivalComponent() : nullptr;
