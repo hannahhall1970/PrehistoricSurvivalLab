@@ -133,7 +133,9 @@ void UPSLHudWidget::BuildTree()
     HintBox->SetPadding(FMargin(14.0f, 6.0f));
     HintBox->SetVisibility(ESlateVisibility::Collapsed);
     HintText = MakeLabel(WidgetTree, FText::GetEmpty(), 14, FPSLUiStyle::Text());
-    HintText->SetAutoWrapText(true);
+    // No AutoWrapText: with it, FSlateTextBlockLayout::CalculateWrappingWidth takes Min(WrapTextAt, CachedSize.X) (SlateTextBlockLayout.cpp:402-404)
+    // and CachedSize is the previous allotted geometry (:240), which inside the auto-sized canvas slot is a stale narrow width ("Bite to" / "eat").
+    // WrapTextAt alone bounds wrapping by the fixed 296 px, independent of layout.
     HintText->SetWrapTextAt(296.0f);
     HintBox->SetContent(HintText);
     UCanvasPanelSlot* HintSlot = Root->AddChildToCanvas(HintBox);

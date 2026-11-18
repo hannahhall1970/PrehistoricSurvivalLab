@@ -190,8 +190,10 @@ bool FPSLUiVietnameseLayoutTest::RunTest(const FString& Parameters)
             TestEqual(FString::Printf(TEXT("%s: typeface"), Bound.What), Actual.TypefaceFontName, FPSLUiStyle::TypefaceName(Bound.Weight));
         }
         const float Width = FontUiWidestLine(*Measure, Bound.Vi, Actual);
-        const bool bWraps = Bound.Block->GetAutoWrapText();
-        TestTrue(FString::Printf(TEXT("%s: fits %.0f px (%.1f) or AutoWrapText is on"), Bound.What, Bound.Bound, Width), Width <= Bound.Bound || bWraps);
+        // A label wraps within its bound via AutoWrapText (panel-bounded) or a positive WrapTextAt <= Bound (layout-independent).
+        const float WrapAtBound = Bound.Block->GetWrapTextAt();
+        const bool bWraps = Bound.Block->GetAutoWrapText() || (WrapAtBound > 0.0f && WrapAtBound <= Bound.Bound);
+        TestTrue(FString::Printf(TEXT("%s: fits %.0f px (%.1f) or wraps within the bound"), Bound.What, Bound.Bound, Width), Width <= Bound.Bound || bWraps);
         if (bWraps && Width > Bound.Bound)
         {
             TArray<FString> Words;

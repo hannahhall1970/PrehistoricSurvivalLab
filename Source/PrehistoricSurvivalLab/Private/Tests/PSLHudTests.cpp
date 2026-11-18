@@ -131,6 +131,8 @@ bool FPSLHudHintBackingTest::RunTest(const FString& Parameters)
     Widget->SetHunger(50.0f, 100.0f, false, Bite);
     TestNotEqual(TEXT("Hint strip shown with a hint"), Widget->GetHintBox()->GetVisibility(), ESlateVisibility::Collapsed);
     TestEqual(TEXT("Hint text kept"), Widget->GetHintText()->GetText().ToString(), Bite.ToString());
+    TestFalse(TEXT("Hint text does not auto-wrap to allotted geometry"), Widget->GetHintText()->GetAutoWrapText());
+    TestEqual(TEXT("Hint text wraps at the fixed 296 px bound"), Widget->GetHintText()->GetWrapTextAt(), 296.0f);
     TestTrue(TEXT("Hint strip has the umber backing"), Widget->GetHintBox()->GetBrushColor().Equals(FPSLUiStyle::Backing()));
     TestTrue(TEXT("Hint text is parchment"), Widget->GetHintText()->GetColorAndOpacity().GetSpecifiedColor().Equals(FPSLUiStyle::Text()));
     Widget->SetHunger(50.0f, 100.0f, false, FText::GetEmpty());
