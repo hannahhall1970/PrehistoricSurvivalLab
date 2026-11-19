@@ -279,7 +279,19 @@ float APSLCharacter::TakeDamage(float DamageAmount, FDamageEvent const& DamageEv
 {
     // Super applies engine damage modifiers and broadcasts OnTakeAnyDamage for Blueprints.
     const float ActualDamage = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
-    return StatsComponent ? StatsComponent->ApplyDamage(ActualDamage) : 0.0f;
+    if (!StatsComponent)
+    {
+        return 0.0f;
+    }
+    // ApplyDamage returns 0 for Amount <= 0 and for an already dead player, so Applied > 0 means a living player lost health.
+    const float Applied = StatsComponent->ApplyDamage(ActualDamage);
+    if (Applied > 0.0f)
+    {
+        // No causer (fall, unknown source): no location, so the HUD shows no directional marker.
+        const EPSLDamageKind Kind = DamageCauser ? EPSLDamageKind::Bite : EPSLDamageKind::Unknown;
+        OnDamageTaken.Broadcast(Applied, StatsComponent->GetHealth(), Kind, DamageCauser ? DamageCauser->GetActorLocation() : FVector::ZeroVector, DamageCauser != nullptr);
+    }
+    return Applied;
 }
 
 void APSLCharacter::Move(const FInputActionValue& Value)

@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "PSLCharacter.h"
+#include "PSLDamageFeedback.h"
 #include "PSLHudWidget.generated.h"
 
 class UProgressBar;
@@ -29,6 +31,7 @@ public:
     UTextBlock* GetHintText() const { return HintText; }
 
     UProgressBar* GetHealthBar() const { return HealthBar; }
+    UProgressBar* GetGhostBar() const { return GhostBar; }
     UProgressBar* GetStaminaBar() const { return StaminaBar; }
     UTextBlock* GetStateText() const { return StateText; }
     UTextBlock* GetDeadText() const { return DeadText; }
@@ -59,6 +62,13 @@ private:
 
     UFUNCTION()
     void HandleBiteHit();
+
+    // Sole source of damage feedback (bar flash, ghost trail). Heal, starvation and SetHealth restore never reach it.
+    UFUNCTION()
+    void HandleDamageTaken(float Amount, float NewHealth, EPSLDamageKind Kind, FVector CauserLocation, bool bHasCauser);
+
+    // Per-tick: ages the flash, steps the ghost toward the real health fraction and sizes the ghost segment.
+    void StepDamageFeedback(float RealFraction, bool bDead, float DeltaSeconds);
     FDelegateHandle CultureHandle;
 
     // Last pushed values, replayed by RefreshTexts so value/state texts follow a culture change without waiting for a tick.
@@ -81,6 +91,16 @@ private:
     float HitMarkerRemaining = 0.0f;
     bool bStarvingFlash = false;
     float FlashTime = 0.0f;
+
+    // Hit feedback state. HudTime is accumulated tick time (no wall clock) so the 3 Hz flash cap is deterministic.
+    PSLDamageFeedback::FGhostBar Ghost;
+    float FlashRemaining = 0.0f;
+    double HudTime = 0.0;
+    double LastFlashTime = -1.0e9;
+
+    // Thin strip under the health bar that trails the real value after a hit; hidden while idle.
+    UPROPERTY(Transient)
+    TObjectPtr<UProgressBar> GhostBar;
 
     UPROPERTY(Transient)
     TObjectPtr<UProgressBar> HungerBar;

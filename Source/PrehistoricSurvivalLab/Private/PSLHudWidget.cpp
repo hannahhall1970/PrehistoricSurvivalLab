@@ -104,7 +104,7 @@ void UPSLHudWidget::BuildTree()
     PanelSlot->SetAnchors(FAnchors(0.0f, 1.0f, 0.0f, 1.0f));
     PanelSlot->SetAlignment(FVector2D(0.0f, 1.0f));
     PanelSlot->SetPosition(FVector2D(32.0f, -32.0f));
-    PanelSlot->SetSize(FVector2D(320.0f, 210.0f));
+    PanelSlot->SetSize(FVector2D(320.0f, 218.0f));
 
     UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("Column"));
     Panel->SetContent(Column);
@@ -112,6 +112,15 @@ void UPSLHudWidget::BuildTree()
     UTextBlock* HealthValue = nullptr;
     UTextBlock* StaminaValue = nullptr;
     HealthBar = MakeBar(WidgetTree, Column, LOCTEXT("HudHealth", "HEALTH"), LOCTEXT("HudHealthGlyph", "+"), FLinearColor(0.8f, 0.1f, 0.1f, 1.0f), HealthValue, CaptionTexts, GlyphTexts);
+    // Ghost strip right under the health bar: a separate shape (not only a colour) that trails each hit.
+    GhostBar = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass(), TEXT("GhostBar"));
+    GhostBar->SetFillColorAndOpacity(FPSLUiStyle::Accent());
+    GhostBar->SetPercent(0.0f);
+    GhostBar->SetVisibility(ESlateVisibility::Hidden);
+    USizeBox* GhostBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+    GhostBox->SetHeightOverride(4.0f);
+    GhostBox->SetContent(GhostBar);
+    Column->InsertChildAt(Column->GetChildIndex(HealthBar) + 1, GhostBox);
     StaminaBar = MakeBar(WidgetTree, Column, LOCTEXT("HudStamina", "STAMINA"), LOCTEXT("HudStaminaGlyph", ">"), FLinearColor(0.2f, 0.8f, 0.3f, 1.0f), StaminaValue, CaptionTexts, GlyphTexts);
     UTextBlock* HungerValue = nullptr;
     HungerBar = MakeBar(WidgetTree, Column, LOCTEXT("HudHunger", "HUNGER"), LOCTEXT("HudHungerGlyph", "o"), FPSLUiStyle::Accent(), HungerValue, CaptionTexts, GlyphTexts);
@@ -222,7 +231,8 @@ void UPSLHudWidget::SetValues(float Health, float MaxHealth, float Stamina, floa
     HealthValueText->SetText(FText::Format(LOCTEXT("HudValueFmt", "{0} / {1}"), FText::AsNumber(FMath::RoundToInt(Health)), FText::AsNumber(FMath::RoundToInt(MaxHealth))));
     StaminaValueText->SetText(FText::Format(LOCTEXT("HudValueFmt", "{0} / {1}"), FText::AsNumber(FMath::RoundToInt(Stamina)), FText::AsNumber(FMath::RoundToInt(MaxStamina))));
 
-    HealthBar->SetFillColorAndOpacity(bDead ? FLinearColor(0.4f, 0.4f, 0.4f, 1.0f) : FLinearColor(0.8f, 0.1f, 0.1f, 1.0f));
+    // The hit flash (high-contrast text colour, <= 0.2 s) wins over the base red; dead stays grey.
+    HealthBar->SetFillColorAndOpacity(bDead ? FLinearColor(0.4f, 0.4f, 0.4f, 1.0f) : (FlashRemaining > 0.0f ? FPSLUiStyle::Text() : FLinearColor(0.8f, 0.1f, 0.1f, 1.0f)));
     StaminaBar->SetFillColorAndOpacity(bExhausted ? FLinearColor(0.9f, 0.5f, 0.0f, 1.0f) : FLinearColor(0.2f, 0.8f, 0.3f, 1.0f));
 
     const FText State = bExhausted ? LOCTEXT("HudExhausted", "EXHAUSTED") : (bSprinting ? LOCTEXT("HudSprinting", "SPRINTING") : FText::GetEmpty());
@@ -267,6 +277,43 @@ void UPSLHudWidget::HandleBiteHit()
     }
 }
 
+void UPSLHudWidget::HandleDamageTaken(float Amount, float NewHealth, EPSLDamageKind Kind, FVector CauserLocation, bool bHasCauser)
+{
+    const APSLCharacter* Character = BoundCharacter.Get();
+    const UPSLStatsComponent* Stats = Character ? Character->GetStatsComponent() : nullptr;
+    if (Amount <= 0.0f || !HealthBar || !Stats)
+    {
+        return;
+    }
+    // At most 3 flashes per second; a faster second hit still moves the ghost target below.
+    if (PSLDamageFeedback::ShouldFlash(HudTime, LastFlashTime))
+    {
+        LastFlashTime = HudTime;
+        FlashRemaining = PSLDamageFeedback::FlashSeconds;
+    }
+    PSLDamageFeedback::GhostOnHit(Ghost, APSLHUD::BarFraction(NewHealth, Stats->GetMaxHealth()));
+}
+
+void UPSLHudWidget::StepDamageFeedback(float RealFraction, bool bDead, float DeltaSeconds)
+{
+    if (bDead)
+    {
+        // Death wins: no flash, no trail.
+        FlashRemaining = 0.0f;
+        Ghost = PSLDamageFeedback::FGhostBar{RealFraction, 0.0f, 0.0f};
+    }
+    else
+    {
+        FlashRemaining = FMath::Max(0.0f, FlashRemaining - DeltaSeconds);
+        PSLDamageFeedback::GhostStep(Ghost, RealFraction, DeltaSeconds);
+    }
+    if (GhostBar)
+    {
+        GhostBar->SetPercent(Ghost.Fraction);
+        GhostBar->SetVisibility(Ghost.Fraction > RealFraction ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Hidden);
+    }
+}
+
 void UPSLHudWidget::NativeDestruct()
 {
     if (CultureHandle.IsValid())
@@ -278,6 +325,7 @@ void UPSLHudWidget::NativeDestruct()
     if (APSLCharacter* Bound = BoundCharacter.Get())
     {
         Bound->OnBiteHit.RemoveAll(this);
+        Bound->OnDamageTaken.RemoveAll(this);
     }
     BoundCharacter.Reset();
     Super::NativeDestruct();
@@ -311,11 +359,15 @@ void UPSLHudWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
         if (APSLCharacter* Old = BoundCharacter.Get())
         {
             Old->OnBiteHit.RemoveAll(this);
+            Old->OnDamageTaken.RemoveAll(this);
         }
         BoundCharacter = Character;
+        FlashRemaining = 0.0f;
+        Ghost = PSLDamageFeedback::FGhostBar{};
         if (Character)
         {
             Character->OnBiteHit.AddDynamic(this, &UPSLHudWidget::HandleBiteHit);
+            Character->OnDamageTaken.AddDynamic(this, &UPSLHudWidget::HandleDamageTaken);
         }
     }
     const UPSLStatsComponent* Stats = Character ? Character->GetStatsComponent() : nullptr;
@@ -325,6 +377,8 @@ void UPSLHudWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
         return;
     }
 
+    HudTime += InDeltaTime;
+    StepDamageFeedback(APSLHUD::BarFraction(Stats->GetHealth(), Stats->GetMaxHealth()), Stats->IsDead(), InDeltaTime);
     SetValues(Stats->GetHealth(), Stats->GetMaxHealth(), Survival->GetStamina(), Survival->GetMaxStamina(),
         Survival->IsSprinting(), Survival->IsSprintLocked(), Stats->IsDead());
     SetHunger(Survival->GetHunger(), Survival->GetMaxHunger(), Survival->IsStarving() && !Stats->IsDead(), Character->GetFoodHint());

@@ -24,6 +24,19 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FPSLBiteHitSignature);
 // Fired when a bite ate Amount hunger worth of food (carcass meat or plant).
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FPSLAteFoodSignature, float, Amount);
 
+// What hurt the player. Starvation drains through UPSLStatsComponent::ApplyDamage and never raises OnDamageTaken; the value is reserved for future injury/bleeding tints.
+UENUM(BlueprintType)
+enum class EPSLDamageKind : uint8
+{
+    Bite,
+    Starvation,
+    Unknown
+};
+
+// Fired once per APSLCharacter::TakeDamage that applied damage to a living player. NewHealth is the health after the hit.
+// CauserLocation is only meaningful when bHasCauser (damage came with a live causer actor). Hit feedback (HUD) listens here, never to OnHealthChanged.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_FiveParams(FPSLDamageTakenSignature, float, Amount, float, NewHealth, EPSLDamageKind, Kind, FVector, CauserLocation, bool, bHasCauser);
+
 UCLASS()
 class PREHISTORICSURVIVALLAB_API APSLCharacter : public ACharacter
 {
@@ -88,6 +101,9 @@ public:
 
     UPROPERTY(BlueprintAssignable, Category="Combat")
     FPSLBiteHitSignature OnBiteHit;
+
+    UPROPERTY(BlueprintAssignable, Category="Combat")
+    FPSLDamageTakenSignature OnDamageTaken;
 
     // Pawns overlapped by the last resolved bite; -1 while a bite is pending (stays -1 if the player dies before it resolves).
     UPROPERTY(BlueprintReadOnly, Category="Combat")
