@@ -229,6 +229,7 @@ bool FPSLHudDamageFeedbackTest::RunTest(const FString& Parameters)
         TestEqual(TEXT("Damage after death raises no event"), Listener->DamageCalls, 3);
     }
 
+    World->EndPlay(EEndPlayReason::Quit);
     GEngine->DestroyWorldContext(World);
     World->DestroyWorld(false);
     return true;

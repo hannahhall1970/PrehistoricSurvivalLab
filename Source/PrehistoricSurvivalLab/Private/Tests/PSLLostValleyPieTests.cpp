@@ -1102,8 +1102,10 @@ bool FPSLLostValleyPredatorTest::RunTest(const FString& Parameters)
             return false; // the hit lands AttackHitDelay after entering Attack
         }
         Ctx.Test->AddInfo(FString::Printf(TEXT("Player health %.1f -> %.1f"), Run->HealthBefore, Ctx.Character->GetStatsComponent()->GetHealth()));
+        RequestScreenshot(Ctx, TEXT("predator_bite")); // flash 0.2 s / ghost bar 0.4 s: capture in the detection step
         return true;
     });
+    QueueAwaitScreenshot(Context, TEXT("predator_bite"));
 
     // Back in Chase, the player vanishes beyond LoseSightRadius 2600: on landscape ground 3200-4000 uu further along
     // the predator->player direction (away from the predator).
