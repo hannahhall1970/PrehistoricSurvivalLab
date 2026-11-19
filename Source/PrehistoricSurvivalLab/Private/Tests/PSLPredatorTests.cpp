@@ -71,6 +71,22 @@ bool FPSLPredatorDecisionTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Idle never investigates"), Decide(E::Idle, false, false, 0.0f, true, false, false), E::Idle);
     TestEqual(TEXT("Patrol never investigates"), Decide(E::Patrol, false, false, 0.0f, true, false, false), E::Patrol);
 
+    // Heard noise: investigate its source from calm states; never interrupts a chase, an attack or a recovery.
+    auto Heard = [&Tuning](E Current, bool bExpired)
+    {
+        FPSLPredatorSenses S;
+        S.bHeardNoise = true;
+        S.bHasLastKnownPosition = true;
+        S.bStateTimerExpired = bExpired;
+        return DecidePredatorState(S, Tuning, Current);
+    };
+    TestEqual(TEXT("Idle hears noise -> Investigate"), Heard(E::Idle, false), E::Investigate);
+    TestEqual(TEXT("Patrol hears noise -> Investigate"), Heard(E::Patrol, false), E::Investigate);
+    TestEqual(TEXT("Investigate hears noise after timer -> keeps investigating"), Heard(E::Investigate, true), E::Investigate);
+    TestEqual(TEXT("Recover holds despite noise"), Heard(E::Recover, false), E::Recover);
+    TestEqual(TEXT("Attack -> Recover despite noise"), Heard(E::Attack, false), E::Recover);
+    TestEqual(TEXT("Chase, target lost, timer expired: noise does not extend the chase"), Heard(E::Chase, true), E::Idle);
+
     // Rule 7: Idle/Patrol timer cycle.
     TestEqual(TEXT("Idle waits for the timer"), Decide(E::Idle, false, false, 0.0f, false, false, false), E::Idle);
     TestEqual(TEXT("Idle -> Patrol on timer"), Decide(E::Idle, false, false, 0.0f, false, false, true), E::Patrol);

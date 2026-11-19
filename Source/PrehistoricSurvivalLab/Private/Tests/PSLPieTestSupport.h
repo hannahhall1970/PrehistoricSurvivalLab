@@ -33,6 +33,8 @@
 #include "PSLDinoAnimInstance.h"
 #include "PSLPreyAIController.h"
 #include "PSLPreyCharacter.h"
+#include "PSLPredatorAIController.h"
+#include "PSLPredatorCharacter.h"
 #include "PSLStatsComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "EngineUtils.h"
@@ -660,6 +662,52 @@ inline bool PressKeyUI(FPSLPieCtx& Context, const FKey& Key)
     const bool bDown = Slate.ProcessKeyDownEvent(Event);
     Slate.ProcessKeyUpEvent(Event);
     return bDown;
+}
+
+struct FPredatorRun
+{
+    TWeakObjectPtr<APSLPredatorCharacter> Predator;
+    int32 Seen = 0; // transitions already consumed
+    double StepStart = -1.0;
+    float HealthBefore = 0.0f;
+};
+
+inline APSLPredatorAIController* AIOf(const FPredatorRun& Run)
+{
+    return Run.Predator.IsValid() ? Cast<APSLPredatorAIController>(Run.Predator->GetController()) : nullptr;
+}
+
+// Consumes recorded transitions; true once one enters To (and, if given, with Reason).
+inline bool ConsumeUntil(FPredatorRun& Run, EPSLPredatorState To, const TCHAR* Reason = nullptr)
+{
+    const APSLPredatorAIController* AI = AIOf(Run);
+    if (!AI)
+    {
+        return false;
+    }
+    const TArray<FPSLPredatorTransition>& All = AI->GetTransitions();
+    while (Run.Seen < All.Num())
+    {
+        const FPSLPredatorTransition& T = All[Run.Seen++];
+        if (T.To == To && (!Reason || T.Reason == Reason))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline FString DumpTransitions(const FPredatorRun& Run)
+{
+    FString Out;
+    if (const APSLPredatorAIController* AI = AIOf(Run))
+    {
+        for (const FPSLPredatorTransition& T : AI->GetTransitions())
+        {
+            Out += FString::Printf(TEXT("[%.2f %d->%d %s] "), T.WorldTime, int32(T.From), int32(T.To), *T.Reason);
+        }
+    }
+    return Out;
 }
 
 } // namespace PSLPie

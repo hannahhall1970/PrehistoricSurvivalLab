@@ -35,6 +35,12 @@ EPSLPredatorState DecidePredatorState(const FPSLPredatorSenses& Senses, const FP
         }
     }
 
+    // A noise sends the predator to check its source; a running chase is handled by the rule below.
+    if (Senses.bHeardNoise && Senses.bHasLastKnownPosition && Current != E::Chase)
+    {
+        return E::Investigate;
+    }
+
     if ((Current == E::Chase || Current == E::Investigate) && Senses.bHasLastKnownPosition && !Senses.bStateTimerExpired)
     {
         return E::Investigate;

@@ -15,6 +15,11 @@
 #include "Scalability.h"
 #include "Framework/Docking/TabManager.h"
 #include "Misc/App.h"
+#include "PSLPredatorAIController.h"
+#include "HAL/IConsoleManager.h"
+#include "NavigationData.h"
+#include "NavigationSystem.h"
+#include "PSLPredatorCharacter.h"
 
 extern ENGINE_API float GAverageFPS;
 extern ENGINE_API float GAverageMS;
@@ -112,12 +117,63 @@ double Dist2D(const AActor& A, const AActor& B)
     return FVector::Dist2D(A.GetActorLocation(), B.GetActorLocation());
 }
 
+// True when the cvar now holds Value (a console/ini set outranks ECVF_SetByCode and would be kept).
+bool SetPredatorSpawnCvar(int32 Value)
+{
+    IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("psl.Predator.Spawn"));
+    if (V)
+    {
+        V->Set(Value, ECVF_SetByCode);
+    }
+    return V && V->GetInt() == Value;
+}
+
+// Projects both points (extent 300,300,1000) and runs FindPathSync; true only for a successful, valid, non-partial path.
+bool CompletePathBetween(UWorld* World, const FVector& From, const FVector& To, FVector* OutFromNav = nullptr, FVector* OutToNav = nullptr, float* OutLength = nullptr)
+{
+    UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
+    const ANavigationData* NavData = Nav ? Nav->GetDefaultNavDataInstance(FNavigationSystem::DontCreate) : nullptr;
+    FNavLocation FromNav;
+    FNavLocation ToNav;
+    if (!NavData || !Nav->ProjectPointToNavigation(From, FromNav, FVector(300.0, 300.0, 1000.0))
+        || !Nav->ProjectPointToNavigation(To, ToNav, FVector(300.0, 300.0, 1000.0)))
+    {
+        return false;
+    }
+    const FPathFindingResult Result = Nav->FindPathSync(FPathFindingQuery(nullptr, *NavData, FromNav.Location, ToNav.Location));
+    if (!Result.IsSuccessful() || !Result.Path.IsValid() || Result.Path->IsPartial())
+    {
+        return false;
+    }
+    if (OutFromNav)
+    {
+        *OutFromNav = FromNav.Location;
+    }
+    if (OutToNav)
+    {
+        *OutToNav = ToNav.Location;
+    }
+    if (OutLength)
+    {
+        *OutLength = static_cast<float>(Result.Path->GetLength());
+    }
+    return true;
+}
+
 // Physical mouse input reaches the GUI PIE window and rotates the camera mid-capture; ignore look input for the whole test.
 // Steps that call SetControlRotation are unaffected. The lock is taken once the pawn is usable and always released at the end.
-bool QueueLostValleyStart(FAutomationTestBase& Test, const TSharedRef<FPSLPieCtx>& Context)
+// bWithPredator: psl.Predator.Spawn=2 before BeginPlay lets the GameMode spawn the predator under automation.
+bool QueueLostValleyStart(FAutomationTestBase& Test, const TSharedRef<FPSLPieCtx>& Context, bool bWithPredator = false)
 {
+    // Every valley start writes the cvar, so a value of 2 left by an aborted Predator test cannot leak into the next one.
+    if (!SetPredatorSpawnCvar(bWithPredator ? 2 : 1) && bWithPredator)
+    {
+        Test.AddError(TEXT("psl.Predator.Spawn could not be set to 2 (missing, or overridden by console/ini)"));
+        return false;
+    }
     if (!QueuePieStart(Test, Context, LostValleyMap))
     {
+        SetPredatorSpawnCvar(1); // QueueLostValleyEnd is never queued on this path
         return false;
     }
     AddPieStep(Context, TEXT("IgnoreLookInput"), 2.0f, [](FPSLPieCtx& Ctx)
@@ -136,6 +192,7 @@ void QueueLostValleyEnd(const TSharedRef<FPSLPieCtx>& Context)
     // HasObjects, not IsUsable: also release after a failed or timed-out step.
     AddPieStep(Context, TEXT("RestoreLookInput"), 1.0f, [](FPSLPieCtx& Ctx)
     {
+        SetPredatorSpawnCvar(1); // idempotent; runs even after failed steps
         if (Ctx.HasObjects())
         {
             Ctx.PC->ResetIgnoreLookInput();
@@ -875,6 +932,233 @@ bool FPSLLostValleyPerfTest::RunTest(const FString& Parameters)
             Ctx.Test->TestTrue(FString::Printf(TEXT("Rendered p95Ms <= 50 (was %.1f)"), Overall.P95Ms), Overall.P95Ms <= 50.0);
         }
         Ctx.Test->AddInfo(Json);
+        return true;
+    });
+    QueueLostValleyEnd(Context);
+    return true;
+}
+
+// GameMode spawn plus encounter: spawn -> pursuit -> attack/damage -> lose target -> disengage.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLLostValleyPredatorTest, "PSL.PIE.LostValley.Predator", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FPSLLostValleyPredatorTest::RunTest(const FString& Parameters)
+{
+    struct FPredatorExtra
+    {
+        FVector PlayerStart = FVector::ZeroVector;
+        FVector ChaseStart = FVector::ZeroVector;
+    };
+    const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("LostValley_Predator"));
+    const TSharedRef<FPredatorRun> Run = MakeShared<FPredatorRun>();
+    const TSharedRef<FPredatorExtra> Extra = MakeShared<FPredatorExtra>();
+    if (!QueueLostValleyStart(*this, Context, true))
+    {
+        return false;
+    }
+
+    // The GameMode rebuilds the empty navmesh at runtime (up to 60 s of retries) before it spawns.
+    AddPieStep(Context, TEXT("PredatorSpawned"), 75.0f, [Run, Extra](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable())
+        {
+            return true;
+        }
+        SetPredatorSpawnCvar(1); // BeginPlay already read it
+        TArray<APSLPredatorCharacter*> Predators;
+        for (TActorIterator<APSLPredatorCharacter> It(Ctx.World.Get()); It; ++It)
+        {
+            Predators.Add(*It);
+        }
+        if (Predators.Num() == 0)
+        {
+            return false;
+        }
+        if (!Ctx.Test->TestEqual(TEXT("Exactly one predator in L_LostValley"), Predators.Num(), 1))
+        {
+            Ctx.MarkInvalid(TEXT("Predator count is not 1"));
+            return true;
+        }
+        APSLPredatorCharacter* Predator = Predators[0];
+        APSLPredatorAIController* AI = Cast<APSLPredatorAIController>(Predator->GetController());
+        if (!AI)
+        {
+            Ctx.MarkInvalid(TEXT("Predator is not possessed by APSLPredatorAIController"));
+            return true;
+        }
+        const double Dist = Dist2D(*Predator, *Ctx.Character);
+        Ctx.Test->TestTrue(FString::Printf(TEXT("Predator spawned 4000-6000 uu from the player (%.0f)"), Dist), Dist >= 4000.0 && Dist <= 6000.0);
+
+        FVector PredNav;
+        FVector PlayerNav;
+        float PathLength = 0.0f;
+        if (!CompletePathBetween(Ctx.World.Get(), Predator->GetActorLocation(), Ctx.Character->GetActorLocation(), &PredNav, &PlayerNav, &PathLength))
+        {
+            Ctx.MarkInvalid(TEXT("No complete navmesh path from the predator to the player"));
+            return true;
+        }
+        Ctx.Test->AddInfo(FString::Printf(TEXT("Predator->player path length %.0f"), PathLength));
+
+        const FVector PlayerDir = (Predator->GetActorLocation() - Ctx.Character->GetActorLocation()).GetSafeNormal2D();
+        const double ViewDot = FVector::DotProduct(FRotator(0.0, Ctx.PC->GetControlRotation().Yaw, 0.0).Vector(), PlayerDir);
+        Ctx.Test->TestTrue(FString::Printf(TEXT("Predator spawned out of view (dot %.2f)"), ViewDot), ViewDot < 0.5);
+        Ctx.Test->TestTrue(TEXT("Predator starts calm (Idle/Patrol)"),
+            AI->GetPredatorState() == EPSLPredatorState::Idle || AI->GetPredatorState() == EPSLPredatorState::Patrol);
+
+        AI->IdleSeconds = 0.5f;
+        AI->InvestigateSeconds = 6.0f;
+        AI->RecoverSeconds = 0.5f;
+        Run->Predator = Predator;
+        Extra->PlayerStart = Ctx.Character->GetActorLocation();
+        return true;
+    });
+
+    // A real bite noise on the predator's side of the player, 1200-2000 uu away on reachable navmesh. The spot must be in
+    // clear sight of the predator's eyes (ECC_Visibility, the AI sight default) with a path < 2000 uu, so the predator
+    // closes inside SightRadius 1800 before InvestigateSeconds 6 at ~370 uu/s runs out.
+    AddPieStep(Context, TEXT("Approach"), 5.0f, [Run, Extra](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable())
+        {
+            return true;
+        }
+        APSLPredatorAIController* AI = AIOf(*Run);
+        if (!AI)
+        {
+            Ctx.MarkInvalid(TEXT("Predator or its controller is gone"));
+            return true;
+        }
+        const FVector P = Run->Predator->GetActorLocation();
+        const FVector D = (Extra->PlayerStart - P).GetSafeNormal2D();
+        for (const double Dist : {2000.0, 1600.0, 1200.0})
+        {
+            FVector Ground;
+            float PathLength = 0.0f;
+            FCollisionQueryParams Params(SCENE_QUERY_STAT(PSLPredatorApproachSight), false, Run->Predator.Get());
+            Params.AddIgnoredActor(Ctx.Character.Get());
+            if (GroundAt(Ctx.World.Get(), P.X + D.X * Dist, P.Y + D.Y * Dist, Ground)
+                && CompletePathBetween(Ctx.World.Get(), P, Ground, nullptr, nullptr, &PathLength) && PathLength < 2000.0f
+                && !Ctx.World->LineTraceTestByChannel(Run->Predator->GetPawnViewLocation(), Ground, ECC_Visibility, Params))
+            {
+                Run->Seen = AI->GetTransitions().Num();
+                TeleportTo(Ctx, Ground);
+                FaceYawToward(Ctx, P);
+                Ctx.Test->TestTrue(TEXT("Bite accepted (noise source)"), Ctx.Character->TryBite());
+                return true;
+            }
+        }
+        Ctx.MarkInvalid(FString::Printf(TEXT("No visible ground 1200-2000 uu from the predator at %s with a complete path < 2000 uu"), *P.ToCompactString()));
+        return true;
+    });
+    AddPieStep(Context, TEXT("Chase"), 25.0f, [Run, Extra](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable())
+        {
+            return true;
+        }
+        if (!AIOf(*Run))
+        {
+            Ctx.MarkInvalid(TEXT("Predator or its controller is gone"));
+            return true;
+        }
+        Ctx.Character->GetCharacterMovement()->StopMovementImmediately();
+        if (!ConsumeUntil(*Run, EPSLPredatorState::Chase, TEXT("target_seen")))
+        {
+            return false; // a heard_noise Investigate may precede it
+        }
+        Extra->ChaseStart = Run->Predator->GetActorLocation();
+        Run->HealthBefore = Ctx.Character->GetStatsComponent()->GetHealth();
+        return true;
+    });
+    AddPieStep(Context, TEXT("Attack"), 20.0f, [Run, Extra](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable())
+        {
+            return true;
+        }
+        if (!AIOf(*Run))
+        {
+            Ctx.MarkInvalid(TEXT("Predator or its controller is gone"));
+            return true;
+        }
+        Ctx.Character->GetCharacterMovement()->StopMovementImmediately();
+        if (!ConsumeUntil(*Run, EPSLPredatorState::Attack, TEXT("target_in_range")))
+        {
+            return false;
+        }
+        const double Moved = FVector::Dist2D(Extra->ChaseStart, Run->Predator->GetActorLocation());
+        Ctx.Test->TestTrue(FString::Printf(TEXT("Predator pursued over the navmesh (moved %.0f uu)"), Moved), Moved > 300.0);
+        Ctx.Test->AddInfo(FString::Printf(TEXT("Pursuit distance %.0f uu"), Moved));
+        return true;
+    });
+    AddPieStep(Context, TEXT("AttackDamage"), 3.0f, [Run](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable() || !Run->Predator.IsValid())
+        {
+            return true;
+        }
+        const float Expected = Run->HealthBefore - Run->Predator->AttackDamage;
+        if (Ctx.Character->GetStatsComponent()->GetHealth() > Expected + 1.0f)
+        {
+            return false; // the hit lands AttackHitDelay after entering Attack
+        }
+        Ctx.Test->AddInfo(FString::Printf(TEXT("Player health %.1f -> %.1f"), Run->HealthBefore, Ctx.Character->GetStatsComponent()->GetHealth()));
+        return true;
+    });
+
+    // Back in Chase, the player vanishes beyond LoseSightRadius 2600: on landscape ground 3200-4000 uu further along
+    // the predator->player direction (away from the predator).
+    AddPieStep(Context, TEXT("ChaseAgainThenHide"), 8.0f, [Run](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable())
+        {
+            return true;
+        }
+        APSLPredatorAIController* AI = AIOf(*Run);
+        if (!AI)
+        {
+            Ctx.MarkInvalid(TEXT("Predator or its controller is gone"));
+            return true;
+        }
+        Ctx.Character->GetCharacterMovement()->StopMovementImmediately();
+        if (AI->GetPredatorState() != EPSLPredatorState::Chase)
+        {
+            return false;
+        }
+        const FVector P = Run->Predator->GetActorLocation();
+        const FVector Away = (Ctx.Character->GetActorLocation() - P).GetSafeNormal2D();
+        for (const double Dist : {3500.0, 4000.0, 3200.0})
+        {
+            FVector Ground;
+            if (GroundAt(Ctx.World.Get(), P.X + Away.X * Dist, P.Y + Away.Y * Dist, Ground) && FVector::Dist2D(P, Ground) > 2600.0)
+            {
+                Ctx.Test->AddInfo(FString::Printf(TEXT("Hide spot %.0f uu from the predator"), FVector::Dist2D(P, Ground)));
+                Run->Seen = AI->GetTransitions().Num();
+                TeleportTo(Ctx, Ground);
+                return true;
+            }
+        }
+        Ctx.MarkInvalid(FString::Printf(TEXT("No landscape ground 3200-4000 uu away from the predator at %s"), *P.ToCompactString()));
+        return true;
+    });
+    AddPieStep(Context, TEXT("LoseSight"), 5.0f, [Run](FPSLPieCtx& Ctx)
+    {
+        return !Ctx.IsUsable() || ConsumeUntil(*Run, EPSLPredatorState::Investigate, TEXT("lost_sight"));
+    });
+    AddPieStep(Context, TEXT("GiveUp"), 15.0f, [Run](FPSLPieCtx& Ctx)
+    {
+        return !Ctx.IsUsable() || ConsumeUntil(*Run, EPSLPredatorState::Idle, TEXT("search_gave_up"));
+    });
+    AddPieStep(Context, TEXT("BackToPatrol"), 5.0f, [Run](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable())
+        {
+            return true;
+        }
+        if (!ConsumeUntil(*Run, EPSLPredatorState::Patrol, TEXT("idle_done")))
+        {
+            return false;
+        }
+        Ctx.Test->AddInfo(TEXT("Transitions: ") + DumpTransitions(*Run));
         return true;
     });
     QueueLostValleyEnd(Context);

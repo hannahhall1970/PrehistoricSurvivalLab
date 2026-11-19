@@ -28,6 +28,7 @@
 #include "PSLFoodPlant.h"
 #include "PSLPreyCharacter.h"
 #include "PSLGameMode.h"
+#include "Perception/AISense_Hearing.h"
 #include "Sound/SoundBase.h"
 #include "PSLGameUserSettings.h"
 
@@ -369,6 +370,11 @@ void APSLCharacter::HandleSprintStateChanged(bool bIsSprinting)
     {
         GetCharacterMovement()->MaxWalkSpeed = bIsSprinting ? SprintSpeed : WalkSpeed;
     }
+    // Breaking into a sprint is loud: predators within hearing range investigate it.
+    if (bIsSprinting && GetWorld())
+    {
+        UAISense_Hearing::ReportNoiseEvent(GetWorld(), GetActorLocation(), 1.0f, this, 0.0f, NAME_None);
+    }
 }
 
 void APSLCharacter::HandleDeath()
@@ -446,6 +452,7 @@ bool APSLCharacter::TryBite()
         DinoAnim->PlayAction(EPSLDinoAction::Attack);
     }
     World->GetTimerManager().SetTimer(BiteHitTimer, this, &APSLCharacter::ResolveBiteHit, FMath::Max(BiteHitDelay, KINDA_SMALL_NUMBER), false);
+    UAISense_Hearing::ReportNoiseEvent(World, GetActorLocation(), 1.0f, this, 0.0f, NAME_None);
     if (USoundBase* S = PSLAudio::Load(PSLAudio::Bite))
     {
         UGameplayStatics::PlaySoundAtLocation(this, S, GetActorLocation());

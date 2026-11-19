@@ -24,6 +24,8 @@ struct FPSLPredatorSenses
     bool bHasLastKnownPosition = false;
     bool bAttackReady = false;
     bool bStateTimerExpired = false;
+    /** A noise made by the target was perceived since the last think (it also set the last known position). */
+    bool bHeardNoise = false;
 };
 
 struct FPSLPredatorTuning

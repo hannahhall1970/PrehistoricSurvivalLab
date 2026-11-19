@@ -78,6 +78,16 @@ private:
     UFUNCTION()
     void SpawnReplacementPrey();
 
+    // L_LostValley only (cvar psl.Predator.Spawn): one predator on a navmesh point 4000-6000 uu from the player.
+    // The valley ships an empty navmesh, so SpawnPredator rebuilds it once, waits for the build, then runs one
+    // deterministic candidate pass (in range, out of view, complete path, no collision). No fallback spawn.
+    void SpawnPredator();
+    bool SpawnPredatorAt(const FVector& NavPoint, const FVector& PlayerLocation, float ViewDot, float PathLength);
+    static constexpr int32 MaxPredatorSpawnAttempts = 240; // 60 s at 0.25 s; a full valley rebuild takes seconds
+    static constexpr float PredatorSpawnRetryDelay = 0.25f;
+    int32 PredatorSpawnAttempts = 0;
+    bool bPredatorNavRebuildRequested = false;
+
     UFUNCTION()
     void HandlePlayerDeath();
 
