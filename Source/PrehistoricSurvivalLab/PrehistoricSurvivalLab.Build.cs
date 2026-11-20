@@ -22,6 +22,8 @@ public class PrehistoricSurvivalLab : ModuleRules
             "Landscape"
         });
 
+        PrivateDependencyModuleNames.Add("RHI"); // Perf test links RHIGetGPUFrameCycles (r7b LINK_ERROR _GDynamicRHI)
+
         if (Target.bBuildEditor)
         {
             PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "Foliage" });
