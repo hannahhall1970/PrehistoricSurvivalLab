@@ -19,7 +19,10 @@ using namespace PSLPie;
 constexpr const TCHAR* DeathTestHeroMeshPackage = TEXT("/Game/Dev/ArtDir/Hero/SK_HeroTrex");
 constexpr const TCHAR* DeathTestHeroMeshPath = TEXT("/Game/Dev/ArtDir/Hero/SK_HeroTrex.SK_HeroTrex");
 constexpr const TCHAR* DeathTestHeroDeathPath = TEXT("/Game/Dev/ArtDir/Hero/A_HeroTrex_Death.A_HeroTrex_Death");
-constexpr double DeathShotTimes[5] = {0.0, 0.5, 1.0, 1.6, 3.0};
+// death_0 is captured in the Kill step one tick before ApplyDamage (standing pose): a synchronous 1080p ReadPixels between the kill
+// and the first anim update would otherwise be counted as Death-start latency (r7 heroplay-run4: 0.206 s). death_1..4 follow at
+// these times after the kill.
+constexpr double DeathShotTimes[4] = {0.5, 1.0, 1.6, 3.0};
 
 struct FHeroDeathState
 {
@@ -42,6 +45,7 @@ struct FHeroDeathState
     bool bHave30 = false;
     double Lowest30 = 0.0;
     double MaxCapsuleMove = 0.0;
+    bool bShot0 = false;
     int32 NextShot = 0;
     int32 Ticks = 0;
 };
@@ -206,7 +210,7 @@ bool TickDeath(FPSLPieCtx& Ctx, FHeroDeathState& S)
     }
     if (FApp::CanEverRender() && S.NextShot < static_cast<int32>(UE_ARRAY_COUNT(DeathShotTimes)) && Since >= DeathShotTimes[S.NextShot])
     {
-        const FString Label = FString::Printf(TEXT("death_%d"), S.NextShot);
+        const FString Label = FString::Printf(TEXT("death_%d"), S.NextShot + 1);
         CapturePieViewport(Ctx, Label, ShotPath(Ctx, Label), true);
         T.AddInfo(FString::Printf(TEXT("%s captured at %.3f s after death"), *Label, Since));
         ++S.NextShot;
@@ -290,6 +294,14 @@ bool FPSLHeroDeathTest::RunTest(const FString& Parameters)
             return true;
         }
         APSLCharacter* Hero = S->Hero.Get();
+        // death_0 one tick before the kill, so its ReadPixels hitch lands in this tick's delta, not after the kill.
+        if (FApp::CanEverRender() && !S->bShot0)
+        {
+            S->bShot0 = true;
+            CapturePieViewport(Ctx, TEXT("death_0"), ShotPath(Ctx, TEXT("death_0")), true);
+            Ctx.Test->AddInfo(TEXT("death_0 captured one tick before the kill"));
+            return false;
+        }
         const UPSLStatsComponent* Stats = Hero->GetStatsComponent();
         if (!Ctx.Test->TestNotNull(TEXT("Death hero stats component"), Stats))
         {

@@ -14,7 +14,8 @@
 
 // PSL.Dev.HeroTrex.Perf: old SK_Trex vs hero T-Rex as the PLAYER in L_LostValley at 1920x1080, follow camera, vsync and
 // frame caps off. ABBA segments (old, hero, hero, old), each 300 discarded + 1500 sampled frames. Writes
-// Saved/Automation/PIE/HeroPerf.json. Only validity is asserted (sample counts, mesh paths, 1080p); numbers are evidence.
+// Saved/Automation/PIE/HeroPerfStats.json (HeroPerf.json is the FPSLPieCtx step log, written at test end). Only validity is
+// asserted (sample counts, mesh paths, 1080p); numbers are evidence.
 namespace
 {
 using namespace PSLPie;
@@ -223,7 +224,7 @@ bool PerfTick(FPSLPieCtx& Ctx, FPerfState& S)
     return ++S.Segment >= 4;
 }
 
-// Validity asserts, then Saved/Automation/PIE/HeroPerf.json.
+// Validity asserts, then Saved/Automation/PIE/HeroPerfStats.json.
 void PerfReport(FPSLPieCtx& Ctx, const FPerfState& S)
 {
     FAutomationTestBase& T = *Ctx.Test;
@@ -274,7 +275,7 @@ void PerfReport(FPSLPieCtx& Ctx, const FPerfState& S)
         Q.ReflectionQuality, Q.PostProcessQuality, Q.TextureQuality, Q.EffectsQuality, Q.FoliageQuality, Q.ShadingQuality, *SpeciesJson, *SegJson);
     const FString Directory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Automation"), TEXT("PIE"));
     IFileManager::Get().MakeDirectory(*Directory, true);
-    const FString Filename = FPaths::Combine(Directory, TEXT("HeroPerf.json"));
+    const FString Filename = FPaths::Combine(Directory, TEXT("HeroPerfStats.json"));
     T.TestTrue(FString::Printf(TEXT("Perf file saved: %s"), *Filename), FFileHelper::SaveStringToFile(Json, *Filename, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM));
     T.AddInfo(Json);
 }
