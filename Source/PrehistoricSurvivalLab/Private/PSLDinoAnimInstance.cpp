@@ -159,7 +159,7 @@ struct FPSLDinoAnimProxy : public FAnimInstanceProxy
         SmoothedSpeed = FMath::FInterpTo(SmoothedSpeed, TargetSpeed, DeltaSeconds, InterpRate);
         if (WalkAnimSpeed > 0.0f)
         {
-            Nodes[1].SetPlayRate(FMath::Clamp(SmoothedSpeed / WalkAnimSpeed, 0.5f, 3.5f));
+            Nodes[1].SetPlayRate(FMath::Clamp(SmoothedSpeed / WalkAnimSpeed, 0.5f, 6.0f));
         }
         if (RunAnimSpeed > 0.0f)
         {

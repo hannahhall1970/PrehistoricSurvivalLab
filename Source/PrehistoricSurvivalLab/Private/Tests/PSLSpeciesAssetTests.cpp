@@ -136,7 +136,7 @@ bool FPSLDevHeroTrexSpeciesTest::RunTest(const FString& Parameters)
             TestTrue(TEXT("cvar 1: DeathAnim null"), TRex->DeathAnim.IsNull());
             TestEqual(TEXT("cvar 1: MeshScale fits capsule"), TRex->MeshScale, 0.0f);
             TestEqual(TEXT("cvar 1: AttackPlayRate"), TRex->AttackPlayRate, 3.0f);
-            TestEqual(TEXT("cvar 1: WalkAnimSpeed"), TRex->WalkAnimSpeed, 100.0f);
+            TestEqual(TEXT("cvar 1: WalkAnimSpeed"), TRex->WalkAnimSpeed, 60.0f);
             TestEqual(TEXT("cvar 1: RunAnimSpeed"), TRex->RunAnimSpeed, 245.0f);
         }
         else

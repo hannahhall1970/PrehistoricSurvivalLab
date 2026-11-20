@@ -11,6 +11,15 @@
 #include "GameFramework/DamageType.h"
 #include "Kismet/GameplayStatics.h"
 #include "Camera/CameraActor.h"
+#include "GameFramework/PlayerStart.h"
+#include "Components/CapsuleComponent.h"
+#include "Camera/CameraComponent.h"
+#include "EngineUtils.h"
+#include "ImageUtils.h"
+#include "ImageCore.h"
+#include "UnrealClient.h"
+#include "Engine/GameViewportClient.h"
+#include "Misc/FileHelper.h"
 #include "PSLDinoSpecies.h"
 
 namespace
@@ -29,6 +38,142 @@ bool SetIntCvar(const TCHAR* Name, int32 Value)
         V->Set(Value, ECVF_SetByCode);
     }
     return V && V->GetInt() == Value;
+}
+
+FString ShotPath(const FPSLPieCtx& Ctx, const FString& Label)
+{
+    return FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Automation"), TEXT("PIE"), Ctx.TestName + TEXT("_") + Label + TEXT(".png"));
+}
+
+// Reads the PIE game viewport (FViewport::ReadPixels flushes rendering) into a PNG at Path; bVerify also reloads it and asserts
+// the size equals the viewport. Needs a renderer; callers guard with FApp::CanEverRender().
+bool CapturePieViewport(FPSLPieCtx& Ctx, const FString& Label, const FString& Path, bool bVerify)
+{
+    FViewport* Viewport = Ctx.GameViewport->Viewport;
+    if (!Viewport)
+    {
+        Ctx.MarkInvalid(FString::Printf(TEXT("PIE viewport missing for %s"), *Label));
+        return false;
+    }
+    const FIntPoint Size = Viewport->GetSizeXY();
+    TArray<FColor> Pixels;
+    if (!Viewport->ReadPixels(Pixels) || Pixels.Num() != Size.X * Size.Y)
+    {
+        Ctx.Test->AddError(FString::Printf(TEXT("%s: PIE viewport ReadPixels failed (%d pixels for %dx%d)"), *Label, Pixels.Num(), Size.X, Size.Y));
+        return false;
+    }
+    for (FColor& Pixel : Pixels)
+    {
+        Pixel.A = 255;
+    }
+    TArray64<uint8> Png;
+    FImageUtils::PNGCompressImageArray(Size.X, Size.Y, TArrayView64<const FColor>(Pixels.GetData(), Pixels.Num()), Png);
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+    if (!FFileHelper::SaveArrayToFile(Png, *Path))
+    {
+        Ctx.Test->AddError(FString::Printf(TEXT("%s: could not save %s"), *Label, *Path));
+        return false;
+    }
+    if (bVerify)
+    {
+        FImage Saved;
+        const bool bLoaded = FImageUtils::LoadImage(*Path, Saved);
+        Ctx.Test->TestTrue(FString::Printf(TEXT("%s saved image %dx%d equals PIE viewport %dx%d"), *Label, Saved.SizeX, Saved.SizeY, Size.X, Size.Y),
+            bLoaded && Saved.SizeX == Size.X && Saved.SizeY == Size.Y);
+        Ctx.Test->AddInfo(FString::Printf(TEXT("PIE capture %s %dx%d"), *Path, Size.X, Size.Y));
+    }
+    return true;
+}
+
+// Waits 4 PIE ticks (>= 3 rendered frames after the camera/pose change), then captures the PIE viewport as <TestName>_<Label>.png.
+void QueueCapture(const TSharedRef<FPSLPieCtx>& Context, const FString& Label)
+{
+    AddPieStep(Context, TEXT("Capture"), 10.0f, [Label, Frames = 0](FPSLPieCtx& Ctx) mutable
+    {
+        if (!Ctx.IsUsable() || !FApp::CanEverRender())
+        {
+            return true;
+        }
+        if (++Frames < 4)
+        {
+            return false;
+        }
+        CapturePieViewport(Ctx, Label, ShotPath(Ctx, Label), true);
+        Record(Ctx, *Label);
+        return true;
+    });
+}
+
+// Open-ground check: no other APSLCharacter / prey within 1500 uu of Spot and a capsule sweep of 3500 uu along Yaw is clear with ground
+// found every 250 uu.
+bool IsOpenSpot(FPSLPieCtx& Ctx, const FVector& Spot, double YawDeg)
+{
+    for (TActorIterator<APSLCharacter> It(Ctx.World); It; ++It)
+    {
+        if (*It != Ctx.Character.Get() && FVector::Dist2D(It->GetActorLocation(), Spot) < 1500.0)
+        {
+            return false;
+        }
+    }
+    for (const APSLPreyCharacter* Prey : GetPrey(Ctx.World))
+    {
+        if (Prey && FVector::Dist2D(Prey->GetActorLocation(), Spot) < 1500.0)
+        {
+            return false;
+        }
+    }
+    const FVector Dir = FRotator(0.0, YawDeg, 0.0).Vector();
+    for (int32 Step = 1; Step <= 14; ++Step)
+    {
+        FVector Ground;
+        const FVector P = Spot + Dir * (250.0 * Step);
+        if (!GroundAt(Ctx.World, P.X, P.Y, Ground))
+        {
+            return false;
+        }
+    }
+    const UCapsuleComponent* Capsule = Ctx.Character->GetCapsuleComponent();
+    FCollisionQueryParams Params;
+    Params.AddIgnoredActor(Ctx.Character.Get());
+    FHitResult Hit;
+    // Sweep ECC_Pawn at +100 uu so gentle slopes (ground is already +120 above the landscape) do not count as blockers.
+    return !Ctx.World->SweepSingleByChannel(Hit, Spot + FVector(0.0, 0.0, 100.0), Spot + Dir * 3500.0 + FVector(0.0, 0.0, 100.0), FQuat::Identity, ECC_Pawn,
+        FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius(), Capsule->GetScaledCapsuleHalfHeight()), Params);
+}
+
+// Deterministic search: rings of 0..4000 uu (step 1000, 8 angles each) around the PlayerStart (else the player), 8 yaws per spot.
+// Teleports the hero to the first open spot facing the clear direction. False when none exists.
+bool MoveToOpenGround(FPSLPieCtx& Ctx)
+{
+    FVector Center = Ctx.Character->GetActorLocation();
+    for (TActorIterator<APlayerStart> It(Ctx.World); It; ++It)
+    {
+        Center = It->GetActorLocation();
+        break;
+    }
+    for (int32 Ring = 0; Ring <= 4; ++Ring)
+    {
+        for (int32 Angle = 0; Angle < (Ring == 0 ? 1 : 8); ++Angle)
+        {
+            const double A = FMath::DegreesToRadians(45.0 * Angle);
+            FVector Ground;
+            if (!GroundAt(Ctx.World, Center.X + 1000.0 * Ring * FMath::Cos(A), Center.Y + 1000.0 * Ring * FMath::Sin(A), Ground))
+            {
+                continue;
+            }
+            for (int32 Yaw = 0; Yaw < 8; ++Yaw)
+            {
+                if (IsOpenSpot(Ctx, Ground, 45.0 * Yaw))
+                {
+                    TeleportTo(Ctx, Ground);
+                    FaceYawToward(Ctx, Ground + FRotator(0.0, 45.0 * Yaw, 0.0).Vector() * 1000.0);
+                    Ctx.Test->AddInfo(FString::Printf(TEXT("Open stage at %s yaw %.0f"), *Ground.ToString(), 45.0 * Yaw));
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
 }
 
 // (a) mesh/anim/skeleton wiring and (b) materials; both run under -nullrhi.
@@ -109,14 +254,18 @@ void AssertHeroAssets(FPSLPieCtx& Ctx)
     }
 }
 
-// Per side, tracks every DEF-toe*/DEF-metatarsus* bone. Per frame the foot speed is the horizontal world speed of the lowest-Z
-// bone (the contact point); the minimum over the last clip cycle is ~0 for a planted foot.
+// Per side, records every DEF-toe*/DEF-metatarsus* bone per frame. Report picks ONE planted bone per side (lowest mean Z over the
+// cycle window), takes its stance frames (Z <= window-min Z + 3 uu) and uses the median horizontal world speed as the slide.
 struct FFootTrack
 {
+    struct FFrame
+    {
+        double Time = 0.0;
+        FVector Forward = FVector::ForwardVector;
+        TArray<FVector> Pos;
+    };
     TArray<FName> Bones[2];
-    TArray<FVector> Last[2];
-    TArray<TPair<double, double>> Speed[2]; // (time, speed)
-    double LastTime = -1.0;
+    TArray<FFrame> Frames[2];
 
     void Init(const USkeletalMeshComponent& Mesh)
     {
@@ -129,64 +278,93 @@ struct FFootTrack
                 if (Side >= 0)
                 {
                     Bones[Side].Add(Mesh.GetBoneName(I));
-                    Last[Side].Add(FVector::ZeroVector);
                 }
             }
         }
     }
 
-    void Sample(const USkeletalMeshComponent& Mesh, double Now)
+    void Sample(const USkeletalMeshComponent& Mesh, const FVector& Forward2D, double Now)
     {
-        const bool bHavePrev = LastTime >= 0.0 && Now > LastTime;
         for (int32 Side = 0; Side < 2; ++Side)
         {
-            double LowestZ = TNumericLimits<double>::Max();
-            double ContactSpeed = 0.0;
-            for (int32 B = 0; B < Bones[Side].Num(); ++B)
+            if (Bones[Side].Num() == 0 || (Frames[Side].Num() > 0 && Now <= Frames[Side].Last().Time))
             {
-                const FVector P = Mesh.GetBoneLocation(Bones[Side][B], EBoneSpaces::WorldSpace);
-                if (P.Z < LowestZ)
-                {
-                    LowestZ = P.Z;
-                    ContactSpeed = FVector::Dist2D(P, Last[Side][B]) / FMath::Max(Now - LastTime, KINDA_SMALL_NUMBER);
-                }
-                Last[Side][B] = P;
+                continue;
             }
-            if (bHavePrev && Bones[Side].Num() > 0)
+            FFrame& F = Frames[Side].AddDefaulted_GetRef();
+            F.Time = Now;
+            F.Forward = Forward2D;
+            for (const FName& Bone : Bones[Side])
             {
-                Speed[Side].Add({Now, ContactSpeed});
+                F.Pos.Add(Mesh.GetBoneLocation(Bone, EBoneSpaces::WorldSpace));
             }
         }
-        LastTime = Now;
     }
 
-    // Minimum contact speed per foot over [End - BaseCycle / Rate, End]; asserts min/ground <= 0.25 and logs the anim speed that would zero it.
+    // Window [End - BaseCycle / Rate, End]; asserts median stance slide / ground <= 0.25 per foot and logs the anim speed that would zero it.
     void Report(FPSLPieCtx& Ctx, const TCHAR* Label, double End, double BaseCycle, double Rate, double GroundSpeed)
     {
         const double Cycle = BaseCycle / FMath::Max(Rate, 0.01);
-        double Min[2] = {-1.0, -1.0};
-        for (int32 Side = 0; Side < 2; ++Side)
-        {
-            for (const TPair<double, double>& S : Speed[Side])
-            {
-                if (S.Key >= End - Cycle)
-                {
-                    Min[Side] = Min[Side] < 0.0 ? S.Value : FMath::Min(Min[Side], S.Value);
-                }
-            }
-            Speed[Side].Reset();
-        }
         const TCHAR* SideName[2] = {TEXT("L"), TEXT("R")};
         for (int32 Side = 0; Side < 2; ++Side)
         {
-            const double Ratio = GroundSpeed > 1.0 && Min[Side] >= 0.0 ? Min[Side] / GroundSpeed : 1.0;
-            const double Suggested = (GroundSpeed - FMath::Max(Min[Side], 0.0)) / FMath::Max(Rate, 0.01);
+            const TArray<FFrame>& Fr = Frames[Side];
+            int32 First = 0;
+            while (First < Fr.Num() && Fr[First].Time < End - Cycle)
+            {
+                ++First;
+            }
+            const int32 NumBones = Bones[Side].Num();
+            int32 Planted = INDEX_NONE;
+            double PlantedMean = TNumericLimits<double>::Max();
+            for (int32 B = 0; B < NumBones && First < Fr.Num(); ++B)
+            {
+                double Sum = 0.0;
+                for (int32 I = First; I < Fr.Num(); ++I)
+                {
+                    Sum += Fr[I].Pos[B].Z;
+                }
+                const double Mean = Sum / (Fr.Num() - First);
+                if (Mean < PlantedMean)
+                {
+                    PlantedMean = Mean;
+                    Planted = B;
+                }
+            }
+            TArray<double> Slide;
+            double ForwardSum = 0.0;
+            if (Planted != INDEX_NONE)
+            {
+                double MinZ = TNumericLimits<double>::Max();
+                for (int32 I = First; I < Fr.Num(); ++I)
+                {
+                    MinZ = FMath::Min(MinZ, Fr[I].Pos[Planted].Z);
+                }
+                for (int32 I = FMath::Max(First, 1); I < Fr.Num(); ++I)
+                {
+                    if (Fr[I].Pos[Planted].Z <= MinZ + 3.0)
+                    {
+                        const FVector Vel = (Fr[I].Pos[Planted] - Fr[I - 1].Pos[Planted]) / FMath::Max(Fr[I].Time - Fr[I - 1].Time, KINDA_SMALL_NUMBER);
+                        Slide.Add(FVector(Vel.X, Vel.Y, 0.0).Size());
+                        ForwardSum += FVector::DotProduct(FVector(Vel.X, Vel.Y, 0.0), Fr[I].Forward);
+                    }
+                }
+            }
+            Slide.Sort();
+            const int32 N = Slide.Num();
+            const double Median = N == 0 ? 0.0 : (N % 2 ? Slide[N / 2] : 0.5 * (Slide[N / 2 - 1] + Slide[N / 2]));
+            const double VForward = N == 0 ? 0.0 : ForwardSum / N;
+            const double Ratio = GroundSpeed > 1.0 && N > 0 ? Median / GroundSpeed : 1.0;
+            const double Suggested = (GroundSpeed - VForward) / FMath::Max(Rate, 0.01);
+            const FString BoneName = Planted != INDEX_NONE ? Bones[Side][Planted].ToString() : FString(TEXT("none"));
             const FString Line = FString::Printf(
-                TEXT("{\"step\":\"%s_foot_slide\",\"foot\":\"%s\",\"ground_speed\":%.1f,\"play_rate\":%.3f,\"cycle\":%.2f,\"min_foot_speed\":%.2f,\"ratio\":%.4f,\"suggested_anim_speed\":%.1f}"),
-                Label, SideName[Side], GroundSpeed, Rate, Cycle, Min[Side], Ratio, Suggested);
+                TEXT("{\"step\":\"%s_foot_slide\",\"foot\":\"%s\",\"bone\":\"%s\",\"ground_speed\":%.1f,\"play_rate\":%.3f,\"cycle\":%.2f,\"stance_frames\":%d,\"median_slide\":%.2f,\"forward_component\":%.2f,\"ratio\":%.4f,\"suggested_anim_speed\":%.1f}"),
+                Label, SideName[Side], *BoneName, GroundSpeed, Rate, Cycle, N, Median, VForward, Ratio, Suggested);
             Ctx.Measurements.Add(Line);
             Ctx.Test->AddInfo(Line);
-            Ctx.Test->TestTrue(FString::Printf(TEXT("%s foot %s slide ratio %.3f <= 0.25 (min %.1f of %.1f uu/s)"), Label, SideName[Side], Ratio, Min[Side], GroundSpeed), Ratio <= 0.25);
+            Ctx.Test->TestTrue(FString::Printf(TEXT("%s foot %s has >= 5 stance frames (%d, bone %s)"), Label, SideName[Side], N, *BoneName), N >= 5);
+            Ctx.Test->TestTrue(FString::Printf(TEXT("%s foot %s slide ratio %.3f <= 0.25 (median %.1f of %.1f uu/s)"), Label, SideName[Side], Ratio, Median, GroundSpeed), Ratio <= 0.25);
+            Frames[Side].Reset();
         }
     }
 };
@@ -202,7 +380,7 @@ struct FHeroMoveState
     static double WalkRate(FPSLPieCtx& Ctx, double V)
     {
         const UPSLDinoAnimInstance* A = Cast<UPSLDinoAnimInstance>(Ctx.Character->GetMesh()->GetAnimInstance());
-        return A && A->WalkAnimSpeed > 0.0f ? FMath::Clamp(V / A->WalkAnimSpeed, 0.5, 3.5) : 1.0;
+        return A && A->WalkAnimSpeed > 0.0f ? FMath::Clamp(V / A->WalkAnimSpeed, 0.5, 6.0) : 1.0;
     }
     static double RunRate(FPSLPieCtx& Ctx, double V)
     {
@@ -225,7 +403,7 @@ struct FHeroMoveState
             Phase = 1;
             return false;
         }
-        Feet.Sample(*Mesh, Now);
+        Feet.Sample(*Mesh, Ctx.Character->GetActorForwardVector().GetSafeNormal2D(), Now);
         if (Phase == 1 && Now - PhaseStart >= 3.0)
         {
             const double V = Speed(Ctx);
@@ -482,6 +660,9 @@ struct FVideoState
     int32 Phase = -1;
     double PhaseStart = 0.0;
     double TurnFrom = 0.0;
+    FVector PhaseOrigin = FVector::ZeroVector;
+    double OrbitFromYaw = 0.0;
+    double ActorYawAtOrbit = 0.0;
     FString Dir;
     TArray<TPair<int32, double>> Frames;
 
@@ -502,40 +683,103 @@ struct FVideoState
         Guard->Restore();
     }
 
+    // Logs the 2D displacement of the hero over the phase that just ended and returns it.
+    double EndPhase(FPSLPieCtx& Ctx, const TCHAR* Name)
+    {
+        const double Moved = FVector::Dist2D(Ctx.Character->GetActorLocation(), PhaseOrigin);
+        const FString Line = FString::Printf(TEXT("{\"step\":\"video_%s\",\"displacement_2d\":%.1f}"), Name, Moved);
+        Ctx.Measurements.Add(Line);
+        Ctx.Test->AddInfo(Line);
+        return Moved;
+    }
+
     bool Tick(FPSLPieCtx& Ctx)
     {
         const double Now = Ctx.World->GetTimeSeconds();
         if (Phase < 0)
         {
             Dir = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Automation"), TEXT("PIE"), TEXT("HeroVideo"));
+            // Re-check the open stage (the earlier shots may have moved nothing, but the old T-Rex/prey may have wandered in).
+            if (!IsOpenSpot(Ctx, Ctx.Character->GetActorLocation(), Ctx.Character->GetActorRotation().Yaw) && !MoveToOpenGround(Ctx))
+            {
+                Ctx.MarkInvalid(TEXT("No open ground found for HeroVideo"));
+                return true;
+            }
+            Ctx.PC->SetControlRotation(FRotator(0.0, Ctx.Character->GetActorRotation().Yaw, 0.0));
             Guard->Enter();
             PhaseStart = Now;
+            PhaseOrigin = Ctx.Character->GetActorLocation();
             Phase = 0;
         }
-        if (FApp::CanEverRender() && !FScreenshotRequest::IsScreenshotRequested())
+        if (FApp::CanEverRender())
         {
-            FScreenshotRequest::RequestScreenshot(FPaths::Combine(Dir, FString::Printf(TEXT("frame_%04d.png"), Frames.Num())), false, false);
-            Frames.Add({Frames.Num(), Now});
+            if (CapturePieViewport(Ctx, TEXT("HeroVideo"), FPaths::Combine(Dir, FString::Printf(TEXT("frame_%04d.png"), Frames.Num())), Frames.Num() == 0))
+            {
+                Frames.Add({Frames.Num(), Now});
+            }
         }
         const double In = Now - PhaseStart;
         auto Next = [&](int32 P) { Phase = P; PhaseStart = Now; };
         switch (Phase)
         {
         case 0: // idle 1 s
-            if (In >= 1.0) { SendKey(Ctx, EKeys::W, IE_Pressed); Next(1); }
+            if (In >= 1.0) { SendKey(Ctx, EKeys::W, IE_Pressed); PhaseOrigin = Ctx.Character->GetActorLocation(); Next(1); }
             break;
         case 1: // W 3 s
-            if (In >= 3.0) { SendKey(Ctx, EKeys::LeftShift, IE_Pressed); Next(2); }
+            if (In >= 3.0)
+            {
+                const double Moved = EndPhase(Ctx, TEXT("walk"));
+                Ctx.Test->TestTrue(FString::Printf(TEXT("HeroVideo walk 3 s travels >= 600 uu (%.0f)"), Moved), Moved >= 600.0);
+                SendKey(Ctx, EKeys::LeftShift, IE_Pressed);
+                PhaseOrigin = Ctx.Character->GetActorLocation();
+                Next(2);
+            }
             break;
         case 2: // W+Shift 3 s
-            if (In >= 3.0) { TurnFrom = Ctx.PC->GetControlRotation().Yaw; Next(3); }
+            if (In >= 3.0)
+            {
+                const double Moved = EndPhase(Ctx, TEXT("run"));
+                Ctx.Test->TestTrue(FString::Printf(TEXT("HeroVideo run 3 s travels >= 1200 uu (%.0f)"), Moved), Moved >= 1200.0);
+                TurnFrom = Ctx.PC->GetControlRotation().Yaw;
+                PhaseOrigin = Ctx.Character->GetActorLocation();
+                Next(3);
+            }
             break;
         case 3: // turn +180 over 2 s while running
             Ctx.PC->SetControlRotation(FRotator(0.0, TurnFrom + 180.0 * FMath::Clamp(In / 2.0, 0.0, 1.0), 0.0));
-            if (In >= 2.0) { SendKey(Ctx, EKeys::LeftShift, IE_Released); SendKey(Ctx, EKeys::W, IE_Released); Next(4); }
+            if (In >= 2.0)
+            {
+                EndPhase(Ctx, TEXT("turn"));
+                const double Diff = FMath::Abs(FRotator::NormalizeAxis(Ctx.Character->GetActorRotation().Yaw - (TurnFrom + 180.0)));
+                Ctx.Test->TestTrue(FString::Printf(TEXT("HeroVideo actor yaw within 30 deg of the 180 deg turn target (off by %.1f)"), Diff), Diff <= 30.0);
+                SendKey(Ctx, EKeys::LeftShift, IE_Released);
+                SendKey(Ctx, EKeys::W, IE_Released);
+                Next(4);
+            }
             break;
-        case 4: // stop 1.5 s
-            if (In >= 1.5) { Ctx.Character->TryBite(); Next(5); }
+        case 4: // stopped 1.5 s: after the actor settles, orbit the control yaw 90 deg so the follow camera sees the hero from the side
+            if (In < 0.5)
+            {
+                ActorYawAtOrbit = Ctx.Character->GetActorRotation().Yaw;
+                OrbitFromYaw = Ctx.PC->GetControlRotation().Yaw;
+            }
+            else
+            {
+                Ctx.PC->SetControlRotation(FRotator(0.0, OrbitFromYaw + 90.0 * FMath::Clamp((In - 0.5) / 0.25, 0.0, 1.0), 0.0));
+            }
+            if (In >= 1.5)
+            {
+                const FVector ToCam = (Ctx.Character->FindComponentByClass<UCameraComponent>()->GetComponentLocation() - Ctx.Character->GetActorLocation()).GetSafeNormal2D();
+                const double Angle = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector::DotProduct(ToCam, -Ctx.Character->GetActorForwardVector().GetSafeNormal2D()), -1.0, 1.0)));
+                const double YawDrift = FMath::Abs(FRotator::NormalizeAxis(Ctx.Character->GetActorRotation().Yaw - ActorYawAtOrbit));
+                Ctx.Test->TestTrue(FString::Printf(TEXT("Actor yaw did not follow the camera orbit (drift %.1f deg <= 5)"), YawDrift), YawDrift <= 5.0);
+                const FString Line = FString::Printf(TEXT("{\"step\":\"video_bite_camera\",\"camera_vs_rear_axis_deg\":%.1f}"), Angle);
+                Ctx.Measurements.Add(Line);
+                Ctx.Test->AddInfo(Line);
+                Ctx.Test->TestTrue(FString::Printf(TEXT("Bite camera is >= 60 deg off the hero rear axis (%.1f)"), Angle), Angle >= 60.0);
+                Ctx.Character->TryBite();
+                Next(5);
+            }
             break;
         default: // bite + 1.5 s
             if (In >= 1.5) { Finish(Ctx); return true; }
@@ -665,58 +909,7 @@ bool FPSLHeroShowcaseTest::RunTest(const FString& Parameters)
     if (FApp::CanEverRender())
     {
         QueueHold(Context, 1.0);
-        AddPieStep(Context, TEXT("hero_side_full"), 5.0f, [Shot](FPSLPieCtx& Ctx)
-        {
-            if (Ctx.IsUsable())
-            {
-                SideShot(Ctx, *Shot);
-                RequestScreenshot(Ctx, TEXT("hero_side_full"));
-            }
-            return true;
-        });
-        QueueAwaitScreenshot(Context, TEXT("hero_side_full"));
-        AddPieStep(Context, TEXT("hero_head_closeup"), 5.0f, [Shot](FPSLPieCtx& Ctx)
-        {
-            if (Ctx.IsUsable())
-            {
-                const USkeletalMeshComponent* Mesh = Ctx.Character->GetMesh();
-                const FVector Head = Mesh->GetBoneLocation(TEXT("DEF-head"), EBoneSpaces::WorldSpace);
-                const FVector Fwd = Ctx.Character->GetActorForwardVector() * FMath::Cos(FMath::DegreesToRadians(40.0));
-                const FVector Side = Ctx.Character->GetActorRightVector() * FMath::Sin(FMath::DegreesToRadians(40.0));
-                PlaceCamera(Ctx, *Shot, Head, Head, (Fwd - Side) * 200.0, (Fwd + Side) * 200.0);
-                RequestScreenshot(Ctx, TEXT("hero_head_closeup"));
-            }
-            return true;
-        });
-        QueueAwaitScreenshot(Context, TEXT("hero_head_closeup"));
-        // Walking third-person shot through the pawn camera.
-        AddPieStep(Context, TEXT("hero_thirdperson"), 10.0f, [Shot, Start = -1.0](FPSLPieCtx& Ctx) mutable
-        {
-            if (!Ctx.IsUsable())
-            {
-                return true;
-            }
-            const double Now = Ctx.World->GetTimeSeconds();
-            if (Start < 0.0)
-            {
-                Shot->RestoreView(Ctx);
-                SendKey(Ctx, EKeys::W, IE_Pressed);
-                Start = Now;
-            }
-            else if (Now - Start >= 1.5)
-            {
-                RequestScreenshot(Ctx, TEXT("hero_thirdperson"));
-                return true;
-            }
-            return false;
-        });
-        QueueAwaitScreenshot(Context, TEXT("hero_thirdperson"));
-        AddPieStep(Context, TEXT("ReleaseW"), 2.0f, [](FPSLPieCtx& Ctx)
-        {
-            SendKey(Ctx, EKeys::W, IE_Released);
-            return true;
-        });
-        QueueHold(Context, 1.0);
+        // hero_attack_side keeps the prey next to the hero; the open-ground stage is used for every later shot and the video.
         AddPieStep(Context, TEXT("hero_attack_side"), 5.0f, [Shot, Start = -1.0](FPSLPieCtx& Ctx) mutable
         {
             if (!Ctx.IsUsable())
@@ -730,15 +923,64 @@ bool FPSLHeroShowcaseTest::RunTest(const FString& Parameters)
                 Ctx.Test->TestTrue(TEXT("TryBite for the attack shot"), Ctx.Character->TryBite());
                 Start = Now;
             }
-            else if (Now - Start >= 0.45)
+            return Now - Start >= 0.45;
+        });
+        QueueCapture(Context, TEXT("hero_attack_side"));
+        QueueHold(Context, 1.5);
+        AddPieStep(Context, TEXT("OpenGroundStage"), 5.0f, [](FPSLPieCtx& Ctx)
+        {
+            if (Ctx.IsUsable() && !MoveToOpenGround(Ctx))
             {
-                RequestScreenshot(Ctx, TEXT("hero_attack_side"));
+                Ctx.MarkInvalid(TEXT("No open ground (no character within 1500 uu, 3500 uu clear sweep with ground every 250 uu) found in L_LostValley"));
+            }
+            return true;
+        });
+        QueueHold(Context, 1.0);
+        AddPieStep(Context, TEXT("hero_side_full"), 5.0f, [Shot](FPSLPieCtx& Ctx)
+        {
+            if (Ctx.IsUsable())
+            {
+                SideShot(Ctx, *Shot);
+            }
+            return true;
+        });
+        QueueCapture(Context, TEXT("hero_side_full"));
+        AddPieStep(Context, TEXT("hero_head_closeup"), 5.0f, [Shot](FPSLPieCtx& Ctx)
+        {
+            if (Ctx.IsUsable())
+            {
+                const USkeletalMeshComponent* Mesh = Ctx.Character->GetMesh();
+                const FVector Head = Mesh->GetBoneLocation(TEXT("DEF-head"), EBoneSpaces::WorldSpace);
+                const FVector Fwd = Ctx.Character->GetActorForwardVector() * FMath::Cos(FMath::DegreesToRadians(40.0));
+                const FVector Side = Ctx.Character->GetActorRightVector() * FMath::Sin(FMath::DegreesToRadians(40.0));
+                PlaceCamera(Ctx, *Shot, Head, Head, (Fwd - Side) * 200.0, (Fwd + Side) * 200.0);
+            }
+            return true;
+        });
+        QueueCapture(Context, TEXT("hero_head_closeup"));
+        // Walking third-person shot through the pawn camera.
+        AddPieStep(Context, TEXT("hero_thirdperson_walk"), 10.0f, [Shot, Start = -1.0](FPSLPieCtx& Ctx) mutable
+        {
+            if (!Ctx.IsUsable())
+            {
                 return true;
             }
-            return false;
+            const double Now = Ctx.World->GetTimeSeconds();
+            if (Start < 0.0)
+            {
+                Shot->RestoreView(Ctx);
+                SendKey(Ctx, EKeys::W, IE_Pressed);
+                Start = Now;
+            }
+            return Now - Start >= 1.5;
         });
-        QueueAwaitScreenshot(Context, TEXT("hero_attack_side"));
-        QueueHold(Context, 1.5);
+        QueueCapture(Context, TEXT("hero_thirdperson"));
+        AddPieStep(Context, TEXT("ReleaseW"), 2.0f, [](FPSLPieCtx& Ctx)
+        {
+            SendKey(Ctx, EKeys::W, IE_Released);
+            return true;
+        });
+        QueueHold(Context, 1.0);
         // Old (SK_Trex) T-Rex 700 uu to the player's right, one camera framing both.
         AddPieStep(Context, TEXT("old_vs_new"), 5.0f, [Shot](FPSLPieCtx& Ctx)
         {
@@ -768,22 +1010,32 @@ bool FPSLHeroShowcaseTest::RunTest(const FString& Parameters)
             SetIntCvar(TEXT("psl.Dev.HeroTrex"), 1);
             const USkeletalMesh* OldAsset = Old->GetMesh()->GetSkeletalMeshAsset();
             Ctx.Test->TestTrue(TEXT("Spawned mesh is /Game/Characters/Dino/SK_Trex"), OldAsset && OldAsset->GetPathName() == TEXT("/Game/Characters/Dino/SK_Trex.SK_Trex"));
-            // One camera frames both bodies, which lie along the player's right axis.
+            // The camera sits on the hero's FORWARD axis, perpendicular to the line between the two bodies, raised ~100 uu.
             const FVector Centre = (Ctx.Character->GetActorLocation() + Ground) * 0.5;
-            const FVector Side = Right * FrameDistance(700.0 + BodyLength(Ctx), 0.8);
-            PlaceCamera(Ctx, *Shot, Centre, Centre, -Side, Side);
+            const FVector Back = Ctx.Character->GetActorForwardVector() * FrameDistance(700.0 + BodyLength(Ctx), 0.8) + FVector(0.0, 0.0, 100.0);
+            PlaceCamera(Ctx, *Shot, Centre, Centre, Back, FVector(-Back.X, -Back.Y, Back.Z));
             return true;
         });
         QueueHold(Context, 1.0);
-        AddPieStep(Context, TEXT("old_vs_new_shot"), 5.0f, [](FPSLPieCtx& Ctx)
+        AddPieStep(Context, TEXT("old_vs_new_project"), 5.0f, [Shot](FPSLPieCtx& Ctx)
         {
-            if (Ctx.IsUsable())
+            if (!Ctx.IsUsable() || !Shot->Other.IsValid())
             {
-                RequestScreenshot(Ctx, TEXT("old_vs_new"));
+                return true;
             }
+            int32 W = 0, H = 0;
+            Ctx.PC->GetViewportSize(W, H);
+            FVector2D New, Old;
+            const bool bNew = Ctx.PC->ProjectWorldLocationToScreen(Ctx.Character->GetMesh()->Bounds.Origin, New);
+            const bool bOld = Ctx.PC->ProjectWorldLocationToScreen(Shot->Other->GetMesh()->Bounds.Origin, Old);
+            const bool bInside = bNew && bOld && New.X >= 0.0 && New.X <= W && New.Y >= 0.0 && New.Y <= H && Old.X >= 0.0 && Old.X <= W && Old.Y >= 0.0 && Old.Y <= H;
+            const double Apart = FMath::Abs(New.X - Old.X) / FMath::Max(W, 1);
+            Ctx.Test->AddInfo(FString::Printf(TEXT("old_vs_new projection: new (%.0f,%.0f) old (%.0f,%.0f) viewport %dx%d apart %.2f"), New.X, New.Y, Old.X, Old.Y, W, H, Apart));
+            Ctx.Test->TestTrue(TEXT("old_vs_new: both dinos project inside the viewport"), bInside);
+            Ctx.Test->TestTrue(FString::Printf(TEXT("old_vs_new: dinos at least 25%% of the viewport width apart (%.2f)"), Apart), Apart >= 0.25);
             return true;
         });
-        QueueAwaitScreenshot(Context, TEXT("old_vs_new"));
+        QueueCapture(Context, TEXT("old_vs_new"));
         AddPieStep(Context, TEXT("RestoreView"), 2.0f, [Shot](FPSLPieCtx& Ctx)
         {
             Shot->RestoreView(Ctx);
