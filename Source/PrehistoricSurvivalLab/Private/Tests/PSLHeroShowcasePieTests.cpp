@@ -32,80 +32,6 @@ constexpr const TCHAR* HeroMapPath = TEXT("/Game/Maps/L_LostValley");
 constexpr const TCHAR* HeroMeshPackage = TEXT("/Game/Dev/ArtDir/Hero/SK_HeroTrex");
 constexpr const TCHAR* HeroDir = TEXT("/Game/Dev/ArtDir/Hero/");
 
-bool SetIntCvar(const TCHAR* Name, int32 Value)
-{
-    IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(Name);
-    if (V)
-    {
-        V->Set(Value, ECVF_SetByCode);
-    }
-    return V && V->GetInt() == Value;
-}
-
-FString ShotPath(const FPSLPieCtx& Ctx, const FString& Label)
-{
-    return FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Automation"), TEXT("PIE"), Ctx.TestName + TEXT("_") + Label + TEXT(".png"));
-}
-
-// Reads the PIE game viewport (FViewport::ReadPixels flushes rendering) into a PNG at Path; bVerify also reloads it and asserts
-// the size equals the viewport. Needs a renderer; callers guard with FApp::CanEverRender().
-bool CapturePieViewport(FPSLPieCtx& Ctx, const FString& Label, const FString& Path, bool bVerify)
-{
-    FViewport* Viewport = Ctx.GameViewport->Viewport;
-    if (!Viewport)
-    {
-        Ctx.MarkInvalid(FString::Printf(TEXT("PIE viewport missing for %s"), *Label));
-        return false;
-    }
-    const FIntPoint Size = Viewport->GetSizeXY();
-    TArray<FColor> Pixels;
-    if (!Viewport->ReadPixels(Pixels) || Pixels.Num() != Size.X * Size.Y)
-    {
-        Ctx.Test->AddError(FString::Printf(TEXT("%s: PIE viewport ReadPixels failed (%d pixels for %dx%d)"), *Label, Pixels.Num(), Size.X, Size.Y));
-        return false;
-    }
-    for (FColor& Pixel : Pixels)
-    {
-        Pixel.A = 255;
-    }
-    TArray64<uint8> Png;
-    FImageUtils::PNGCompressImageArray(Size.X, Size.Y, TArrayView64<const FColor>(Pixels.GetData(), Pixels.Num()), Png);
-    IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
-    if (!FFileHelper::SaveArrayToFile(Png, *Path))
-    {
-        Ctx.Test->AddError(FString::Printf(TEXT("%s: could not save %s"), *Label, *Path));
-        return false;
-    }
-    if (bVerify)
-    {
-        FImage Saved;
-        const bool bLoaded = FImageUtils::LoadImage(*Path, Saved);
-        Ctx.Test->TestTrue(FString::Printf(TEXT("%s saved image %dx%d equals PIE viewport %dx%d"), *Label, Saved.SizeX, Saved.SizeY, Size.X, Size.Y),
-            bLoaded && Saved.SizeX == Size.X && Saved.SizeY == Size.Y);
-        Ctx.Test->AddInfo(FString::Printf(TEXT("PIE capture %s %dx%d"), *Path, Size.X, Size.Y));
-    }
-    return true;
-}
-
-// Waits 4 PIE ticks (>= 3 rendered frames after the camera/pose change), then captures the PIE viewport as <TestName>_<Label>.png.
-void QueueCapture(const TSharedRef<FPSLPieCtx>& Context, const FString& Label)
-{
-    AddPieStep(Context, TEXT("Capture"), 10.0f, [Label, Frames = 0](FPSLPieCtx& Ctx) mutable
-    {
-        if (!Ctx.IsUsable() || !FApp::CanEverRender())
-        {
-            return true;
-        }
-        if (++Frames < 4)
-        {
-            return false;
-        }
-        CapturePieViewport(Ctx, Label, ShotPath(Ctx, Label), true);
-        Record(Ctx, *Label);
-        return true;
-    });
-}
-
 // Open-ground check: no other APSLCharacter / prey within 1500 uu of Spot and a capsule sweep of 3500 uu along Yaw is clear with ground
 // found every 250 uu.
 bool IsOpenSpot(FPSLPieCtx& Ctx, const FVector& Spot, double YawDeg)
@@ -578,47 +504,6 @@ struct FHeroBiteState
     }
 };
 
-// Shared state of the still-shot steps: the temporary camera, the previous view target and the spawned old-T-Rex comparison pawn.
-struct FShotState
-{
-    TWeakObjectPtr<ACameraActor> Cam;
-    TWeakObjectPtr<AActor> PrevTarget;
-    TWeakObjectPtr<APSLCharacter> Other;
-    TWeakObjectPtr<APSLPreyCharacter> Prey; // HeroVideo bite prey: moved in front of the hero, put back (or destroyed if spawned) by RestoreView
-    FVector PreyHome = FVector::ZeroVector;
-    bool bPreyMoved = false;
-    bool bPreySpawned = false; // no living prey existed: the video spawned one, RestoreView destroys it
-
-    void RestoreView(FPSLPieCtx& Ctx)
-    {
-        if (Ctx.HasObjects())
-        {
-            Ctx.PC->SetViewTarget(PrevTarget.IsValid() ? PrevTarget.Get() : Ctx.Character.Get());
-        }
-        if (Cam.IsValid())
-        {
-            Cam->Destroy();
-        }
-        if (Other.IsValid())
-        {
-            Other->Destroy();
-        }
-        if (bPreyMoved && Prey.IsValid())
-        {
-            if (bPreySpawned)
-            {
-                Prey->Destroy();
-            }
-            else
-            {
-                Prey->SetActorLocation(PreyHome, false, nullptr, ETeleportType::TeleportPhysics);
-            }
-        }
-        bPreyMoved = false;
-        bPreySpawned = false;
-    }
-};
-
 bool LineClear(FPSLPieCtx& Ctx, const FShotState& S, const FVector& From, const FVector& To)
 {
     FCollisionQueryParams Params;
@@ -629,19 +514,6 @@ bool LineClear(FPSLPieCtx& Ctx, const FShotState& S, const FVector& From, const 
     }
     FHitResult Hit;
     return !Ctx.World->LineTraceSingleByChannel(Hit, From, To, ECC_Visibility, Params);
-}
-
-// Spawns the temporary camera (FOV 60) on first use, puts it at Spot looking at LookAt and makes it the view target.
-void UseCamera(FPSLPieCtx& Ctx, FShotState& S, const FVector& Spot, const FVector& LookAt)
-{
-    if (!S.Cam.IsValid())
-    {
-        S.PrevTarget = Ctx.PC->GetViewTarget();
-        S.Cam = Ctx.World->SpawnActor<ACameraActor>(Spot, FRotator::ZeroRotator);
-        S.Cam->GetCameraComponent()->SetFieldOfView(60.0f);
-    }
-    S.Cam->SetActorLocationAndRotation(Spot, (LookAt - Spot).Rotation());
-    Ctx.PC->SetViewTarget(S.Cam.Get());
 }
 
 // Puts the temporary camera (FOV 60) Offset from Target on the left, then right, then each raised by 150, taking the first
@@ -686,12 +558,6 @@ void QueueHold(const TSharedRef<FPSLPieCtx>& Context, double Seconds)
     });
 }
 
-// Distance at which a body of Width uu fills Fraction of a FOV 60 frame.
-double FrameDistance(double Width, double Fraction)
-{
-    return Width / Fraction / (2.0 * FMath::Tan(FMath::DegreesToRadians(30.0)));
-}
-
 double BodyLength(const FPSLPieCtx& Ctx)
 {
     const FVector Extent = Ctx.Character->GetMesh()->Bounds.BoxExtent;
@@ -715,33 +581,6 @@ FVector HeadPoint(const USkeletalMeshComponent* Mesh)
         return Mesh->GetBoneLocation(Head, EBoneSpaces::WorldSpace);
     }
     return Mesh->Bounds.Origin + FVector(0.0, 0.0, Mesh->Bounds.BoxExtent.Z);
-}
-
-// Deterministic foliage-occlusion count: samples From->To every 100 uu with a 120 uu sphere and sums the instances of every
-// UInstancedStaticMeshComponent in the world (HISM, foliage, landscape grass) that overlap it. Components owned by A or B are ignored.
-// The foliage has no collision, so an ECC_Visibility trace cannot see it.
-int32 OccluderCount(UWorld* World, const FVector& From, const FVector& To, const AActor* A, const AActor* B)
-{
-    TArray<const UInstancedStaticMeshComponent*> Comps;
-    for (TObjectIterator<UInstancedStaticMeshComponent> It; It; ++It)
-    {
-        const AActor* Owner = It->GetOwner();
-        if (It->GetWorld() == World && Owner != A && Owner != B)
-        {
-            Comps.Add(*It);
-        }
-    }
-    const int32 Steps = FMath::Max(1, FMath::CeilToInt(FVector::Dist(From, To) / 100.0));
-    int32 Count = 0;
-    for (int32 I = 0; I <= Steps; ++I)
-    {
-        const FVector P = FMath::Lerp(From, To, double(I) / Steps);
-        for (const UInstancedStaticMeshComponent* Comp : Comps)
-        {
-            Count += Comp->GetInstancesOverlappingSphere(P, 120.0f, true).Num();
-        }
-    }
-    return Count;
 }
 
 // Fixed-step state shared by the video step and Cleanup so the timestep is always restored.
