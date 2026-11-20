@@ -108,11 +108,11 @@ bool FPSLPredatorControllerTest::RunTest(const FString& Parameters)
         const FVector P = Run->Predator->GetActorLocation();
         const FVector Forward = Run->Predator->GetActorForwardVector().GetSafeNormal2D();
         // Behind the predator (outside its 70 deg cone, so unseen at any range) and inside hearing range 2500.
-        for (const double Distance : {2100.0, 1600.0, 1200.0})
+        for (const double Distance : {2100.0, 1600.0, 1200.0, 900.0, 700.0})
         {
-            for (int32 Step = 0; Step < 16; ++Step)
+            for (int32 Step = 0; Step < 36; ++Step)
             {
-                const FVector Dir = FVector(1.0, 0.0, 0.0).RotateAngleAxis(Step * 22.5, FVector::UpVector);
+                const FVector Dir = FVector(1.0, 0.0, 0.0).RotateAngleAxis(Step * 10.0, FVector::UpVector);
                 const FVector Candidate(P.X + Dir.X * Distance, P.Y + Dir.Y * Distance, Ctx.Character->GetActorLocation().Z);
                 if (FVector::DotProduct(Dir, Forward) < -0.5 && OnFloor(Candidate))
                 {
@@ -123,7 +123,7 @@ bool FPSLPredatorControllerTest::RunTest(const FString& Parameters)
                 }
             }
         }
-        Ctx.MarkInvalid(FString::Printf(TEXT("No floor spot behind the predator at %s"), *P.ToCompactString()));
+        Ctx.MarkInvalid(FString::Printf(TEXT("No floor spot behind the predator at %s facing %s"), *P.ToCompactString(), *Forward.ToCompactString()));
         return true;
     });
     AddPieStep(Context, TEXT("InvestigateNoise"), 3.0f, [Run](FPSLPieCtx& Ctx)
@@ -444,11 +444,19 @@ bool FPSLPredatorAttackFeelTest::RunTest(const FString& Parameters)
         return true;
     });
     // Third attack: in reach (200 uu, inside AttackRange + slack) but ~90 deg off the frozen direction -> out_of_cone miss.
-    AddPieStep(Context, TEXT("ThirdAttackBegins"), 15.0f, [Run](FPSLPieCtx& Ctx)
+    AddPieStep(Context, TEXT("ThirdAttackBegins"), 15.0f, [Run, bStaged = false](FPSLPieCtx& Ctx) mutable
     {
         if (!Ctx.IsUsable() || !AIOf(*Run))
         {
             return true;
+        }
+        if (!bStaged)
+        {
+            // After the sidestep the player sits 90 deg off the predator; stage it in front once (as Spawn does) so re-acquisition does not depend on the random patrol point.
+            bStaged = true;
+            const FVector P = Run->Predator->GetActorLocation();
+            const FVector Forward = Run->Predator->GetActorForwardVector().GetSafeNormal2D();
+            Teleport(Ctx, FVector(P.X + Forward.X * 170.0, P.Y + Forward.Y * 170.0, Ctx.Character->GetActorLocation().Z));
         }
         Ctx.Character->GetCharacterMovement()->StopMovementImmediately();
         return ConsumeUntil(*Run, EPSLPredatorState::Attack, TEXT("target_in_range"));
