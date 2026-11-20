@@ -60,6 +60,22 @@ void FaceYawToward(FPSLPieCtx& Ctx, const FVector& Target)
     Ctx.Character->SetActorRotation(Yaw);
 }
 
+// True when the spring arm, with the player at Ground facing LookAt, has an unobstructed ECC_Camera path. The level's
+// block-all rock HISMs otherwise collapse the arm (D-CAM-01 run: the sweep hit a HISM, not the predator): layout, not the creature.
+bool CameraArmClear(FPSLPieCtx& Ctx, const FVector& Ground, const FVector& LookAt)
+{
+    const USpringArmComponent* Arm = Ctx.Character->FindComponentByClass<USpringArmComponent>();
+    if (!Arm)
+    {
+        return true; // the AttackDamage step reports the missing arm
+    }
+    const FRotator Facing(0.0, (LookAt - Ground).GetSafeNormal2D().Rotation().Yaw, 0.0);
+    const FVector Start = Ground + Arm->TargetOffset;
+    const FVector End = Start - Facing.Vector() * Arm->TargetArmLength + Facing.RotateVector(Arm->SocketOffset);
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(PSLCamArmClear), false, Ctx.Character.Get());
+    return !Ctx.World->SweepTestByChannel(Start, End, FQuat::Identity, ECC_Camera, FCollisionShape::MakeSphere(Arm->ProbeSize), Params);
+}
+
 // Places the player Distance (2D) from Center on the first of 8 directions whose ground Z is within 300 of the target Z
 // and, when SightFrom is set, that has a clear visibility line to SightFrom.
 bool PlaceNear(FPSLPieCtx& Ctx, const FVector& Center, double Distance, const AActor* SightFrom = nullptr)
@@ -1029,21 +1045,26 @@ bool FPSLLostValleyPredatorTest::RunTest(const FString& Parameters)
         }
         const FVector P = Run->Predator->GetActorLocation();
         const FVector D = (Extra->PlayerStart - P).GetSafeNormal2D();
-        for (const double Dist : {2000.0, 1600.0, 1200.0})
+        for (const double Angle : {0.0, 30.0, -30.0, 60.0, -60.0})
         {
-            FVector Ground;
-            float PathLength = 0.0f;
-            FCollisionQueryParams Params(SCENE_QUERY_STAT(PSLPredatorApproachSight), false, Run->Predator.Get());
-            Params.AddIgnoredActor(Ctx.Character.Get());
-            if (GroundAt(Ctx.World.Get(), P.X + D.X * Dist, P.Y + D.Y * Dist, Ground)
-                && CompletePathBetween(Ctx.World.Get(), P, Ground, nullptr, nullptr, &PathLength) && PathLength < 2000.0f
-                && !Ctx.World->LineTraceTestByChannel(Run->Predator->GetPawnViewLocation(), Ground, ECC_Visibility, Params))
+            const FVector Dir = D.RotateAngleAxis(Angle, FVector::UpVector);
+            for (const double Dist : {2000.0, 1600.0, 1200.0})
             {
-                Run->Seen = AI->GetTransitions().Num();
-                TeleportTo(Ctx, Ground);
-                FaceYawToward(Ctx, P);
-                Ctx.Test->TestTrue(TEXT("Bite accepted (noise source)"), Ctx.Character->TryBite());
-                return true;
+                FVector Ground;
+                float PathLength = 0.0f;
+                FCollisionQueryParams Params(SCENE_QUERY_STAT(PSLPredatorApproachSight), false, Run->Predator.Get());
+                Params.AddIgnoredActor(Ctx.Character.Get());
+                if (GroundAt(Ctx.World.Get(), P.X + Dir.X * Dist, P.Y + Dir.Y * Dist, Ground)
+                    && CompletePathBetween(Ctx.World.Get(), P, Ground, nullptr, nullptr, &PathLength) && PathLength < 2000.0f
+                    && !Ctx.World->LineTraceTestByChannel(Run->Predator->GetPawnViewLocation(), Ground, ECC_Visibility, Params)
+                    && CameraArmClear(Ctx, Ground, P))
+                {
+                    Run->Seen = AI->GetTransitions().Num();
+                    TeleportTo(Ctx, Ground);
+                    FaceYawToward(Ctx, P);
+                    Ctx.Test->TestTrue(TEXT("Bite accepted (noise source)"), Ctx.Character->TryBite());
+                    return true;
+                }
             }
         }
         Ctx.MarkInvalid(FString::Printf(TEXT("No visible ground 1200-2000 uu from the predator at %s with a complete path < 2000 uu"), *P.ToCompactString()));
@@ -1102,6 +1123,32 @@ bool FPSLLostValleyPredatorTest::RunTest(const FString& Parameters)
             return false; // the hit lands AttackHitDelay after entering Attack
         }
         Ctx.Test->AddInfo(FString::Printf(TEXT("Player health %.1f -> %.1f"), Run->HealthBefore, Ctx.Character->GetStatsComponent()->GetHealth()));
+
+        // D-CAM-01: the predator beside the player must not collapse the spring arm.
+        USpringArmComponent* Arm = Ctx.Character->FindComponentByClass<USpringArmComponent>();
+        UCameraComponent* Camera = Ctx.Character->FindComponentByClass<UCameraComponent>();
+        if (!Arm || !Camera)
+        {
+            Ctx.MarkInvalid(TEXT("Player has no USpringArmComponent/UCameraComponent"));
+            return true;
+        }
+        const FVector ArmOrigin = Arm->GetComponentLocation();
+        const FVector CameraLoc = Camera->GetComponentLocation();
+        const FVector PredatorLoc = Run->Predator->GetActorLocation();
+        const float ActualArm = FVector::Dist(ArmOrigin, CameraLoc);
+        const float CameraToPlayer = FVector::Dist(CameraLoc, Ctx.Character->GetActorLocation());
+        FCollisionQueryParams ArmParams(SCENE_QUERY_STAT(PSLCamProbe), false, Ctx.Character);
+        FHitResult ArmHit;
+        const bool bArmHit = Ctx.World->SweepSingleByChannel(ArmHit, ArmOrigin, ArmOrigin - Arm->GetComponentRotation().Vector() * Arm->TargetArmLength,
+            FQuat::Identity, ECC_Camera, FCollisionShape::MakeSphere(Arm->ProbeSize), ArmParams);
+        Ctx.Test->AddInfo(FString::Printf(TEXT("D-CAM-01: actual arm %.0f / target %.0f uu, camera->player %.0f uu, sweep hit %s / %s"),
+            ActualArm, Arm->TargetArmLength, CameraToPlayer,
+            bArmHit ? *GetNameSafe(ArmHit.GetActor()) : TEXT("none"), bArmHit ? *GetNameSafe(ArmHit.GetComponent()) : TEXT("none")));
+        Ctx.Test->TestTrue(TEXT("D-CAM-01: camera keeps a readable distance at the bite"), CameraToPlayer >= 300.0f);
+        Ctx.Test->TestTrue(TEXT("D-CAM-01: predator is in front of the camera"),
+            FVector::DotProduct(Camera->GetForwardVector(), (PredatorLoc - CameraLoc).GetSafeNormal()) > 0.0);
+        Ctx.Test->TestFalse(TEXT("D-CAM-01: spring-arm sweep does not hit the predator"), bArmHit && ArmHit.GetActor() == Run->Predator.Get());
+
         RequestScreenshot(Ctx, TEXT("predator_bite")); // flash 0.2 s / ghost bar 0.4 s: capture in the detection step
         return true;
     });

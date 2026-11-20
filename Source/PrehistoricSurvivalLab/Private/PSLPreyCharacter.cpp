@@ -31,6 +31,9 @@ APSLPreyCharacter::APSLPreyCharacter()
     bUsingSkeletalVisual = false;
 
     GetCapsuleComponent()->InitCapsuleSize(40.0f, 60.0f);
+    // The player's spring arm probes ECC_Camera; a creature next to the player must not collapse it (D-CAM-01).
+    GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+    GetMesh()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 
     StatsComponent = CreateDefaultSubobject<UPSLStatsComponent>(TEXT("StatsComponent"));
     StatsComponent->MaxHealth = 60.0f;
