@@ -116,6 +116,7 @@ bool FPSLDevHeroTrexSpeciesTest::RunTest(const FString& Parameters)
         TestEqual(TEXT("cvar 0: TRex mesh is SK_Trex"), TRex->Mesh.ToSoftObjectPath().ToString(), OldMesh);
         TestEqual(TEXT("cvar 0: AttackPlayRate"), TRex->AttackPlayRate, 1.0f);
         TestEqual(TEXT("cvar 0: WalkAnimSpeed"), TRex->WalkAnimSpeed, 0.0f);
+        TestEqual(TEXT("cvar 0: Attack Start/End/Contact"), TRex->AttackStartTime + TRex->AttackEndTime + TRex->AttackContactTime, 0.0f);
         TestEqual(TEXT("cvar 0: RunAnimSpeed"), TRex->RunAnimSpeed, 0.0f);
     }
 
@@ -133,9 +134,12 @@ bool FPSLDevHeroTrexSpeciesTest::RunTest(const FString& Parameters)
                     : FCString::Strcmp(Clip, TEXT("Run")) == 0 ? TRex->RunAnim : TRex->AttackAnim;
                 TestEqual(FString::Printf(TEXT("cvar 1: hero %s clip"), Clip), Anim.ToSoftObjectPath().ToString(), Path);
             }
-            TestTrue(TEXT("cvar 1: DeathAnim null"), TRex->DeathAnim.IsNull());
+            TestEqual(TEXT("cvar 1: DeathAnim is the hero death clip"), TRex->DeathAnim.ToSoftObjectPath().ToString(), FString(TEXT("/Game/Dev/ArtDir/Hero/A_HeroTrex_Death.A_HeroTrex_Death")));
             TestEqual(TEXT("cvar 1: MeshScale fits capsule"), TRex->MeshScale, 0.0f);
-            TestEqual(TEXT("cvar 1: AttackPlayRate"), TRex->AttackPlayRate, 3.0f);
+            TestEqual(TEXT("cvar 1: AttackPlayRate"), TRex->AttackPlayRate, 1.5f);
+            TestEqual(TEXT("cvar 1: AttackStartTime"), TRex->AttackStartTime, 0.6f);
+            TestEqual(TEXT("cvar 1: AttackEndTime"), TRex->AttackEndTime, 2.1f);
+            TestEqual(TEXT("cvar 1: AttackContactTime"), TRex->AttackContactTime, 1.567f);
             TestEqual(TEXT("cvar 1: WalkAnimSpeed"), TRex->WalkAnimSpeed, 60.0f);
             TestEqual(TEXT("cvar 1: RunAnimSpeed"), TRex->RunAnimSpeed, 245.0f);
         }
@@ -150,6 +154,7 @@ bool FPSLDevHeroTrexSpeciesTest::RunTest(const FString& Parameters)
         TestEqual(TEXT("Para mesh never changes"), Para->Mesh.ToSoftObjectPath().ToString(), FString(TEXT("/Game/Characters/Prey/SK_Parasaurolophus.SK_Parasaurolophus")));
         TestEqual(TEXT("Para AttackPlayRate"), Para->AttackPlayRate, 1.0f);
         TestEqual(TEXT("Para Walk/RunAnimSpeed"), Para->WalkAnimSpeed + Para->RunAnimSpeed, 0.0f);
+        TestEqual(TEXT("Para Attack Start/End/Contact"), Para->AttackStartTime + Para->AttackEndTime + Para->AttackContactTime, 0.0f);
     }
 
     TestTrue(TEXT("cvar restored"), SetCvar(Saved));

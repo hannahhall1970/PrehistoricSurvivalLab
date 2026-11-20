@@ -74,6 +74,19 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual", meta=(ClampMin="0.01"))
     float AttackPlayRate = 1.0f;
 
+    // Attack clip window and jaw-contact moment, in clip seconds (before AttackPlayRate). 0 = legacy: start 0, full clip, BiteHitDelay 0.35 s.
+    // AttackStartTime: clip position where the attack action starts playing.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual", meta=(ClampMin="0.0"))
+    float AttackStartTime = 0.0f;
+
+    // AttackEndTime: clip position where the attack action ends; 0 = play to the end of the clip.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual", meta=(ClampMin="0.0"))
+    float AttackEndTime = 0.0f;
+
+    // AttackContactTime: clip position of the jaw contact; > 0 sets BiteHitDelay = (Contact - Start) / AttackPlayRate.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual", meta=(ClampMin="0.0"))
+    float AttackContactTime = 0.0f;
+
     // Ground speed (uu/s) at which the Walk / Run clip plays at rate 1 without foot sliding; locomotion rate = speed / this. 0 = always rate 1.
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual", meta=(ClampMin="0.0"))
     float WalkAnimSpeed = 0.0f;

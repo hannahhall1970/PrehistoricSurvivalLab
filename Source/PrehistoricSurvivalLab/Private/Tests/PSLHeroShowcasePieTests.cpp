@@ -15,6 +15,8 @@
 #include "Components/CapsuleComponent.h"
 #include "Camera/CameraComponent.h"
 #include "EngineUtils.h"
+#include "Components/InstancedStaticMeshComponent.h"
+#include "UObject/UObjectIterator.h"
 #include "ImageUtils.h"
 #include "ImageCore.h"
 #include "UnrealClient.h"
@@ -199,7 +201,10 @@ void AssertHeroAssets(FPSLPieCtx& Ctx)
             T.TestTrue(FString::Printf(TEXT("%s clip skeleton equals mesh skeleton"), Clip.Key), Clip.Value->GetSkeleton() == Skeleton);
         }
     }
-    T.TestNull(TEXT("DeathSequence is null"), Anim->DeathSequence.Get());
+    if (T.TestNotNull(TEXT("DeathSequence set (A_HeroTrex_Death)"), Anim->DeathSequence.Get()))
+    {
+        T.TestTrue(TEXT("Death clip skeleton equals mesh skeleton"), Anim->DeathSequence->GetSkeleton() == Skeleton);
+    }
 
     const TArray<FSkeletalMaterial>& Slots = Asset->GetMaterials();
     T.TestTrue(TEXT("Mesh has material slots"), Slots.Num() > 0);
@@ -451,6 +456,43 @@ struct FHeroBiteState
     float PreyBefore = 0.0f;
     float PlayerBefore = 0.0f;
     TWeakObjectPtr<APSLPreyCharacter> Prey;
+    // Bite timing: DEF-jaw rotation relative to its parent, sampled every tick after the press, against the idle pose before it.
+    const FName JawName = TEXT("DEF-jaw");
+    FName JawBone = NAME_None;
+    FQuat IdleJaw = FQuat::Identity;
+    double HitTime = -1.0;
+    TArray<TPair<double, double>> JawSamples;
+
+    FQuat JawLocal(const USkeletalMeshComponent& Mesh) const
+    {
+        return Mesh.GetBoneQuaternion(Mesh.GetParentBone(JawBone), EBoneSpaces::ComponentSpace).Inverse() * Mesh.GetBoneQuaternion(JawBone, EBoneSpaces::ComponentSpace);
+    }
+    double JawDeltaDeg(const USkeletalMeshComponent& Mesh) const
+    {
+        return FMath::RadiansToDegrees(IdleJaw.AngularDistance(JawLocal(Mesh)));
+    }
+
+    // Hero contact timing (r7): the hit lands ~ (1.567 - 0.6) / 1.5 s after the press with the jaw open >= 40 deg just before it.
+    void AssertBiteTiming(FPSLPieCtx& Ctx) const
+    {
+        FAutomationTestBase& T = *Ctx.Test;
+        const float ExpectedDelay = (1.567f - 0.6f) / 1.5f;
+        T.TestTrue(FString::Printf(TEXT("BiteHitDelay %.4f equals (1.567-0.6)/1.5 = %.4f"), Ctx.Character->BiteHitDelay, ExpectedDelay),
+            FMath::IsNearlyEqual(Ctx.Character->BiteHitDelay, ExpectedDelay, 0.001f));
+        T.TestTrue(FString::Printf(TEXT("Bite hit lands %.3f s after the press (0.645 +- 0.1)"), HitTime), HitTime >= 0.0 && FMath::Abs(HitTime - 0.645) <= 0.1);
+        double MaxDelta = 0.0;
+        for (const TPair<double, double>& Sample : JawSamples)
+        {
+            if (Sample.Key >= HitTime - 0.15 && Sample.Key <= HitTime)
+            {
+                MaxDelta = FMath::Max(MaxDelta, Sample.Value);
+            }
+        }
+        T.TestTrue(FString::Printf(TEXT("DEF-jaw local rotation delta vs idle >= 40 deg within [hit-0.15, hit] (max %.1f deg, hit %.3f s)"), MaxDelta, HitTime), MaxDelta >= 40.0);
+        const float Dropped = PreyBefore - Prey->GetStatsComponent()->GetHealth();
+        T.TestTrue(FString::Printf(TEXT("Prey health dropped by BiteDamage 25 (%.1f)"), Dropped), FMath::IsNearlyEqual(Dropped, 25.0f, 0.5f));
+        T.TestTrue(FString::Printf(TEXT("LastBiteHitCount >= 1 (%d)"), Ctx.Character->LastBiteHitCount), Ctx.Character->LastBiteHitCount >= 1);
+    }
 
     bool Tick(FPSLPieCtx& Ctx)
     {
@@ -471,6 +513,13 @@ struct FHeroBiteState
             }
             HoldPreyStill(Ctx, *Prey);
             PreyBefore = Prey->GetStatsComponent()->GetHealth();
+            const USkeletalMeshComponent* Mesh = Ctx.Character->GetMesh();
+            if (Mesh->GetBoneIndex(JawName) != INDEX_NONE && Mesh->GetParentBone(JawName) != NAME_None)
+            {
+                JawBone = JawName;
+                IdleJaw = JawLocal(*Mesh);
+            }
+            Ctx.Test->TestTrue(TEXT("DEF-jaw bone (with parent) exists on the hero"), JawBone != NAME_None);
             SendKey(Ctx, EKeys::LeftMouseButton, IE_Pressed);
             PressTime = Now;
             Phase = 1;
@@ -488,6 +537,15 @@ struct FHeroBiteState
             Phase = 2;
         }
         const bool bAttacking = PlayerActiveAction(Ctx) == EPSLDinoAction::Attack;
+        const double SincePress = Now - PressTime;
+        if (JawBone != NAME_None)
+        {
+            JawSamples.Add({SincePress, JawDeltaDeg(*Ctx.Character->GetMesh())});
+        }
+        if (HitTime < 0.0 && Prey->GetStatsComponent()->GetHealth() < PreyBefore)
+        {
+            HitTime = SincePress;
+        }
         if (bAttacking && !bSawAttack)
         {
             bSawAttack = true;
@@ -503,6 +561,7 @@ struct FHeroBiteState
             EndTime = Now - PressTime;
             Ctx.Test->TestTrue(FString::Printf(TEXT("Attack action ends within %.2f s (%.2f s)"), 4.0 / 3.0 + 0.3, EndTime), EndTime <= 4.0 / 3.0 + 0.3);
             Ctx.Test->TestTrue(TEXT("Prey health dropped after the bite"), Prey->GetStatsComponent()->GetHealth() < PreyBefore);
+            AssertBiteTiming(Ctx);
             PlayerBefore = Ctx.Character->GetStatsComponent()->GetHealth();
             UGameplayStatics::ApplyDamage(Ctx.Character.Get(), 10.0f, nullptr, nullptr, UDamageType::StaticClass());
             Ctx.Test->TestTrue(FString::Printf(TEXT("Player health dropped by 10 (%.1f -> %.1f)"), PlayerBefore, Ctx.Character->GetStatsComponent()->GetHealth()),
@@ -525,6 +584,10 @@ struct FShotState
     TWeakObjectPtr<ACameraActor> Cam;
     TWeakObjectPtr<AActor> PrevTarget;
     TWeakObjectPtr<APSLCharacter> Other;
+    TWeakObjectPtr<APSLPreyCharacter> Prey; // HeroVideo bite prey: moved in front of the hero, put back (or destroyed if spawned) by RestoreView
+    FVector PreyHome = FVector::ZeroVector;
+    bool bPreyMoved = false;
+    bool bPreySpawned = false; // no living prey existed: the video spawned one, RestoreView destroys it
 
     void RestoreView(FPSLPieCtx& Ctx)
     {
@@ -540,6 +603,19 @@ struct FShotState
         {
             Other->Destroy();
         }
+        if (bPreyMoved && Prey.IsValid())
+        {
+            if (bPreySpawned)
+            {
+                Prey->Destroy();
+            }
+            else
+            {
+                Prey->SetActorLocation(PreyHome, false, nullptr, ETeleportType::TeleportPhysics);
+            }
+        }
+        bPreyMoved = false;
+        bPreySpawned = false;
     }
 };
 
@@ -553,6 +629,19 @@ bool LineClear(FPSLPieCtx& Ctx, const FShotState& S, const FVector& From, const 
     }
     FHitResult Hit;
     return !Ctx.World->LineTraceSingleByChannel(Hit, From, To, ECC_Visibility, Params);
+}
+
+// Spawns the temporary camera (FOV 60) on first use, puts it at Spot looking at LookAt and makes it the view target.
+void UseCamera(FPSLPieCtx& Ctx, FShotState& S, const FVector& Spot, const FVector& LookAt)
+{
+    if (!S.Cam.IsValid())
+    {
+        S.PrevTarget = Ctx.PC->GetViewTarget();
+        S.Cam = Ctx.World->SpawnActor<ACameraActor>(Spot, FRotator::ZeroRotator);
+        S.Cam->GetCameraComponent()->SetFieldOfView(60.0f);
+    }
+    S.Cam->SetActorLocationAndRotation(Spot, (LookAt - Spot).Rotation());
+    Ctx.PC->SetViewTarget(S.Cam.Get());
 }
 
 // Puts the temporary camera (FOV 60) Offset from Target on the left, then right, then each raised by 150, taking the first
@@ -578,14 +667,7 @@ void PlaceCamera(FPSLPieCtx& Ctx, FShotState& S, const FVector& Target, const FV
             break;
         }
     }
-    if (!S.Cam.IsValid())
-    {
-        S.PrevTarget = Ctx.PC->GetViewTarget();
-        S.Cam = Ctx.World->SpawnActor<ACameraActor>(Spot, FRotator::ZeroRotator);
-        S.Cam->GetCameraComponent()->SetFieldOfView(60.0f);
-    }
-    S.Cam->SetActorLocationAndRotation(Spot, (LookAt - Spot).Rotation());
-    Ctx.PC->SetViewTarget(S.Cam.Get());
+    UseCamera(Ctx, S, Spot, LookAt);
     Ctx.Test->AddInfo(FString::Printf(TEXT("Camera at %s, clear line %s"), *Spot.ToString(), bFound ? TEXT("yes") : TEXT("no (fallback)")));
 }
 
@@ -624,6 +706,44 @@ void SideShot(FPSLPieCtx& Ctx, FShotState& S)
     PlaceCamera(Ctx, S, Centre, Centre, -Side, Side);
 }
 
+// Head bone location, else the top of the bounds.
+FVector HeadPoint(const USkeletalMeshComponent* Mesh)
+{
+    const FName Head(TEXT("DEF-head"));
+    if (Mesh->GetBoneIndex(Head) != INDEX_NONE)
+    {
+        return Mesh->GetBoneLocation(Head, EBoneSpaces::WorldSpace);
+    }
+    return Mesh->Bounds.Origin + FVector(0.0, 0.0, Mesh->Bounds.BoxExtent.Z);
+}
+
+// Deterministic foliage-occlusion count: samples From->To every 100 uu with a 120 uu sphere and sums the instances of every
+// UInstancedStaticMeshComponent in the world (HISM, foliage, landscape grass) that overlap it. Components owned by A or B are ignored.
+// The foliage has no collision, so an ECC_Visibility trace cannot see it.
+int32 OccluderCount(UWorld* World, const FVector& From, const FVector& To, const AActor* A, const AActor* B)
+{
+    TArray<const UInstancedStaticMeshComponent*> Comps;
+    for (TObjectIterator<UInstancedStaticMeshComponent> It; It; ++It)
+    {
+        const AActor* Owner = It->GetOwner();
+        if (It->GetWorld() == World && Owner != A && Owner != B)
+        {
+            Comps.Add(*It);
+        }
+    }
+    const int32 Steps = FMath::Max(1, FMath::CeilToInt(FVector::Dist(From, To) / 100.0));
+    int32 Count = 0;
+    for (int32 I = 0; I <= Steps; ++I)
+    {
+        const FVector P = FMath::Lerp(From, To, double(I) / Steps);
+        for (const UInstancedStaticMeshComponent* Comp : Comps)
+        {
+            Count += Comp->GetInstancesOverlappingSphere(P, 120.0f, true).Num();
+        }
+    }
+    return Count;
+}
+
 // Fixed-step state shared by the video step and Cleanup so the timestep is always restored.
 struct FTimestepGuard
 {
@@ -657,16 +777,19 @@ struct FTimestepGuard
 struct FVideoState
 {
     TSharedRef<FTimestepGuard> Guard;
+    TSharedRef<FShotState> Shot;
     int32 Phase = -1;
     double PhaseStart = 0.0;
     double TurnFrom = 0.0;
     FVector PhaseOrigin = FVector::ZeroVector;
-    double OrbitFromYaw = 0.0;
     double ActorYawAtOrbit = 0.0;
+    bool bStageSet = false;
+    bool bPreyPlaced = false;
+    bool bSawAttack = false;
     FString Dir;
     TArray<TPair<int32, double>> Frames;
 
-    explicit FVideoState(TSharedRef<FTimestepGuard> InGuard) : Guard(MoveTemp(InGuard)) {}
+    FVideoState(TSharedRef<FTimestepGuard> InGuard, TSharedRef<FShotState> InShot) : Guard(MoveTemp(InGuard)), Shot(MoveTemp(InShot)) {}
 
     void Finish(FPSLPieCtx& Ctx)
     {
@@ -681,6 +804,7 @@ struct FVideoState
         const double Span = Frames.Num() > 1 ? Frames.Last().Value - Frames[0].Value : 0.0;
         Ctx.Test->AddInfo(FString::Printf(TEXT("HeroVideo frames %d, mean dt %.4f s"), Frames.Num(), Frames.Num() > 1 ? Span / (Frames.Num() - 1) : 0.0));
         Guard->Restore();
+        Shot->RestoreView(Ctx);
     }
 
     // Logs the 2D displacement of the hero over the phase that just ended and returns it.
@@ -757,19 +881,67 @@ struct FVideoState
                 Next(4);
             }
             break;
-        case 4: // stopped 1.5 s: after the actor settles, orbit the control yaw 90 deg so the follow camera sees the hero from the side
-            if (In < 0.5)
+        case 4: // stopped 1.5 s: the view switches to the side camera at the start; after the actor settles the camera is re-aimed and the prey is put in front
+            if (!bStageSet)
             {
-                ActorYawAtOrbit = Ctx.Character->GetActorRotation().Yaw;
-                OrbitFromYaw = Ctx.PC->GetControlRotation().Yaw;
+                SideShot(Ctx, *Shot);
+                bStageSet = true;
             }
-            else
+            if (In >= 0.5 && !bPreyPlaced)
             {
-                Ctx.PC->SetControlRotation(FRotator(0.0, OrbitFromYaw + 90.0 * FMath::Clamp((In - 0.5) / 0.25, 0.0, 1.0), 0.0));
+                bPreyPlaced = true;
+                const FVector Front = Ctx.Character->GetActorLocation() + Ctx.Character->GetActorForwardVector() * 220.0;
+                FVector Ground;
+                if (!GroundAt(Ctx.World, Front.X, Front.Y, Ground))
+                {
+                    // Same height the hero stands at, minus the capsule difference: the prey drops onto the terrain.
+                    Ground = Front - FVector(0.0, 0.0, 60.0);
+                    Ctx.Test->AddInfo(TEXT("HeroVideo bite: no landscape hit 220 uu ahead, prey placed at hero height"));
+                }
+                APSLPreyCharacter* BitePrey = nullptr;
+                for (APSLPreyCharacter* Candidate : GetPrey(Ctx.World))
+                {
+                    if (Candidate && !Candidate->GetStatsComponent()->IsDead())
+                    {
+                        BitePrey = Candidate;
+                        break;
+                    }
+                }
+                if (BitePrey)
+                {
+                    Shot->PreyHome = BitePrey->GetActorLocation();
+                    BitePrey->SetActorLocation(Ground, false, nullptr, ETeleportType::TeleportPhysics);
+                }
+                else
+                {
+                    // Earlier steps (bite test, predator) left no living prey: spawn one for the shot.
+                    FActorSpawnParameters SpawnParams;
+                    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+                    BitePrey = Ctx.World->SpawnActor<APSLPreyCharacter>(APSLPreyCharacter::StaticClass(), Ground, FRotator::ZeroRotator, SpawnParams);
+                    if (!BitePrey)
+                    {
+                        Ctx.MarkInvalid(TEXT("HeroVideo bite: no living prey and spawning one failed"));
+                        Finish(Ctx);
+                        return true;
+                    }
+                    Shot->bPreySpawned = true;
+                    Ctx.Test->AddInfo(TEXT("HeroVideo bite: no living prey in the world, spawned one"));
+                }
+                // The bite centre is 220 uu ahead of the actor, radius 120: the prey sits inside it, in front of the open jaw.
+                Shot->Prey = BitePrey;
+                Shot->bPreyMoved = true;
+                HoldPreyStill(Ctx, *BitePrey);
+                ActorYawAtOrbit = Ctx.Character->GetActorRotation().Yaw;
+                SideShot(Ctx, *Shot);
+            }
+            if (bPreyPlaced && Shot->Prey.IsValid())
+            {
+                HoldPreyStill(Ctx, *Shot->Prey);
             }
             if (In >= 1.5)
             {
-                const FVector ToCam = (Ctx.Character->FindComponentByClass<UCameraComponent>()->GetComponentLocation() - Ctx.Character->GetActorLocation()).GetSafeNormal2D();
+                const FVector CamLoc = Shot->Cam.IsValid() ? Shot->Cam->GetActorLocation() : Ctx.Character->FindComponentByClass<UCameraComponent>()->GetComponentLocation();
+                const FVector ToCam = (CamLoc - Ctx.Character->GetActorLocation()).GetSafeNormal2D();
                 const double Angle = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector::DotProduct(ToCam, -Ctx.Character->GetActorForwardVector().GetSafeNormal2D()), -1.0, 1.0)));
                 const double YawDrift = FMath::Abs(FRotator::NormalizeAxis(Ctx.Character->GetActorRotation().Yaw - ActorYawAtOrbit));
                 Ctx.Test->TestTrue(FString::Printf(TEXT("Actor yaw did not follow the camera orbit (drift %.1f deg <= 5)"), YawDrift), YawDrift <= 5.0);
@@ -777,12 +949,23 @@ struct FVideoState
                 Ctx.Measurements.Add(Line);
                 Ctx.Test->AddInfo(Line);
                 Ctx.Test->TestTrue(FString::Printf(TEXT("Bite camera is >= 60 deg off the hero rear axis (%.1f)"), Angle), Angle >= 60.0);
-                Ctx.Character->TryBite();
+                Ctx.Test->TestTrue(TEXT("HeroVideo bite: TryBite returns true"), Ctx.Character->TryBite());
+                bSawAttack = PlayerActiveAction(Ctx) == EPSLDinoAction::Attack;
                 Next(5);
             }
             break;
-        default: // bite + 1.5 s
-            if (In >= 1.5) { Finish(Ctx); return true; }
+        default: // bite + 2.0 s
+            if (Shot->Prey.IsValid())
+            {
+                HoldPreyStill(Ctx, *Shot->Prey);
+            }
+            bSawAttack = bSawAttack || PlayerActiveAction(Ctx) == EPSLDinoAction::Attack;
+            if (In >= 2.0)
+            {
+                Ctx.Test->TestTrue(TEXT("HeroVideo bite: attack action played during the bite phase"), bSawAttack);
+                Finish(Ctx);
+                return true;
+            }
             break;
         }
         return false;
@@ -903,6 +1086,33 @@ bool FPSLHeroShowcaseTest::RunTest(const FString& Parameters)
         }
         return S->Tick(Ctx);
     });
+    // Old-species regression: with the cvar at 0 the built-in T-Rex keeps BiteHitDelay 0.35 and the attack clip window (start 0, end 0 = full clip).
+    AddPieStep(Context, TEXT("OldSpeciesBiteRegression"), 5.0f, [](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable())
+        {
+            return true;
+        }
+        FActorSpawnParameters Params;
+        Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        APSLCharacter* Old = Ctx.World->SpawnActor<APSLCharacter>(APSLCharacter::StaticClass(), Ctx.Character->GetActorLocation() + FVector(0.0, 0.0, 2000.0), FRotator::ZeroRotator, Params);
+        if (!Ctx.Test->TestNotNull(TEXT("Old-species regression: spawned APSLCharacter"), Old))
+        {
+            return true;
+        }
+        SetIntCvar(TEXT("psl.Dev.HeroTrex"), 0);
+        Old->ApplySpecies(UPSLDinoSpecies::MakeBuiltin(UPSLDinoSpecies::TRexId, Old));
+        SetIntCvar(TEXT("psl.Dev.HeroTrex"), 1);
+        Ctx.Test->TestEqual(TEXT("Old T-Rex BiteHitDelay stays 0.35"), Old->BiteHitDelay, 0.35f);
+        const UPSLDinoAnimInstance* OldAnim = Cast<UPSLDinoAnimInstance>(Old->GetMesh()->GetAnimInstance());
+        if (Ctx.Test->TestNotNull(TEXT("Old T-Rex anim instance"), OldAnim))
+        {
+            Ctx.Test->TestEqual(TEXT("Old T-Rex AttackStartTime is 0"), OldAnim->AttackStartTime, 0.0f);
+            Ctx.Test->TestEqual(TEXT("Old T-Rex AttackEndTime is 0 (full clip)"), OldAnim->AttackEndTime, 0.0f);
+        }
+        Old->Destroy();
+        return true;
+    });
     // Stills and video need a renderer; under -nullrhi only the video script (without capture) runs.
     const TSharedRef<FShotState> Shot = MakeShared<FShotState>();
     const TSharedRef<FTimestepGuard> Guard = MakeShared<FTimestepGuard>();
@@ -926,6 +1136,39 @@ bool FPSLHeroShowcaseTest::RunTest(const FString& Parameters)
             return Now - Start >= 0.45;
         });
         QueueCapture(Context, TEXT("hero_attack_side"));
+        // bite_seq_0..3: PIE stills at press + 0.30/0.50/0.645/0.85 s with a prey held in front (side camera from hero_attack_side stays).
+        QueueHold(Context, 1.2);
+        AddPieStep(Context, TEXT("bite_seq"), 10.0f, [Shot, Start = -1.0, Next = 0](FPSLPieCtx& Ctx) mutable
+        {
+            if (!Ctx.IsUsable())
+            {
+                return true;
+            }
+            const double Now = Ctx.World->GetTimeSeconds();
+            for (APSLPreyCharacter* Prey : GetPrey(Ctx.World))
+            {
+                if (Prey && !Prey->GetStatsComponent()->IsDead())
+                {
+                    HoldPreyStill(Ctx, *Prey);
+                    break;
+                }
+            }
+            if (Start < 0.0)
+            {
+                SideShot(Ctx, *Shot);
+                Ctx.Test->TestTrue(TEXT("TryBite for bite_seq"), Ctx.Character->TryBite());
+                Start = Now;
+            }
+            static const double Offsets[4] = {0.30, 0.50, 0.645, 0.85};
+            if (Next < 4 && Now - Start >= Offsets[Next])
+            {
+                const FString Label = FString::Printf(TEXT("bite_seq_%d"), Next);
+                CapturePieViewport(Ctx, Label, ShotPath(Ctx, Label), true);
+                Ctx.Test->AddInfo(FString::Printf(TEXT("%s captured %.3f s after the press (target %.3f)"), *Label, Now - Start, Offsets[Next]));
+                ++Next;
+            }
+            return Next >= 4;
+        });
         QueueHold(Context, 1.5);
         AddPieStep(Context, TEXT("OpenGroundStage"), 5.0f, [](FPSLPieCtx& Ctx)
         {
@@ -981,19 +1224,21 @@ bool FPSLHeroShowcaseTest::RunTest(const FString& Parameters)
             return true;
         });
         QueueHold(Context, 1.0);
-        // Old (SK_Trex) T-Rex 700 uu to the player's right, one camera framing both.
+        // Old (SK_Trex) T-Rex on the verified clear corridor (hero +-Forward*800), one camera on the hero's Right axis framing both.
+        // The first configuration (old side, camera side, camera raise) with zero instanced-foliage occluders is used.
         AddPieStep(Context, TEXT("old_vs_new"), 5.0f, [Shot](FPSLPieCtx& Ctx)
         {
             if (!Ctx.IsUsable())
             {
                 return true;
             }
+            const FVector HeroLoc = Ctx.Character->GetActorLocation();
+            const FVector Forward = Ctx.Character->GetActorForwardVector();
             const FVector Right = Ctx.Character->GetActorRightVector();
-            const FVector At = Ctx.Character->GetActorLocation() + Right * 700.0;
             FVector Ground;
-            if (!GroundAt(Ctx.World, At.X, At.Y, Ground))
+            if (!GroundAt(Ctx.World, HeroLoc.X + Forward.X * 800.0, HeroLoc.Y + Forward.Y * 800.0, Ground))
             {
-                Ctx.MarkInvalid(TEXT("No ground 700 uu right of the player for old_vs_new"));
+                Ctx.MarkInvalid(TEXT("No ground 800 uu in front of the player for old_vs_new"));
                 return true;
             }
             FActorSpawnParameters Params;
@@ -1010,10 +1255,47 @@ bool FPSLHeroShowcaseTest::RunTest(const FString& Parameters)
             SetIntCvar(TEXT("psl.Dev.HeroTrex"), 1);
             const USkeletalMesh* OldAsset = Old->GetMesh()->GetSkeletalMeshAsset();
             Ctx.Test->TestTrue(TEXT("Spawned mesh is /Game/Characters/Dino/SK_Trex"), OldAsset && OldAsset->GetPathName() == TEXT("/Game/Characters/Dino/SK_Trex.SK_Trex"));
-            // The camera sits on the hero's FORWARD axis, perpendicular to the line between the two bodies, raised ~100 uu.
-            const FVector Centre = (Ctx.Character->GetActorLocation() + Ground) * 0.5;
-            const FVector Back = Ctx.Character->GetActorForwardVector() * FrameDistance(700.0 + BodyLength(Ctx), 0.8) + FVector(0.0, 0.0, 100.0);
-            PlaceCamera(Ctx, *Shot, Centre, Centre, Back, FVector(-Back.X, -Back.Y, Back.Z));
+
+            const USkeletalMeshComponent* NewMesh = Ctx.Character->GetMesh();
+            const USkeletalMeshComponent* OldMesh = Old->GetMesh();
+            const double Dist = FrameDistance(800.0 + BodyLength(Ctx), 0.8);
+            FString Tried;
+            for (const double OldSide : {1.0, -1.0})
+            {
+                if (!GroundAt(Ctx.World, HeroLoc.X + Forward.X * 800.0 * OldSide, HeroLoc.Y + Forward.Y * 800.0 * OldSide, Ground))
+                {
+                    Tried += FString::Printf(TEXT("[old %+.0f: no ground] "), OldSide);
+                    continue;
+                }
+                Old->SetActorLocation(Ground, false, nullptr, ETeleportType::TeleportPhysics);
+                const FVector Centre = (HeroLoc + Ground) * 0.5;
+                const FVector Targets[4] = {NewMesh->Bounds.Origin, HeadPoint(NewMesh), OldMesh->Bounds.Origin, HeadPoint(OldMesh)};
+                for (const double CamSide : {-1.0, 1.0})
+                {
+                    for (const double Raise : {0.0, 200.0, 400.0})
+                    {
+                        const FVector Cam = Centre + Right * (CamSide * Dist) + FVector(0.0, 0.0, Raise);
+                        int32 Counts[4];
+                        int32 Total = 0;
+                        for (int32 I = 0; I < 4; ++I)
+                        {
+                            Counts[I] = OccluderCount(Ctx.World, Cam, Targets[I], Ctx.Character.Get(), Old);
+                            Total += Counts[I];
+                        }
+                        const FString Config = FString::Printf(TEXT("old Forward*%+.0f, camera Right*%+.0f, raise %.0f: occluders new-body %d new-head %d old-body %d old-head %d"),
+                            800.0 * OldSide, CamSide, Raise, Counts[0], Counts[1], Counts[2], Counts[3]);
+                        if (Total == 0)
+                        {
+                            Ctx.Test->AddInfo(FString::Printf(TEXT("old_vs_new chose %s"), *Config));
+                            Ctx.Test->TestEqual(TEXT("old_vs_new: instanced-foliage occluders on every camera-to-body segment"), Total, 0);
+                            UseCamera(Ctx, *Shot, Cam, Centre);
+                            return true;
+                        }
+                        Tried += FString::Printf(TEXT("[%s] "), *Config);
+                    }
+                }
+            }
+            Ctx.MarkInvalid(FString::Printf(TEXT("old_vs_new: no foliage-free configuration: %s"), *Tried));
             return true;
         });
         QueueHold(Context, 1.0);
@@ -1042,8 +1324,8 @@ bool FPSLHeroShowcaseTest::RunTest(const FString& Parameters)
             return true;
         });
     }
-    // HeroVideo with the gameplay (pawn) camera at a fixed 30 fps step.
-    AddPieStep(Context, TEXT("HeroVideo"), 600.0f, [S = MakeShared<FVideoState>(Guard)](FPSLPieCtx& Ctx)
+    // HeroVideo: pawn camera until the stop phase, then the temporary side camera (restored by Finish and Cleanup) at a fixed 30 fps step.
+    AddPieStep(Context, TEXT("HeroVideo"), 600.0f, [S = MakeShared<FVideoState>(Guard, Shot)](FPSLPieCtx& Ctx)
     {
         return !Ctx.IsUsable() || S->Tick(Ctx);
     });

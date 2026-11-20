@@ -118,6 +118,8 @@ void APSLCharacter::ApplyDinoVisuals()
         DinoAnim->AttackSequence = DinoAttackAnim.LoadSynchronous();
         DinoAnim->DeathSequence = DinoDeathAnim.LoadSynchronous();
         DinoAnim->AttackPlayRate = ActiveSpecies ? ActiveSpecies->AttackPlayRate : 1.0f;
+        DinoAnim->AttackStartTime = ActiveSpecies ? ActiveSpecies->AttackStartTime : 0.0f;
+        DinoAnim->AttackEndTime = ActiveSpecies ? ActiveSpecies->AttackEndTime : 0.0f;
         DinoAnim->WalkAnimSpeed = ActiveSpecies ? ActiveSpecies->WalkAnimSpeed : 0.0f;
         DinoAnim->RunAnimSpeed = ActiveSpecies ? ActiveSpecies->RunAnimSpeed : 0.0f;
         if (!DinoAnim->AttackSequence || !DinoAnim->DeathSequence)
@@ -156,6 +158,9 @@ void APSLCharacter::ApplySpecies(const UPSLDinoSpecies* Species)
     BiteDamage = Species->BiteDamage;
     BiteRadius = Species->BiteRadius;
     BiteCooldown = Species->BiteCooldown;
+    BiteHitDelay = Species->AttackContactTime > 0.0f
+        ? (Species->AttackContactTime - Species->AttackStartTime) / FMath::Max(Species->AttackPlayRate, 0.01f)
+        : 0.35f;
     FoodPerBite = Species->FoodPerBite;
 
     DinoMesh = Species->Mesh;

@@ -87,6 +87,13 @@ public:
     UPROPERTY(Transient)
     float AttackPlayRate = 1.0f;
 
+    // Set by APSLCharacter from the species (clip seconds); the proxy plays Attack from Start to End (0 = clip end).
+    UPROPERTY(Transient)
+    float AttackStartTime = 0.0f;
+
+    UPROPERTY(Transient)
+    float AttackEndTime = 0.0f;
+
     // Set by APSLCharacter from the species; 0 = Walk/Run always play at rate 1.
     UPROPERTY(Transient)
     float WalkAnimSpeed = 0.0f;

@@ -141,14 +141,31 @@ struct FPSLDinoAnimProxy : public FAnimInstanceProxy
             {
                 FAnimNode_SequencePlayer_Standalone& Node = ActionNodes[static_cast<int32>(Requested) - 1];
                 const float Rate = Requested == EPSLDinoAction::Attack ? FMath::Max(Dino->AttackPlayRate, 0.01f) : 1.0f;
+                const float ClipLength = Clip->GetPlayLength();
+                float Start = 0.0f;
+                float End = ClipLength;
+                if (Requested == EPSLDinoAction::Attack)
+                {
+                    const bool bBadWindow = Dino->AttackStartTime >= ClipLength || (Dino->AttackEndTime > 0.0f && Dino->AttackEndTime <= Dino->AttackStartTime);
+                    if (bBadWindow)
+                    {
+                        UE_LOG(LogTemp, Warning, TEXT("Dino attack window [%.3f, %.3f] invalid for clip length %.3f; playing the full clip."),
+                            Dino->AttackStartTime, Dino->AttackEndTime, ClipLength);
+                    }
+                    else
+                    {
+                        Start = Dino->AttackStartTime;
+                        End = Dino->AttackEndTime > 0.0f ? FMath::Min(Dino->AttackEndTime, ClipLength) : ClipLength;
+                    }
+                }
                 Node.SetSequence(Clip);
                 Node.SetLoopAnimation(false);
-                Node.SetStartPosition(0.0f);
+                Node.SetStartPosition(Start);
                 Node.SetPlayRate(Rate);
                 Node.Initialize_AnyThread(FAnimationInitializeContext(this));
                 ActionType = Requested;
                 ActionTime = 0.0f;
-                ActionClipLength = Clip->GetPlayLength() / Rate;
+                ActionClipLength = (End - Start) / Rate;
                 ActionWeight = 0.0f;
             }
         }

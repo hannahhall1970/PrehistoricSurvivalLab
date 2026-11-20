@@ -91,8 +91,11 @@ UPSLDinoSpecies* UPSLDinoSpecies::MakeBuiltin(FName Id, UObject* Outer)
             S->WalkAnim = Soft<UAnimSequence>(TEXT("/Game/Dev/ArtDir/Hero/A_HeroTrex_Walk.A_HeroTrex_Walk"));
             S->RunAnim = Soft<UAnimSequence>(TEXT("/Game/Dev/ArtDir/Hero/A_HeroTrex_Run.A_HeroTrex_Run"));
             S->AttackAnim = Soft<UAnimSequence>(TEXT("/Game/Dev/ArtDir/Hero/A_HeroTrex_Attack.A_HeroTrex_Attack"));
-            S->DeathAnim.Reset(); // the old death clip is on another skeleton
-            S->AttackPlayRate = 3.0f; // 4.0 s clip -> ~1.33 s, fits BiteCooldown
+            S->DeathAnim = Soft<UAnimSequence>(TEXT("/Game/Dev/ArtDir/Hero/A_HeroTrex_Death.A_HeroTrex_Death"));
+            S->AttackPlayRate = 1.5f;       // clip window 0.6..2.1 s -> 1.0 s action, fits BiteCooldown
+            S->AttackStartTime = 0.6f;
+            S->AttackEndTime = 2.1f;
+            S->AttackContactTime = 1.567f;  // jaw contact (clip f47) -> BiteHitDelay 0.645 s
             S->WalkAnimSpeed = 60.0f;  // stance-phase toe contact speed per play-rate unit, mean of PSL.Dev.HeroTrex.Showcase suggested_anim_speed (L 60.1, R 60.5)
             S->RunAnimSpeed = 245.0f;  // measured: Run clip covers ~245 uu/s
             S->MeshScale = 0.0f;      // fit to 90% of the capsule height
