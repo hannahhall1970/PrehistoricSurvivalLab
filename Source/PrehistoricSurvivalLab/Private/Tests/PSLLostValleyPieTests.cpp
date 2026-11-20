@@ -1111,7 +1111,7 @@ bool FPSLLostValleyPredatorTest::RunTest(const FString& Parameters)
         Ctx.Test->AddInfo(FString::Printf(TEXT("Pursuit distance %.0f uu"), Moved));
         return true;
     });
-    AddPieStep(Context, TEXT("AttackDamage"), 3.0f, [Run](FPSLPieCtx& Ctx)
+    AddPieStep(Context, TEXT("AttackDamage"), 4.0f, [Run](FPSLPieCtx& Ctx)
     {
         if (!Ctx.IsUsable() || !Run->Predator.IsValid())
         {
@@ -1120,7 +1120,7 @@ bool FPSLLostValleyPredatorTest::RunTest(const FString& Parameters)
         const float Expected = Run->HealthBefore - Run->Predator->AttackDamage;
         if (Ctx.Character->GetStatsComponent()->GetHealth() > Expected + 1.0f)
         {
-            return false; // the hit lands AttackHitDelay after entering Attack
+            return false; // the hit lands AttackWindupSeconds + AttackStrikeSeconds after entering Attack
         }
         Ctx.Test->AddInfo(FString::Printf(TEXT("Player health %.1f -> %.1f"), Run->HealthBefore, Ctx.Character->GetStatsComponent()->GetHealth()));
 

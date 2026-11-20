@@ -169,7 +169,7 @@ bool FPSLPredatorControllerTest::RunTest(const FString& Parameters)
         Ctx.Character->GetCharacterMovement()->StopMovementImmediately();
         return ConsumeUntil(*Run, EPSLPredatorState::Attack, TEXT("target_in_range"));
     });
-    AddPieStep(Context, TEXT("AttackDamage"), 3.0f, [Run](FPSLPieCtx& Ctx)
+    AddPieStep(Context, TEXT("AttackDamage"), 4.0f, [Run](FPSLPieCtx& Ctx)
     {
         if (!Ctx.IsUsable() || !Run->Predator.IsValid())
         {
@@ -178,7 +178,7 @@ bool FPSLPredatorControllerTest::RunTest(const FString& Parameters)
         const float Expected = Run->HealthBefore - Run->Predator->AttackDamage;
         if (Ctx.Character->GetStatsComponent()->GetHealth() > Expected + 1.0f)
         {
-            return false; // the hit lands AttackHitDelay after entering Attack
+            return false; // the hit lands AttackWindupSeconds + AttackStrikeSeconds after entering Attack
         }
         Ctx.Test->AddInfo(FString::Printf(TEXT("Player health %.1f -> %.1f"), Run->HealthBefore, Ctx.Character->GetStatsComponent()->GetHealth()));
         return true;
@@ -263,6 +263,184 @@ bool FPSLPredatorControllerTest::RunTest(const FString& Parameters)
         Ctx.Test->TestTrue(TEXT("Predator is dead"), Run->Predator->IsDead());
         Ctx.Test->TestEqual(TEXT("Controller state Dead"), AIOf(*Run)->GetPredatorState(), EPSLPredatorState::Dead);
         Ctx.Test->AddInfo(TEXT("Transitions: ") + DumpTransitions(*Run));
+        return true;
+    });
+    QueuePieEnd(Context);
+    return true;
+}
+
+namespace
+{
+struct FAttackFeel
+{
+    double AttackStart = 0.0;
+    float HealthBefore = 0.0f;
+    float LastYaw = 0.0f;
+    bool bHaveYaw = false;
+    float TotalTurn = 0.0f;
+};
+
+// Per-tick yaw change must respect the wind-up turn rate (no snap).
+void SampleYaw(FPSLPieCtx& Ctx, FAttackFeel& Feel, const APSLPredatorAIController& AI, const APSLPredatorCharacter& Predator)
+{
+    const float Yaw = Predator.GetActorRotation().Yaw;
+    if (Feel.bHaveYaw)
+    {
+        const float Delta = FMath::Abs(FRotator::NormalizeAxis(Yaw - Feel.LastYaw));
+        Feel.TotalTurn += Delta;
+        const float Limit = AI.AttackTurnRateDegPerSec * Ctx.World->GetDeltaSeconds() + 2.0f;
+        Ctx.Test->TestTrue(FString::Printf(TEXT("Yaw change %.1f deg this tick stays within %.1f deg (no snap)"), Delta, Limit), Delta <= Limit);
+    }
+    Feel.LastYaw = Yaw;
+    Feel.bHaveYaw = true;
+}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLPredatorAttackFeelTest, "PSL.AI.PredatorAttackFeel", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FPSLPredatorAttackFeelTest::RunTest(const FString& Parameters)
+{
+    const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("PredatorAttackFeel"));
+    const TSharedRef<FPredatorRun> Run = MakeShared<FPredatorRun>();
+    const TSharedRef<FAttackFeel> Feel = MakeShared<FAttackFeel>();
+    if (!QueuePieStart(*this, Context))
+    {
+        return false;
+    }
+
+    // Player stands still 170 uu in front of the predator, which sees it and attacks.
+    AddPieStep(Context, TEXT("Spawn"), 5.0f, [Run](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable())
+        {
+            return true;
+        }
+        const double Z = Ctx.Character->GetActorLocation().Z;
+        FActorSpawnParameters Params;
+        Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+        Run->Predator = Ctx.World->SpawnActor<APSLPredatorCharacter>(APSLPredatorCharacter::StaticClass(),
+            FTransform(FRotator::ZeroRotator, FVector(-1500.0, 0.0, Z + 80.0)), Params);
+        if (!Ctx.Test->TestNotNull(TEXT("Predator spawned and possessed"), AIOf(*Run)))
+        {
+            Ctx.MarkInvalid(TEXT("Predator controller missing"));
+            return true;
+        }
+        Teleport(Ctx, FVector(-1330.0, 0.0, Z));
+        return true;
+    });
+    AddPieStep(Context, TEXT("AttackBegins"), 8.0f, [Run, Feel](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable() || !AIOf(*Run))
+        {
+            return true;
+        }
+        Ctx.Character->GetCharacterMovement()->StopMovementImmediately();
+        if (!ConsumeUntil(*Run, EPSLPredatorState::Attack, TEXT("target_in_range")))
+        {
+            return false;
+        }
+        Feel->AttackStart = AIOf(*Run)->GetTransitions().Last().WorldTime;
+        Feel->HealthBefore = Ctx.Character->GetStatsComponent()->GetHealth();
+        Feel->bHaveYaw = false;
+        Ctx.Test->TestTrue(TEXT("Attack starts in the wind-up"), AIOf(*Run)->IsAttackWindingUp());
+        return true;
+    });
+    // a) No damage until the strike is committed; the wind-up lasts the tunable.
+    AddPieStep(Context, TEXT("Windup"), 3.0f, [Run, Feel](FPSLPieCtx& Ctx)
+    {
+        APSLPredatorAIController* AI = AIOf(*Run);
+        if (!Ctx.IsUsable() || !AI)
+        {
+            return true;
+        }
+        SampleYaw(Ctx, *Feel, *AI, *Run->Predator);
+        if (!AI->IsStrikeCommitted())
+        {
+            Ctx.Test->TestEqual(TEXT("No damage during the wind-up"), Ctx.Character->GetStatsComponent()->GetHealth(), Feel->HealthBefore);
+            return false;
+        }
+        const double Windup = Ctx.World->GetTimeSeconds() - Feel->AttackStart;
+        Ctx.Test->TestTrue(FString::Printf(TEXT("Wind-up lasted %.2fs (>= %.2fs - 0.1)"), Windup, AI->AttackWindupSeconds), Windup >= AI->AttackWindupSeconds - 0.1);
+        Ctx.Test->TestEqual(TEXT("Still no damage at commit"), Ctx.Character->GetStatsComponent()->GetHealth(), Feel->HealthBefore);
+        return true;
+    });
+    // b) Standing still in front: hit exactly once.
+    AddPieStep(Context, TEXT("StandingHit"), 3.0f, [Run, Feel](FPSLPieCtx& Ctx)
+    {
+        const APSLPredatorAIController* AI = AIOf(*Run);
+        if (!Ctx.IsUsable() || !AI)
+        {
+            return true;
+        }
+        if (AI->GetHitCount() < 1)
+        {
+            return false;
+        }
+        Ctx.Test->TestEqual(TEXT("Exactly one hit"), AI->GetHitCount(), 1);
+        Ctx.Test->TestEqual(TEXT("No miss"), AI->GetMissCount(), 0);
+        Ctx.Test->TestTrue(TEXT("Player lost AttackDamage"),
+            FMath::IsNearlyEqual(Ctx.Character->GetStatsComponent()->GetHealth(), Feel->HealthBefore - Run->Predator->AttackDamage, 1.0f));
+        return true;
+    });
+    // Second attack: the player stands 50 deg off-axis (the predator must turn, rate-limited), then sidesteps after commit.
+    AddPieStep(Context, TEXT("SecondAttackBegins"), 12.0f, [Run, Feel](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable() || !AIOf(*Run))
+        {
+            return true;
+        }
+        if (!ConsumeUntil(*Run, EPSLPredatorState::Attack, TEXT("target_in_range")))
+        {
+            return false;
+        }
+        const FVector P = Run->Predator->GetActorLocation();
+        const FVector Side = Run->Predator->GetActorForwardVector().GetSafeNormal2D().RotateAngleAxis(50.0, FVector::UpVector);
+        Teleport(Ctx, FVector(P.X + Side.X * 170.0, P.Y + Side.Y * 170.0, Ctx.Character->GetActorLocation().Z));
+        Feel->AttackStart = AIOf(*Run)->GetTransitions().Last().WorldTime;
+        Feel->HealthBefore = Ctx.Character->GetStatsComponent()->GetHealth();
+        Feel->bHaveYaw = false;
+        Feel->TotalTurn = 0.0f;
+        return true;
+    });
+    // c) Sidestep >= 300 uu perpendicular to the frozen direction right after commit: no damage, miss observed.
+    AddPieStep(Context, TEXT("Sidestep"), 3.0f, [Run, Feel](FPSLPieCtx& Ctx)
+    {
+        APSLPredatorAIController* AI = AIOf(*Run);
+        if (!Ctx.IsUsable() || !AI)
+        {
+            return true;
+        }
+        SampleYaw(Ctx, *Feel, *AI, *Run->Predator);
+        if (!AI->IsStrikeCommitted())
+        {
+            return false;
+        }
+        const FVector P = Run->Predator->GetActorLocation();
+        const FVector Right = FVector::CrossProduct(FVector::UpVector, AI->GetFrozenStrikeDirection());
+        FVector Dest = P + Right * 350.0;
+        if (!OnFloor(Dest))
+        {
+            Dest = P - Right * 350.0;
+        }
+        Dest.Z = Ctx.Character->GetActorLocation().Z;
+        Ctx.Test->TestTrue(TEXT("Sidestep destination is on the arena floor"), OnFloor(Dest));
+        Ctx.Test->AddInfo(FString::Printf(TEXT("Predator turned %.0f deg during the wind-up"), Feel->TotalTurn));
+        Teleport(Ctx, Dest);
+        return true;
+    });
+    AddPieStep(Context, TEXT("Missed"), 3.0f, [Run, Feel](FPSLPieCtx& Ctx)
+    {
+        const APSLPredatorAIController* AI = AIOf(*Run);
+        if (!Ctx.IsUsable() || !AI)
+        {
+            return true;
+        }
+        if (AI->GetMissCount() < 1)
+        {
+            return false;
+        }
+        Ctx.Test->TestEqual(TEXT("Still exactly one hit"), AI->GetHitCount(), 1);
+        Ctx.Test->TestEqual(TEXT("Sidestepped player is not damaged"), Ctx.Character->GetStatsComponent()->GetHealth(), Feel->HealthBefore);
         return true;
     });
     QueuePieEnd(Context);

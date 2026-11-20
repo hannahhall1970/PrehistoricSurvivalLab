@@ -44,6 +44,9 @@ public:
     /** Plays the Attack action on the skeletal visual; no-op on the cube placeholder. */
     void PlayAttackAnimation();
 
+    /** Play length of the attack clip in seconds once loaded; 0 when the clip is missing (cube placeholder). */
+    float GetAttackClipLength() const;
+
     virtual float TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
 
     // Soft references only: a missing import keeps the cube placeholder (L_TestArena tests rely on that).
@@ -76,6 +79,9 @@ private:
     // Applies the soft-referenced skeletal mesh + clips fitted to the capsule; keeps the cube placeholder if any asset is missing.
     void ApplyPredatorVisuals();
 
+    // Writes the HitFlash scalar on every predator material slot (no-op on the cube placeholder).
+    void SetTelegraphFlash(float Value);
+
     UPROPERTY(VisibleAnywhere, Category="Components")
     TObjectPtr<UPSLStatsComponent> StatsComponent;
 
@@ -85,7 +91,7 @@ private:
     UPROPERTY(VisibleAnywhere, Category="Visual")
     TObjectPtr<UStaticMeshComponent> HeadMesh;
 
-    // '?' amber while Investigate, '!' red while Chase/Attack, hidden otherwise.
+    // '?' amber while Investigate, red '!' while Chase/Attack, larger hot yellow-white '!' during the attack wind-up; hidden otherwise.
     UPROPERTY(VisibleAnywhere, Category="Visual")
     TObjectPtr<UTextRenderComponent> AlertText;
 
@@ -94,4 +100,5 @@ private:
 
     bool bUsingSkeletalVisual = false;
     bool bDeathHandled = false;
+    bool bTelegraphFlashing = false;
 };

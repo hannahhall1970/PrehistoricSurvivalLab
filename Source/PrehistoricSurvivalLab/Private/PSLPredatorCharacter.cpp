@@ -156,17 +156,53 @@ void APSLPredatorCharacter::PlayAttackAnimation()
     }
 }
 
+float APSLPredatorCharacter::GetAttackClipLength() const
+{
+    const UAnimSequence* Clip = PredatorAttackAnim.Get();
+    return Clip ? Clip->GetPlayLength() : 0.0f;
+}
+
+void APSLPredatorCharacter::SetTelegraphFlash(float Value)
+{
+    for (UMaterialInstanceDynamic* Mid : PredatorMaterials)
+    {
+        if (Mid)
+        {
+            Mid->SetScalarParameterValue(TEXT("HitFlash"), Value);
+        }
+    }
+}
+
 void APSLPredatorCharacter::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
 
     if (bDeathHandled || !AlertText)
     {
+        if (bTelegraphFlashing)
+        {
+            bTelegraphFlashing = false;
+            SetTelegraphFlash(0.0f);
+        }
         return;
     }
 
     const APSLPredatorAIController* AI = Cast<APSLPredatorAIController>(GetController());
     const EPSLPredatorState State = AI ? AI->GetPredatorState() : EPSLPredatorState::Idle;
+    const bool bWindingUp = AI && AI->IsAttackWindingUp();
+
+    // Wind-up telegraph: pulse the HitFlash scalar (0..1, ~3 Hz); reset once when it ends.
+    if (bWindingUp)
+    {
+        bTelegraphFlashing = true;
+        SetTelegraphFlash(0.5f + 0.5f * FMath::Sin(GetWorld()->GetTimeSeconds() * 2.0 * UE_DOUBLE_PI * 3.0));
+    }
+    else if (bTelegraphFlashing)
+    {
+        bTelegraphFlashing = false;
+        SetTelegraphFlash(0.0f);
+    }
+
     const bool bInvestigate = State == EPSLPredatorState::Investigate;
     const bool bAlert = State == EPSLPredatorState::Chase || State == EPSLPredatorState::Attack;
     AlertText->SetVisibility(bInvestigate || bAlert);
@@ -176,7 +212,9 @@ void APSLPredatorCharacter::Tick(float DeltaSeconds)
     }
 
     AlertText->SetText(FText::AsCultureInvariant(bAlert ? TEXT("!") : TEXT("?"))); // symbols, not language
-    AlertText->SetTextRenderColor(bAlert ? FColor::Red : FColor(255, 170, 0));
+    // Wind-up '!' is larger and hot yellow-white so it reads differently from Chase's red '!'.
+    AlertText->SetTextRenderColor(bWindingUp ? FColor(255, 240, 150) : bAlert ? FColor::Red : FColor(255, 170, 0));
+    AlertText->SetWorldSize(bWindingUp ? 130.0f : 80.0f);
     if (const APlayerCameraManager* Camera = UGameplayStatics::GetPlayerCameraManager(this, 0))
     {
         const FVector ToCamera = Camera->GetCameraLocation() - AlertText->GetComponentLocation();

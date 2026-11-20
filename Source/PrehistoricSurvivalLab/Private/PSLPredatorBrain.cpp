@@ -9,10 +9,10 @@ EPSLPredatorState DecidePredatorState(const FPSLPredatorSenses& Senses, const FP
         return E::Dead;
     }
 
-    // An attack always ends in a recovery window, so the player gets a fair opening.
+    // An attack holds through its wind-up and strike, then always ends in a recovery window (a fair opening).
     if (Current == E::Attack)
     {
-        return E::Recover;
+        return Senses.bStateTimerExpired ? E::Recover : E::Attack;
     }
 
     if (Current == E::Recover && !Senses.bStateTimerExpired)

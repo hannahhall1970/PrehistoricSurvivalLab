@@ -30,9 +30,11 @@ bool FPSLPredatorDecisionTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("bDead from Attack"), Decide(E::Attack, true, true, 10.0f, true, true, true), E::Dead);
     TestEqual(TEXT("Dead is terminal"), Decide(E::Dead, false, true, 10.0f, true, true, true), E::Dead);
 
-    // Rule 2: an attack always ends in Recover, regardless of senses.
-    TestEqual(TEXT("Attack -> Recover with target in range"), Decide(E::Attack, false, true, Range, false, true, false), E::Recover);
-    TestEqual(TEXT("Attack -> Recover with target gone"), Decide(E::Attack, false, false, 0.0f, false, false, true), E::Recover);
+    // Rule 2: an attack holds until its timer expires (wind-up + strike), then ends in Recover regardless of senses.
+    TestEqual(TEXT("Attack holds with target in range, timer running"), Decide(E::Attack, false, true, Range, false, true, false), E::Attack);
+    TestEqual(TEXT("Attack holds with target gone, timer running"), Decide(E::Attack, false, false, 0.0f, false, false, false), E::Attack);
+    TestEqual(TEXT("Attack -> Recover with target in range once expired"), Decide(E::Attack, false, true, Range, false, true, true), E::Recover);
+    TestEqual(TEXT("Attack -> Recover with target gone once expired"), Decide(E::Attack, false, false, 0.0f, false, false, true), E::Recover);
 
     // Rule 3: Recover holds until the timer expires, then falls through.
     TestEqual(TEXT("Recover holds despite a ready in-range target"), Decide(E::Recover, false, true, Range, true, true, false), E::Recover);
@@ -84,7 +86,8 @@ bool FPSLPredatorDecisionTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Patrol hears noise -> Investigate"), Heard(E::Patrol, false), E::Investigate);
     TestEqual(TEXT("Investigate hears noise after timer -> keeps investigating"), Heard(E::Investigate, true), E::Investigate);
     TestEqual(TEXT("Recover holds despite noise"), Heard(E::Recover, false), E::Recover);
-    TestEqual(TEXT("Attack -> Recover despite noise"), Heard(E::Attack, false), E::Recover);
+    TestEqual(TEXT("Attack holds despite noise while not expired"), Heard(E::Attack, false), E::Attack);
+    TestEqual(TEXT("Attack -> Recover despite noise once expired"), Heard(E::Attack, true), E::Recover);
     TestEqual(TEXT("Chase, target lost, timer expired: noise does not extend the chase"), Heard(E::Chase, true), E::Idle);
 
     // Rule 7: Idle/Patrol timer cycle.

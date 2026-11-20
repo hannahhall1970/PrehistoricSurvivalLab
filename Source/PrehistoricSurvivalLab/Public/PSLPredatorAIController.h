@@ -49,6 +49,22 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Predator")
     float PatrolRadius = 1500.0f;
 
+    /** Telegraph: seconds the predator turns toward the target and flashes before the strike direction freezes (balance hypothesis, spec 002 R2). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Predator|Attack")
+    float AttackWindupSeconds = 1.0f;
+
+    /** Seconds from the frozen strike direction to the impact. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Predator|Attack")
+    float AttackStrikeSeconds = 0.25f;
+
+    /** Half-angle of the strike cone around the frozen direction. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Predator|Attack")
+    float AttackConeDegrees = 45.0f;
+
+    /** Yaw turn rate toward the target while winding up. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Predator|Attack")
+    float AttackTurnRateDegPerSec = 180.0f;
+
     EPSLPredatorState GetPredatorState() const { return PredatorState; }
     bool HasLastKnownPosition() const { return bHasLastKnown; }
     FVector GetLastKnownPosition() const { return LastKnownPosition; }
@@ -61,7 +77,21 @@ public:
     /** Death: stop thinking, stop moving, drop perception. */
     void StopAI();
 
+    /** True from entering Attack until the strike direction is frozen; the pawn turns toward the target meanwhile. */
+    bool IsAttackWindingUp() const { return bAttackWindingUp; }
+
+    /** True from the end of the wind-up until Attack ends; the strike direction is frozen. */
+    bool IsStrikeCommitted() const { return bStrikeCommitted; }
+
+    /** 2D unit direction the strike was committed to; valid while IsStrikeCommitted(). */
+    FVector GetFrozenStrikeDirection() const { return FrozenStrikeDir; }
+
+    /** Strikes that dealt damage / ended without damage (out_of_reach or out_of_cone). */
+    int32 GetHitCount() const { return HitCount; }
+    int32 GetMissCount() const { return MissCount; }
+
 protected:
+    virtual void Tick(float DeltaSeconds) override;
     virtual void OnPossess(APawn* InPawn) override;
     virtual void OnUnPossess() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -74,6 +104,8 @@ private:
     void EnterState(EPSLPredatorState NewState, const TCHAR* Reason, float Distance, bool bVisible);
     void StartPatrolMove();
     void ResolveAttackHit();
+    void CommitStrike();
+    void ClearAttackTimers();
     float StateDuration(EPSLPredatorState State) const;
 
     UPROPERTY(VisibleAnywhere, Category="Predator")
@@ -100,4 +132,13 @@ private:
 
     FTimerHandle ThinkTimer;
     FTimerHandle AttackHitTimer;
+    FTimerHandle AttackAnimTimer;
+
+    bool bAttackWindingUp = false;
+    bool bStrikeCommitted = false;
+    bool bClipLengthLogged = false;
+    double WindupEndsAt = 0.0;
+    FVector FrozenStrikeDir = FVector::ForwardVector;
+    int32 HitCount = 0;
+    int32 MissCount = 0;
 };

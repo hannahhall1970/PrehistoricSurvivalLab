@@ -13,15 +13,19 @@
 #include "Perception/AISense_Sight.h"
 #include "PSLCharacter.h"
 #include "PSLPredatorCharacter.h"
-#include "PSLStatsComponent.h"
+#include "PSLAudio.h"
+#include "Sound/SoundBase.h"
 #include "TimerManager.h"
 
 namespace
 {
 constexpr float PredatorThinkInterval = 0.2f;
 constexpr float PredatorMoveAcceptanceRadius = 80.0f;
-constexpr float AttackHitDelay = 0.4f;
 constexpr float AttackReachSlack = 50.0f;
+// Slack after impact so Recover starts once the strike has resolved (Think runs every PredatorThinkInterval).
+constexpr float AttackEndMargin = 0.1f;
+// Seconds into the attack clip where the bite lands; the clip is started this long before the impact (clip length is logged once).
+constexpr float AttackClipBiteSeconds = 0.6f;
 constexpr float SearchRadius = 600.0f;
 
 const TCHAR* PredatorStateName(EPSLPredatorState State)
@@ -80,6 +84,7 @@ APSLPredatorAIController::APSLPredatorAIController()
 
     PredatorPerception->SetDominantSense(SightConfig->GetSenseImplementation());
     SetPerceptionComponent(*PredatorPerception);
+    PrimaryActorTick.bCanEverTick = true;
 }
 
 void APSLPredatorAIController::OnPossess(APawn* InPawn)
@@ -103,14 +108,14 @@ void APSLPredatorAIController::OnPossess(APawn* InPawn)
 void APSLPredatorAIController::OnUnPossess()
 {
     GetWorldTimerManager().ClearTimer(ThinkTimer);
-    GetWorldTimerManager().ClearTimer(AttackHitTimer);
+    ClearAttackTimers();
     Super::OnUnPossess();
 }
 
 void APSLPredatorAIController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     GetWorldTimerManager().ClearTimer(ThinkTimer);
-    GetWorldTimerManager().ClearTimer(AttackHitTimer);
+    ClearAttackTimers();
     Super::EndPlay(EndPlayReason);
 }
 
@@ -122,7 +127,7 @@ void APSLPredatorAIController::StopAI()
     }
     Target.Reset();
     GetWorldTimerManager().ClearTimer(ThinkTimer);
-    GetWorldTimerManager().ClearTimer(AttackHitTimer);
+    ClearAttackTimers();
     StopMovement();
     if (PredatorPerception)
     {
@@ -300,14 +305,35 @@ void APSLPredatorAIController::EnterState(EPSLPredatorState NewState, const TCHA
         MoveToLocation(LastKnownPosition, PredatorMoveAcceptanceRadius);
         break;
     case EPSLPredatorState::Attack:
+    {
         StopMovement();
-        Predator->SetActorRotation(FRotator(0.0, (LastKnownPosition - Predator->GetActorLocation()).GetSafeNormal2D().Rotation().Yaw, 0.0));
-        NextAttackAt = Now + Predator->AttackCooldown;
-        Predator->PlayAttackAnimation();
-        GetWorldTimerManager().SetTimer(AttackHitTimer, this, &APSLPredatorAIController::ResolveAttackHit, AttackHitDelay, false);
+        ClearAttackTimers();
+        // Cooldown counts from the end of the strike; otherwise the long attack outlasts it and Recover loops straight back into Attack.
+        NextAttackAt = Now + StateDuration(EPSLPredatorState::Attack) + Predator->AttackCooldown;
+        bAttackWindingUp = true;
+        WindupEndsAt = Now + AttackWindupSeconds;
+        if (!bClipLengthLogged)
+        {
+            bClipLengthLogged = true;
+            UE_LOG(LogTemp, Display, TEXT("PSL predator %s attack clip length=%.2fs (bite moment constant %.2fs, impact %.2fs after Attack starts)"),
+                *Predator->GetName(), Predator->GetAttackClipLength(), AttackClipBiteSeconds, AttackWindupSeconds + AttackStrikeSeconds);
+        }
+        // Start the clip so its bite moment lands on the impact; a window shorter than the bite moment starts it now.
+        const float ClipDelay = AttackWindupSeconds + AttackStrikeSeconds - AttackClipBiteSeconds;
+        if (ClipDelay <= KINDA_SMALL_NUMBER)
+        {
+            Predator->PlayAttackAnimation();
+        }
+        else
+        {
+            FTimerDelegate Play = FTimerDelegate::CreateWeakLambda(Predator, [Predator]() { Predator->PlayAttackAnimation(); });
+            GetWorldTimerManager().SetTimer(AttackAnimTimer, Play, ClipDelay, false);
+        }
         break;
+    }
     case EPSLPredatorState::Recover:
         StopMovement();
+        ClearAttackTimers();
         break;
     default:
         break;
@@ -325,22 +351,88 @@ void APSLPredatorAIController::StartPatrolMove()
     }
 }
 
+void APSLPredatorAIController::CommitStrike()
+{
+    bAttackWindingUp = false;
+    if (PredatorState != EPSLPredatorState::Attack)
+    {
+        return;
+    }
+    const APSLPredatorCharacter* Predator = Cast<APSLPredatorCharacter>(GetPawn());
+    if (!Predator)
+    {
+        return;
+    }
+    FrozenStrikeDir = Predator->GetActorForwardVector().GetSafeNormal2D();
+    bStrikeCommitted = true;
+    GetWorldTimerManager().SetTimer(AttackHitTimer, this, &APSLPredatorAIController::ResolveAttackHit, FMath::Max(AttackStrikeSeconds, KINDA_SMALL_NUMBER), false);
+}
+
 void APSLPredatorAIController::ResolveAttackHit()
 {
     APSLPredatorCharacter* Predator = Cast<APSLPredatorCharacter>(GetPawn());
     AActor* Victim = Target.Get();
-    if (!Predator || Predator->IsDead() || !Victim)
+    if (!Predator || Predator->IsDead() || !Victim || !bStrikeCommitted)
     {
         return;
     }
-    const float Distance = FVector::Dist(Predator->GetActorLocation(), Victim->GetActorLocation());
-    if (Distance > Predator->AttackRange + AttackReachSlack)
+    const FVector ToVictim = Victim->GetActorLocation() - Predator->GetActorLocation();
+    const float Distance = ToVictim.Size();
+    const float AngleDeg = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector::DotProduct(FrozenStrikeDir, ToVictim.GetSafeNormal2D()), -1.0f, 1.0f)));
+    const TCHAR* MissReason = Distance > Predator->AttackRange + AttackReachSlack ? TEXT("out_of_reach")
+        : AngleDeg > AttackConeDegrees ? TEXT("out_of_cone") : nullptr;
+
+    // Impact sound plays on hit and miss alike (positional, at the predator).
+    if (USoundBase* Bite = PSLAudio::Load(PSLAudio::Bite))
     {
-        UE_LOG(LogTemp, Display, TEXT("PSL predator %s attack missed %s dist=%.0f"), *Predator->GetName(), *Victim->GetName(), Distance);
+        UGameplayStatics::PlaySoundAtLocation(Predator, Bite, Predator->GetActorLocation());
+    }
+    if (MissReason)
+    {
+        ++MissCount;
+        UE_LOG(LogTemp, Display, TEXT("PSL predator %s attack missed %s dist=%.0f angle=%.0f reason=%s"),
+            *Predator->GetName(), *Victim->GetName(), Distance, AngleDeg, MissReason);
         return;
     }
+    ++HitCount;
     const float Dealt = UGameplayStatics::ApplyDamage(Victim, Predator->AttackDamage, this, Predator, UDamageType::StaticClass());
-    UE_LOG(LogTemp, Display, TEXT("PSL predator %s hit %s for %.0f dist=%.0f"), *Predator->GetName(), *Victim->GetName(), Dealt, Distance);
+    UE_LOG(LogTemp, Display, TEXT("PSL predator %s hit %s for %.0f dist=%.0f angle=%.0f"), *Predator->GetName(), *Victim->GetName(), Dealt, Distance, AngleDeg);
+}
+
+void APSLPredatorAIController::ClearAttackTimers()
+{
+    GetWorldTimerManager().ClearTimer(AttackHitTimer);
+    GetWorldTimerManager().ClearTimer(AttackAnimTimer);
+    bAttackWindingUp = false;
+    bStrikeCommitted = false;
+}
+
+void APSLPredatorAIController::Tick(float DeltaSeconds)
+{
+    Super::Tick(DeltaSeconds);
+    if (!bAttackWindingUp)
+    {
+        return;
+    }
+    APSLPredatorCharacter* Predator = Cast<APSLPredatorCharacter>(GetPawn());
+    UWorld* World = GetWorld();
+    if (!Predator || !World || PredatorState != EPSLPredatorState::Attack)
+    {
+        bAttackWindingUp = false;
+        return;
+    }
+    // Rate-limited turn toward the last known target position (no snap).
+    const FRotator Current = Predator->GetActorRotation();
+    const FVector ToTarget = (LastKnownPosition - Predator->GetActorLocation()).GetSafeNormal2D();
+    if (!ToTarget.IsNearlyZero())
+    {
+        const FRotator Desired(0.0, ToTarget.Rotation().Yaw, 0.0);
+        Predator->SetActorRotation(FMath::RInterpConstantTo(Current, Desired, DeltaSeconds, AttackTurnRateDegPerSec));
+    }
+    if (World->GetTimeSeconds() >= WindupEndsAt)
+    {
+        CommitStrike();
+    }
 }
 
 float APSLPredatorAIController::StateDuration(EPSLPredatorState State) const
@@ -351,6 +443,7 @@ float APSLPredatorAIController::StateDuration(EPSLPredatorState State) const
     case EPSLPredatorState::Patrol: return PatrolSeconds;
     case EPSLPredatorState::Investigate: return InvestigateSeconds;
     case EPSLPredatorState::Recover: return RecoverSeconds;
-    default: return 1.0e9f; // Chase/Attack/Dead end by senses, not by time
+    case EPSLPredatorState::Attack: return AttackWindupSeconds + AttackStrikeSeconds + AttackEndMargin;
+    default: return 1.0e9f; // Chase/Dead end by senses, not by time
     }
 }
