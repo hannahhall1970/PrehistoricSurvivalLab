@@ -90,6 +90,9 @@ public:
     int32 GetHitCount() const { return HitCount; }
     int32 GetMissCount() const { return MissCount; }
 
+    /** Reason of the most recent miss ("out_of_reach" / "out_of_cone"); nullptr before the first miss. Static literal. */
+    const TCHAR* GetLastMissReason() const { return LastMissReason; }
+
 protected:
     virtual void Tick(float DeltaSeconds) override;
     virtual void OnPossess(APawn* InPawn) override;
@@ -141,4 +144,5 @@ private:
     FVector FrozenStrikeDir = FVector::ForwardVector;
     int32 HitCount = 0;
     int32 MissCount = 0;
+    const TCHAR* LastMissReason = nullptr;
 };

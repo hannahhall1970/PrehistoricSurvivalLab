@@ -101,4 +101,7 @@ private:
     bool bUsingSkeletalVisual = false;
     bool bDeathHandled = false;
     bool bTelegraphFlashing = false;
+    // Last values pushed to AlertText / materials; Tick writes only on change.
+    int32 AlertStyle = 0; // 0 = nothing pushed yet, else 1 + (alert ? 1 : 0) + (winding up ? 2 : 0)
+    float LastFlash = 0.0f;
 };

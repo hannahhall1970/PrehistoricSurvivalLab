@@ -6,6 +6,8 @@
 #include "PSLPreyAIController.h"
 #include "PSLPreyCharacter.h"
 #include "PSLStatsComponent.h"
+#include "PSLPredatorCharacter.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "UObject/UObjectGlobals.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLPreyDecisionTest, "PSL.AI.PreyDecision", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -53,6 +55,15 @@ bool FPSLPreyDamageDeathTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Flee speed"), Defaults->FleeSpeed, 450.0f);
     TestTrue(TEXT("Flees faster than it wanders"), Defaults->FleeSpeed > Defaults->WanderSpeed);
     TestTrue(TEXT("Uses the prey AI controller"), Defaults->AIControllerClass == APSLPreyAIController::StaticClass());
+    for (const UPrimitiveComponent* Prim : {static_cast<const UPrimitiveComponent*>(Defaults->GetCapsuleComponent()), static_cast<const UPrimitiveComponent*>(Defaults->GetMesh())})
+    {
+        TestEqual(TEXT("Prey collision ignores the camera trace (D-CAM-01)"), Prim->GetCollisionResponseToChannel(ECC_Camera), ECR_Ignore);
+    }
+    const APSLPredatorCharacter* PredatorDefaults = GetDefault<APSLPredatorCharacter>();
+    for (const UPrimitiveComponent* Prim : {static_cast<const UPrimitiveComponent*>(PredatorDefaults->GetCapsuleComponent()), static_cast<const UPrimitiveComponent*>(PredatorDefaults->GetMesh())})
+    {
+        TestEqual(TEXT("Predator collision ignores the camera trace (D-CAM-01)"), Prim->GetCollisionResponseToChannel(ECC_Camera), ECR_Ignore);
+    }
 
     // A bite deals 25; three bites must kill a 60 HP prey, exactly once.
     UPSLStatsComponent* Stats = NewObject<UPSLStatsComponent>(GetTransientPackage());

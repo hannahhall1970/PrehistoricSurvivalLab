@@ -164,6 +164,11 @@ float APSLPredatorCharacter::GetAttackClipLength() const
 
 void APSLPredatorCharacter::SetTelegraphFlash(float Value)
 {
+    if (Value == LastFlash)
+    {
+        return;
+    }
+    LastFlash = Value;
     for (UMaterialInstanceDynamic* Mid : PredatorMaterials)
     {
         if (Mid)
@@ -211,10 +216,16 @@ void APSLPredatorCharacter::Tick(float DeltaSeconds)
         return;
     }
 
-    AlertText->SetText(FText::AsCultureInvariant(bAlert ? TEXT("!") : TEXT("?"))); // symbols, not language
-    // Wind-up '!' is larger and hot yellow-white so it reads differently from Chase's red '!'.
-    AlertText->SetTextRenderColor(bWindingUp ? FColor(255, 240, 150) : bAlert ? FColor::Red : FColor(255, 170, 0));
-    AlertText->SetWorldSize(bWindingUp ? 130.0f : 80.0f);
+    // Style = (bAlert, bWindingUp) packed +1 so 0 means "nothing pushed yet"; the text component only changes when it flips.
+    const int32 Style = 1 + (bAlert ? 1 : 0) + (bWindingUp ? 2 : 0);
+    if (Style != AlertStyle)
+    {
+        AlertStyle = Style;
+        AlertText->SetText(FText::AsCultureInvariant(bAlert ? TEXT("!") : TEXT("?"))); // symbols, not language
+        // Wind-up '!' is larger and hot yellow-white so it reads differently from Chase's red '!'.
+        AlertText->SetTextRenderColor(bWindingUp ? FColor(255, 240, 150) : bAlert ? FColor::Red : FColor(255, 170, 0));
+        AlertText->SetWorldSize(bWindingUp ? 130.0f : 80.0f);
+    }
     if (const APlayerCameraManager* Camera = UGameplayStatics::GetPlayerCameraManager(this, 0))
     {
         const FVector ToCamera = Camera->GetCameraLocation() - AlertText->GetComponentLocation();

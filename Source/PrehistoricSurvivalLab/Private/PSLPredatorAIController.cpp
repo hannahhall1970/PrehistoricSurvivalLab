@@ -390,6 +390,7 @@ void APSLPredatorAIController::ResolveAttackHit()
     if (MissReason)
     {
         ++MissCount;
+        LastMissReason = MissReason;
         UE_LOG(LogTemp, Display, TEXT("PSL predator %s attack missed %s dist=%.0f angle=%.0f reason=%s"),
             *Predator->GetName(), *Victim->GetName(), Distance, AngleDeg, MissReason);
         return;

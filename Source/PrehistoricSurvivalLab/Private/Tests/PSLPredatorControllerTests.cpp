@@ -443,6 +443,58 @@ bool FPSLPredatorAttackFeelTest::RunTest(const FString& Parameters)
         Ctx.Test->TestEqual(TEXT("Sidestepped player is not damaged"), Ctx.Character->GetStatsComponent()->GetHealth(), Feel->HealthBefore);
         return true;
     });
+    // Third attack: in reach (200 uu, inside AttackRange + slack) but ~90 deg off the frozen direction -> out_of_cone miss.
+    AddPieStep(Context, TEXT("ThirdAttackBegins"), 15.0f, [Run](FPSLPieCtx& Ctx)
+    {
+        if (!Ctx.IsUsable() || !AIOf(*Run))
+        {
+            return true;
+        }
+        Ctx.Character->GetCharacterMovement()->StopMovementImmediately();
+        return ConsumeUntil(*Run, EPSLPredatorState::Attack, TEXT("target_in_range"));
+    });
+    AddPieStep(Context, TEXT("OffConeStep"), 3.0f, [Run, Feel](FPSLPieCtx& Ctx)
+    {
+        const APSLPredatorAIController* AI = AIOf(*Run);
+        if (!Ctx.IsUsable() || !AI)
+        {
+            return true;
+        }
+        Ctx.Character->GetCharacterMovement()->StopMovementImmediately();
+        if (!AI->IsStrikeCommitted())
+        {
+            return false;
+        }
+        const FVector P = Run->Predator->GetActorLocation();
+        const FVector Right = FVector::CrossProduct(FVector::UpVector, AI->GetFrozenStrikeDirection());
+        FVector Dest = P + Right * 200.0;
+        if (!OnFloor(Dest))
+        {
+            Dest = P - Right * 200.0;
+        }
+        Dest.Z = Ctx.Character->GetActorLocation().Z;
+        Ctx.Test->TestTrue(TEXT("Off-cone destination is on the arena floor"), OnFloor(Dest));
+        Feel->HealthBefore = Ctx.Character->GetStatsComponent()->GetHealth();
+        Teleport(Ctx, Dest);
+        return true;
+    });
+    AddPieStep(Context, TEXT("OutOfCone"), 3.0f, [Run, Feel](FPSLPieCtx& Ctx)
+    {
+        const APSLPredatorAIController* AI = AIOf(*Run);
+        if (!Ctx.IsUsable() || !AI)
+        {
+            return true;
+        }
+        if (AI->GetMissCount() < 2)
+        {
+            return false;
+        }
+        Ctx.Test->TestEqual(TEXT("Exactly two misses"), AI->GetMissCount(), 2);
+        Ctx.Test->TestEqual(TEXT("Hit count unchanged"), AI->GetHitCount(), 1);
+        Ctx.Test->TestEqual(TEXT("Off-cone player is not damaged"), Ctx.Character->GetStatsComponent()->GetHealth(), Feel->HealthBefore);
+        Ctx.Test->TestEqual(TEXT("Miss reason is out_of_cone"), FString(AI->GetLastMissReason() ? AI->GetLastMissReason() : TEXT("")), FString(TEXT("out_of_cone")));
+        return true;
+    });
     QueuePieEnd(Context);
     return true;
 }
