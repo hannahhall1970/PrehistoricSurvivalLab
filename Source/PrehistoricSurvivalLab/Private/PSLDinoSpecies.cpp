@@ -2,6 +2,8 @@
 
 #include "Animation/AnimSequence.h"
 #include "Engine/SkeletalMesh.h"
+#include "Misc/PackageName.h"
+#include "HAL/IConsoleManager.h"
 #include "Internationalization/StringTableRegistry.h"
 
 const FName UPSLDinoSpecies::TRexId(TEXT("TRex"));
@@ -39,6 +41,13 @@ namespace
     }
 }
 
+#if !UE_BUILD_SHIPPING
+static TAutoConsoleVariable<int32> CVarDevHeroTrex(
+    TEXT("psl.Dev.HeroTrex"), 0,
+    TEXT("Dev only: 1 makes the built-in T-Rex species use the imported hero asset (/Game/Dev/ArtDir/Hero) when present."),
+    ECVF_Default);
+#endif
+
 UPSLDinoSpecies* UPSLDinoSpecies::MakeBuiltin(FName Id, UObject* Outer)
 {
     if (!IsKnownSpeciesId(Id))
@@ -73,6 +82,23 @@ UPSLDinoSpecies* UPSLDinoSpecies::MakeBuiltin(FName Id, UObject* Outer)
         S->MaxHunger = 100.0f;
         S->HungerDrainPerSecond = 0.15f; // ~11.5 min idle to death (666.7 s to Hunger 0 + 25 s starving)
         S->FoodPerBite = 1.0f;
+
+#if !UE_BUILD_SHIPPING
+        if (CVarDevHeroTrex.GetValueOnGameThread() != 0 && FPackageName::DoesPackageExist(TEXT("/Game/Dev/ArtDir/Hero/SK_HeroTrex")))
+        {
+            S->Mesh = Soft<USkeletalMesh>(TEXT("/Game/Dev/ArtDir/Hero/SK_HeroTrex.SK_HeroTrex"));
+            S->IdleAnim = Soft<UAnimSequence>(TEXT("/Game/Dev/ArtDir/Hero/A_HeroTrex_Idle.A_HeroTrex_Idle"));
+            S->WalkAnim = Soft<UAnimSequence>(TEXT("/Game/Dev/ArtDir/Hero/A_HeroTrex_Walk.A_HeroTrex_Walk"));
+            S->RunAnim = Soft<UAnimSequence>(TEXT("/Game/Dev/ArtDir/Hero/A_HeroTrex_Run.A_HeroTrex_Run"));
+            S->AttackAnim = Soft<UAnimSequence>(TEXT("/Game/Dev/ArtDir/Hero/A_HeroTrex_Attack.A_HeroTrex_Attack"));
+            S->DeathAnim.Reset(); // the old death clip is on another skeleton
+            S->AttackPlayRate = 3.0f; // 4.0 s clip -> ~1.33 s, fits BiteCooldown
+            S->WalkAnimSpeed = 100.0f; // measured contact-point speed, Walk clip covers ~100 uu/s
+            S->RunAnimSpeed = 245.0f;  // measured: Run clip covers ~245 uu/s
+            S->MeshScale = 0.0f;      // fit to 90% of the capsule height
+            S->MeshYaw = -90.0f;      // import axis_forward=-Y; PSL.Dev.HeroTrex.Showcase measures facing
+        }
+#endif
     }
     else
     {

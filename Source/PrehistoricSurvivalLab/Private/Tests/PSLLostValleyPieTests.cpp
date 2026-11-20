@@ -30,36 +30,6 @@ using namespace PSLPie;
 
 constexpr const TCHAR* LostValleyMap = TEXT("/Game/Maps/L_LostValley");
 
-bool GroundAt(UWorld* World, double X, double Y, FVector& Out)
-{
-    TArray<FHitResult> Hits;
-    if (World && World->LineTraceMultiByChannel(Hits, FVector(X, Y, 8000.0), FVector(X, Y, -8000.0), ECC_Visibility))
-    {
-        for (const FHitResult& Hit : Hits)
-        {
-            if (Cast<ALandscapeProxy>(Hit.GetActor()))
-            {
-                Out = Hit.ImpactPoint + FVector(0.0, 0.0, 120.0);
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-void TeleportTo(FPSLPieCtx& Ctx, const FVector& Location)
-{
-    Ctx.Character->SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
-    Ctx.Character->GetCharacterMovement()->StopMovementImmediately();
-}
-
-void FaceYawToward(FPSLPieCtx& Ctx, const FVector& Target)
-{
-    const FRotator Yaw(0.0, (Target - Ctx.Character->GetActorLocation()).GetSafeNormal2D().Rotation().Yaw, 0.0);
-    Ctx.PC->SetControlRotation(Yaw);
-    Ctx.Character->SetActorRotation(Yaw);
-}
-
 // True when the spring arm, with the player at Ground facing LookAt, has an unobstructed ECC_Camera path. The level's
 // block-all rock HISMs otherwise collapse the arm (D-CAM-01 run: the sweep hit a HISM, not the predator): layout, not the creature.
 bool CameraArmClear(FPSLPieCtx& Ctx, const FVector& Ground, const FVector& LookAt)
@@ -74,46 +44,6 @@ bool CameraArmClear(FPSLPieCtx& Ctx, const FVector& Ground, const FVector& LookA
     const FVector End = Start - Facing.Vector() * Arm->TargetArmLength + Facing.RotateVector(Arm->SocketOffset);
     FCollisionQueryParams Params(SCENE_QUERY_STAT(PSLCamArmClear), false, Ctx.Character.Get());
     return !Ctx.World->SweepTestByChannel(Start, End, FQuat::Identity, ECC_Camera, FCollisionShape::MakeSphere(Arm->ProbeSize), Params);
-}
-
-// Places the player Distance (2D) from Center on the first of 8 directions whose ground Z is within 300 of the target Z
-// and, when SightFrom is set, that has a clear visibility line to SightFrom.
-bool PlaceNear(FPSLPieCtx& Ctx, const FVector& Center, double Distance, const AActor* SightFrom = nullptr)
-{
-    for (int32 Index = 0; Index < 8; ++Index)
-    {
-        const double Angle = FMath::DegreesToRadians(45.0 * Index);
-        FVector Ground;
-        if (GroundAt(Ctx.World, Center.X + Distance * FMath::Cos(Angle), Center.Y + Distance * FMath::Sin(Angle), Ground)
-            && FMath::Abs(Ground.Z - Center.Z) <= 300.0)
-        {
-            if (SightFrom)
-            {
-                FCollisionQueryParams Params;
-                Params.AddIgnoredActor(SightFrom);
-                Params.AddIgnoredActor(Ctx.Character.Get());
-                FHitResult Hit;
-                if (Ctx.World->LineTraceSingleByChannel(Hit, SightFrom->GetActorLocation() + FVector(0.0, 0.0, 60.0), Ground, ECC_Visibility, Params))
-                {
-                    continue;
-                }
-            }
-            TeleportTo(Ctx, Ground);
-            FaceYawToward(Ctx, Center);
-            return true;
-        }
-    }
-    return false;
-}
-
-TArray<APSLPreyCharacter*> GetPrey(UWorld* World)
-{
-    TArray<APSLPreyCharacter*> Prey;
-    for (TActorIterator<APSLPreyCharacter> It(World); It; ++It)
-    {
-        Prey.Add(*It);
-    }
-    return Prey;
 }
 
 AActor* FindByLabel(UWorld* World, const TCHAR* Label)
@@ -131,17 +61,6 @@ AActor* FindByLabel(UWorld* World, const TCHAR* Label)
 double Dist2D(const AActor& A, const AActor& B)
 {
     return FVector::Dist2D(A.GetActorLocation(), B.GetActorLocation());
-}
-
-// True when the cvar now holds Value (a console/ini set outranks ECVF_SetByCode and would be kept).
-bool SetPredatorSpawnCvar(int32 Value)
-{
-    IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("psl.Predator.Spawn"));
-    if (V)
-    {
-        V->Set(Value, ECVF_SetByCode);
-    }
-    return V && V->GetInt() == Value;
 }
 
 // Projects both points (extent 300,300,1000) and runs FindPathSync; true only for a successful, valid, non-partial path.

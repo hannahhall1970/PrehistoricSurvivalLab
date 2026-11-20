@@ -117,6 +117,9 @@ void APSLCharacter::ApplyDinoVisuals()
 
         DinoAnim->AttackSequence = DinoAttackAnim.LoadSynchronous();
         DinoAnim->DeathSequence = DinoDeathAnim.LoadSynchronous();
+        DinoAnim->AttackPlayRate = ActiveSpecies ? ActiveSpecies->AttackPlayRate : 1.0f;
+        DinoAnim->WalkAnimSpeed = ActiveSpecies ? ActiveSpecies->WalkAnimSpeed : 0.0f;
+        DinoAnim->RunAnimSpeed = ActiveSpecies ? ActiveSpecies->RunAnimSpeed : 0.0f;
         if (!DinoAnim->AttackSequence || !DinoAnim->DeathSequence)
         {
             UE_LOG(LogTemp, Warning, TEXT("%s: Dino Attack/Death clips missing; those actions will be skipped, locomotion unaffected."), *GetName());

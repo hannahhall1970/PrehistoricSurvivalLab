@@ -70,6 +70,17 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual")
     TSoftObjectPtr<UAnimSequence> DeathAnim;
 
+    // Playback rate of the Attack clip; lets a long clip fit BiteCooldown. Death always plays at 1.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual", meta=(ClampMin="0.01"))
+    float AttackPlayRate = 1.0f;
+
+    // Ground speed (uu/s) at which the Walk / Run clip plays at rate 1 without foot sliding; locomotion rate = speed / this. 0 = always rate 1.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual", meta=(ClampMin="0.0"))
+    float WalkAnimSpeed = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Visual", meta=(ClampMin="0.0"))
+    float RunAnimSpeed = 0.0f;
+
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Body")
     float CapsuleRadius = 60.0f;
 

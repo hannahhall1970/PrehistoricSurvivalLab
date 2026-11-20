@@ -46,6 +46,7 @@
 #include "Components/Button.h"
 #include "Components/Widget.h"
 #include "Framework/Application/SlateApplication.h"
+#include "LandscapeProxy.h"
 
 // Shared PIE test helpers (moved verbatim from PSLPieTests.cpp; static -> inline).
 namespace PSLPie
@@ -708,6 +709,88 @@ inline FString DumpTransitions(const FPredatorRun& Run)
         }
     }
     return Out;
+}
+
+// Moved verbatim from PSLLostValleyPieTests.cpp (static -> inline) so other valley tests share them.
+inline bool GroundAt(UWorld* World, double X, double Y, FVector& Out)
+{
+    TArray<FHitResult> Hits;
+    if (World && World->LineTraceMultiByChannel(Hits, FVector(X, Y, 8000.0), FVector(X, Y, -8000.0), ECC_Visibility))
+    {
+        for (const FHitResult& Hit : Hits)
+        {
+            if (Cast<ALandscapeProxy>(Hit.GetActor()))
+            {
+                Out = Hit.ImpactPoint + FVector(0.0, 0.0, 120.0);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+inline void TeleportTo(FPSLPieCtx& Ctx, const FVector& Location)
+{
+    Ctx.Character->SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
+    Ctx.Character->GetCharacterMovement()->StopMovementImmediately();
+}
+
+inline void FaceYawToward(FPSLPieCtx& Ctx, const FVector& Target)
+{
+    const FRotator Yaw(0.0, (Target - Ctx.Character->GetActorLocation()).GetSafeNormal2D().Rotation().Yaw, 0.0);
+    Ctx.PC->SetControlRotation(Yaw);
+    Ctx.Character->SetActorRotation(Yaw);
+}
+
+// Places the player Distance (2D) from Center on the first of 8 directions whose ground Z is within 300 of the target Z
+// and, when SightFrom is set, that has a clear visibility line to SightFrom.
+inline bool PlaceNear(FPSLPieCtx& Ctx, const FVector& Center, double Distance, const AActor* SightFrom = nullptr)
+{
+    for (int32 Index = 0; Index < 8; ++Index)
+    {
+        const double Angle = FMath::DegreesToRadians(45.0 * Index);
+        FVector Ground;
+        if (GroundAt(Ctx.World, Center.X + Distance * FMath::Cos(Angle), Center.Y + Distance * FMath::Sin(Angle), Ground)
+            && FMath::Abs(Ground.Z - Center.Z) <= 300.0)
+        {
+            if (SightFrom)
+            {
+                FCollisionQueryParams Params;
+                Params.AddIgnoredActor(SightFrom);
+                Params.AddIgnoredActor(Ctx.Character.Get());
+                FHitResult Hit;
+                if (Ctx.World->LineTraceSingleByChannel(Hit, SightFrom->GetActorLocation() + FVector(0.0, 0.0, 60.0), Ground, ECC_Visibility, Params))
+                {
+                    continue;
+                }
+            }
+            TeleportTo(Ctx, Ground);
+            FaceYawToward(Ctx, Center);
+            return true;
+        }
+    }
+    return false;
+}
+
+inline TArray<APSLPreyCharacter*> GetPrey(UWorld* World)
+{
+    TArray<APSLPreyCharacter*> Prey;
+    for (TActorIterator<APSLPreyCharacter> It(World); It; ++It)
+    {
+        Prey.Add(*It);
+    }
+    return Prey;
+}
+
+// True when the cvar now holds Value (a console/ini set outranks ECVF_SetByCode and would be kept).
+inline bool SetPredatorSpawnCvar(int32 Value)
+{
+    IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("psl.Predator.Spawn"));
+    if (V)
+    {
+        V->Set(Value, ECVF_SetByCode);
+    }
+    return V && V->GetInt() == Value;
 }
 
 } // namespace PSLPie

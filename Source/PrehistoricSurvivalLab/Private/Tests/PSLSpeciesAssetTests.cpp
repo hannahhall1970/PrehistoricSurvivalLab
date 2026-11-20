@@ -5,6 +5,8 @@
 #include "Engine/SkeletalMesh.h"
 #include "Misc/AutomationTest.h"
 #include "PSLDinoSpecies.h"
+#include "HAL/IConsoleManager.h"
+#include "Misc/PackageName.h"
 
 namespace
 {
@@ -86,6 +88,71 @@ bool FPSLSpeciesAssetsTest::RunTest(const FString& Parameters)
         }
     }
 
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPSLDevHeroTrexSpeciesTest, "PSL.Species.DevHeroTrex", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPSLDevHeroTrexSpeciesTest::RunTest(const FString& Parameters)
+{
+    IConsoleVariable* Cvar = IConsoleManager::Get().FindConsoleVariable(TEXT("psl.Dev.HeroTrex"));
+    if (!TestNotNull(TEXT("psl.Dev.HeroTrex cvar registered"), Cvar))
+    {
+        return false;
+    }
+    const int32 Saved = Cvar->GetInt();
+    const FString OldMesh = TEXT("/Game/Characters/Dino/SK_Trex.SK_Trex");
+    const FString HeroMesh = TEXT("/Game/Dev/ArtDir/Hero/SK_HeroTrex.SK_HeroTrex");
+
+    auto SetCvar = [&](int32 Value)
+    {
+        Cvar->Set(Value, ECVF_SetByCode);
+        return Cvar->GetInt() == Value;
+    };
+
+    if (TestTrue(TEXT("cvar set to 0"), SetCvar(0)))
+    {
+        const UPSLDinoSpecies* TRex = UPSLDinoSpecies::MakeBuiltin(UPSLDinoSpecies::TRexId, GetTransientPackage());
+        TestEqual(TEXT("cvar 0: TRex mesh is SK_Trex"), TRex->Mesh.ToSoftObjectPath().ToString(), OldMesh);
+        TestEqual(TEXT("cvar 0: AttackPlayRate"), TRex->AttackPlayRate, 1.0f);
+        TestEqual(TEXT("cvar 0: WalkAnimSpeed"), TRex->WalkAnimSpeed, 0.0f);
+        TestEqual(TEXT("cvar 0: RunAnimSpeed"), TRex->RunAnimSpeed, 0.0f);
+    }
+
+    if (TestTrue(TEXT("cvar set to 1"), SetCvar(1)))
+    {
+        const UPSLDinoSpecies* TRex = UPSLDinoSpecies::MakeBuiltin(UPSLDinoSpecies::TRexId, GetTransientPackage());
+        if (FPackageName::DoesPackageExist(TEXT("/Game/Dev/ArtDir/Hero/SK_HeroTrex")))
+        {
+            TestEqual(TEXT("cvar 1: hero mesh"), TRex->Mesh.ToSoftObjectPath().ToString(), HeroMesh);
+            for (const TCHAR* Clip : {TEXT("Idle"), TEXT("Walk"), TEXT("Run"), TEXT("Attack")})
+            {
+                const FString Path = FString::Printf(TEXT("/Game/Dev/ArtDir/Hero/A_HeroTrex_%s.A_HeroTrex_%s"), Clip, Clip);
+                const TSoftObjectPtr<UAnimSequence>& Anim = FCString::Strcmp(Clip, TEXT("Idle")) == 0 ? TRex->IdleAnim
+                    : FCString::Strcmp(Clip, TEXT("Walk")) == 0 ? TRex->WalkAnim
+                    : FCString::Strcmp(Clip, TEXT("Run")) == 0 ? TRex->RunAnim : TRex->AttackAnim;
+                TestEqual(FString::Printf(TEXT("cvar 1: hero %s clip"), Clip), Anim.ToSoftObjectPath().ToString(), Path);
+            }
+            TestTrue(TEXT("cvar 1: DeathAnim null"), TRex->DeathAnim.IsNull());
+            TestEqual(TEXT("cvar 1: MeshScale fits capsule"), TRex->MeshScale, 0.0f);
+            TestEqual(TEXT("cvar 1: AttackPlayRate"), TRex->AttackPlayRate, 3.0f);
+            TestEqual(TEXT("cvar 1: WalkAnimSpeed"), TRex->WalkAnimSpeed, 100.0f);
+            TestEqual(TEXT("cvar 1: RunAnimSpeed"), TRex->RunAnimSpeed, 245.0f);
+        }
+        else
+        {
+            TestEqual(TEXT("cvar 1, assets absent: falls back to SK_Trex"), TRex->Mesh.ToSoftObjectPath().ToString(), OldMesh);
+            TestEqual(TEXT("cvar 1, assets absent: AttackPlayRate"), TRex->AttackPlayRate, 1.0f);
+            TestEqual(TEXT("cvar 1, assets absent: Walk/RunAnimSpeed"), TRex->WalkAnimSpeed + TRex->RunAnimSpeed, 0.0f);
+        }
+
+        const UPSLDinoSpecies* Para = UPSLDinoSpecies::MakeBuiltin(UPSLDinoSpecies::ParaId, GetTransientPackage());
+        TestEqual(TEXT("Para mesh never changes"), Para->Mesh.ToSoftObjectPath().ToString(), FString(TEXT("/Game/Characters/Prey/SK_Parasaurolophus.SK_Parasaurolophus")));
+        TestEqual(TEXT("Para AttackPlayRate"), Para->AttackPlayRate, 1.0f);
+        TestEqual(TEXT("Para Walk/RunAnimSpeed"), Para->WalkAnimSpeed + Para->RunAnimSpeed, 0.0f);
+    }
+
+    TestTrue(TEXT("cvar restored"), SetCvar(Saved));
     return true;
 }
 

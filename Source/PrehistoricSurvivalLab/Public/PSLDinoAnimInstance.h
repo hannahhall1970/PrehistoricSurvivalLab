@@ -83,6 +83,17 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Locomotion", meta=(ClampMin="0.0"))
     float SpeedInterpRate;
 
+    // Attack clip playback rate, set by APSLCharacter from the species; the proxy reads it when an Attack starts.
+    UPROPERTY(Transient)
+    float AttackPlayRate = 1.0f;
+
+    // Set by APSLCharacter from the species; 0 = Walk/Run always play at rate 1.
+    UPROPERTY(Transient)
+    float WalkAnimSpeed = 0.0f;
+
+    UPROPERTY(Transient)
+    float RunAnimSpeed = 0.0f;
+
 protected:
     virtual FAnimInstanceProxy* CreateAnimInstanceProxy() override;
 

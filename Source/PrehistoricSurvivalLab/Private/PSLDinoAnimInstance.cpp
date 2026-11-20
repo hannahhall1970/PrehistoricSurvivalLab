@@ -76,6 +76,8 @@ struct FPSLDinoAnimProxy : public FAnimInstanceProxy
 
     FAnimNode_SequencePlayer_Standalone Nodes[NumNodes];
     float TargetSpeed = 0.0f;
+    float WalkAnimSpeed = 0.0f;
+    float RunAnimSpeed = 0.0f;
     float SmoothedSpeed = 0.0f;
     float InterpRate = 8.0f;
     float Weights[NumNodes] = {1.0f, 0.0f, 0.0f};
@@ -124,6 +126,9 @@ struct FPSLDinoAnimProxy : public FAnimInstanceProxy
         FAnimInstanceProxy::PreUpdate(InAnimInstance, DeltaSeconds);
         const APawn* Pawn = InAnimInstance->TryGetPawnOwner();
         TargetSpeed = Pawn ? Pawn->GetVelocity().Size2D() : 0.0f;
+        const UPSLDinoAnimInstance* DinoCfg = CastChecked<UPSLDinoAnimInstance>(InAnimInstance);
+        WalkAnimSpeed = DinoCfg->WalkAnimSpeed;
+        RunAnimSpeed = DinoCfg->RunAnimSpeed;
 
         // A new request id restarts the matching one-shot node from the first frame.
         const UPSLDinoAnimInstance* Dino = CastChecked<UPSLDinoAnimInstance>(InAnimInstance);
@@ -135,13 +140,15 @@ struct FPSLDinoAnimProxy : public FAnimInstanceProxy
             if (Requested != EPSLDinoAction::None && Clip)
             {
                 FAnimNode_SequencePlayer_Standalone& Node = ActionNodes[static_cast<int32>(Requested) - 1];
+                const float Rate = Requested == EPSLDinoAction::Attack ? FMath::Max(Dino->AttackPlayRate, 0.01f) : 1.0f;
                 Node.SetSequence(Clip);
                 Node.SetLoopAnimation(false);
                 Node.SetStartPosition(0.0f);
+                Node.SetPlayRate(Rate);
                 Node.Initialize_AnyThread(FAnimationInitializeContext(this));
                 ActionType = Requested;
                 ActionTime = 0.0f;
-                ActionClipLength = Clip->GetPlayLength();
+                ActionClipLength = Clip->GetPlayLength() / Rate;
                 ActionWeight = 0.0f;
             }
         }
@@ -150,6 +157,14 @@ struct FPSLDinoAnimProxy : public FAnimInstanceProxy
     virtual void Update(float DeltaSeconds) override
     {
         SmoothedSpeed = FMath::FInterpTo(SmoothedSpeed, TargetSpeed, DeltaSeconds, InterpRate);
+        if (WalkAnimSpeed > 0.0f)
+        {
+            Nodes[1].SetPlayRate(FMath::Clamp(SmoothedSpeed / WalkAnimSpeed, 0.5f, 3.5f));
+        }
+        if (RunAnimSpeed > 0.0f)
+        {
+            Nodes[2].SetPlayRate(FMath::Clamp(SmoothedSpeed / RunAnimSpeed, 0.5f, 3.0f));
+        }
         const FPSLLocomotionWeights W = UPSLDinoAnimInstance::ComputeLocomotionWeights(SmoothedSpeed);
         Weights[0] = W.Idle;
         Weights[1] = W.Walk;
