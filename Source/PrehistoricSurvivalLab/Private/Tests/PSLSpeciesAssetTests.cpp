@@ -137,11 +137,11 @@ bool FPSLDevHeroTrexSpeciesTest::RunTest(const FString& Parameters)
             TestEqual(TEXT("cvar 1: DeathAnim is the hero death clip"), TRex->DeathAnim.ToSoftObjectPath().ToString(), FString(TEXT("/Game/Dev/ArtDir/Hero/A_HeroTrex_Death.A_HeroTrex_Death")));
             TestEqual(TEXT("cvar 1: MeshScale fits capsule"), TRex->MeshScale, 0.0f);
             TestEqual(TEXT("cvar 1: AttackPlayRate"), TRex->AttackPlayRate, 1.5f);
-            TestEqual(TEXT("cvar 1: AttackStartTime"), TRex->AttackStartTime, 0.6f);
-            TestEqual(TEXT("cvar 1: AttackEndTime"), TRex->AttackEndTime, 2.1f);
+            TestEqual(TEXT("cvar 1: AttackStartTime"), TRex->AttackStartTime, 0.375f);
+            TestEqual(TEXT("cvar 1: AttackEndTime"), TRex->AttackEndTime, 1.875f);
             TestEqual(TEXT("cvar 1: AttackContactTime"), TRex->AttackContactTime, 1.567f);
             TestEqual(TEXT("cvar 1: WalkAnimSpeed"), TRex->WalkAnimSpeed, 60.0f);
-            TestEqual(TEXT("cvar 1: RunAnimSpeed"), TRex->RunAnimSpeed, 245.0f);
+            TestEqual(TEXT("cvar 1: RunAnimSpeed"), TRex->RunAnimSpeed, 229.0f);
         }
         else
         {

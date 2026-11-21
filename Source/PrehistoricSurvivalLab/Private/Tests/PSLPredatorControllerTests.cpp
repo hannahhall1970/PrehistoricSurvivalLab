@@ -98,7 +98,7 @@ bool FPSLPredatorControllerTest::RunTest(const FString& Parameters)
         return FVector::Dist2D(Start, Run->Predator->GetActorLocation()) > 150.0;
     });
 
-    // b) Out of sight (behind the predator, beyond sight radius) but within hearing: a bite is heard and investigated.
+    // b) Out of sight (behind the predator, outside its 70 deg cone) but within hearing: a bite is heard and investigated.
     AddPieStep(Context, TEXT("NoiseBehind"), 3.0f, [Run](FPSLPieCtx& Ctx)
     {
         if (!Ctx.IsUsable() || !Run->Predator.IsValid())

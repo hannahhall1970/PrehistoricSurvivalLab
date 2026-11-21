@@ -808,6 +808,12 @@ inline bool SetIntCvar(const TCHAR* Name, int32 Value)
     return V && V->GetInt() == Value;
 }
 
+inline int32 GetIntCvar(const TCHAR* Name)
+{
+    const IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(Name);
+    return V ? V->GetInt() : 0;
+}
+
 inline FString ShotPath(const FPSLPieCtx& Ctx, const FString& Label)
 {
     return FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Automation"), TEXT("PIE"), Ctx.TestName + TEXT("_") + Label + TEXT(".png"));

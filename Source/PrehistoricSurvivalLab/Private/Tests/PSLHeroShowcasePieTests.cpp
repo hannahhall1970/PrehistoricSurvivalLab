@@ -398,14 +398,25 @@ struct FHeroBiteState
         return FMath::RadiansToDegrees(IdleJaw.AngularDistance(JawLocal(Mesh)));
     }
 
-    // Hero contact timing (r7): the hit lands ~ (1.567 - 0.6) / 1.5 s after the press with the jaw open >= 40 deg just before it.
+    // Hero contact timing (r8): the hit lands ~ (1.567 - 0.375) / 1.5 s after the press with the jaw open >= 40 deg just before it,
+    // after a visible pull-back: up to press + 0.30 s the jaw stays < 20 deg vs idle (r8 ~14, r7 window ~28; attack_curve.json).
     void AssertBiteTiming(FPSLPieCtx& Ctx) const
     {
         FAutomationTestBase& T = *Ctx.Test;
-        const float ExpectedDelay = (1.567f - 0.6f) / 1.5f;
-        T.TestTrue(FString::Printf(TEXT("BiteHitDelay %.4f equals (1.567-0.6)/1.5 = %.4f"), Ctx.Character->BiteHitDelay, ExpectedDelay),
+        const float ExpectedDelay = (1.567f - 0.375f) / 1.5f;
+        T.TestTrue(FString::Printf(TEXT("BiteHitDelay %.4f equals (1.567-0.375)/1.5 = %.4f"), Ctx.Character->BiteHitDelay, ExpectedDelay),
             FMath::IsNearlyEqual(Ctx.Character->BiteHitDelay, ExpectedDelay, 0.001f));
-        T.TestTrue(FString::Printf(TEXT("Bite hit lands %.3f s after the press (0.645 +- 0.1)"), HitTime), HitTime >= 0.0 && FMath::Abs(HitTime - 0.645) <= 0.1);
+        T.TestTrue(FString::Printf(TEXT("Bite hit lands %.3f s after the press (0.795 +- 0.1)"), HitTime), HitTime >= 0.0 && FMath::Abs(HitTime - 0.795) <= 0.1);
+        double EarlyDelta = -1.0;
+        for (const TPair<double, double>& Sample : JawSamples)
+        {
+            if (Sample.Key <= 0.30)
+            {
+                EarlyDelta = FMath::Max(EarlyDelta, Sample.Value);
+            }
+        }
+        T.TestTrue(FString::Printf(TEXT("Anticipation: DEF-jaw delta vs idle < 20 deg up to press + 0.30 s (max %.1f deg)"), EarlyDelta),
+            EarlyDelta >= 0.0 && EarlyDelta < 20.0);
         double MaxDelta = 0.0;
         for (const TPair<double, double>& Sample : JawSamples)
         {
@@ -432,9 +443,12 @@ struct FHeroBiteState
                 return true;
             }
             Prey = All[0];
-            if (!PlaceNear(Ctx, Prey->GetActorLocation(), 180.0))
+            // r8: 320 uu, not 180. Idle SK_HeroTrex: tongue tip 241, eyes 222 uu ahead of the root (death-run6 idle pose x MeshScale);
+            // + 17 uu lunge at contact = ~265, prey capsule radius 40 -> teeth meet the prey surface at ~300-320. At 180 the head went through.
+            // The bite sphere (centre 220, radius 120) overlaps a 40 uu prey capsule up to 380 uu, so damage is unchanged.
+            if (!PlaceNear(Ctx, Prey->GetActorLocation(), 320.0))
             {
-                Ctx.MarkInvalid(TEXT("No ground placement 180 uu from prey"));
+                Ctx.MarkInvalid(TEXT("No ground placement 320 uu from prey"));
                 return true;
             }
             HoldPreyStill(Ctx, *Prey);
@@ -729,13 +743,13 @@ struct FVideoState
             if (In >= 0.5 && !bPreyPlaced)
             {
                 bPreyPlaced = true;
-                const FVector Front = Ctx.Character->GetActorLocation() + Ctx.Character->GetActorForwardVector() * 220.0;
+                const FVector Front = Ctx.Character->GetActorLocation() + Ctx.Character->GetActorForwardVector() * 320.0;  // r8 stand-off, see AssertBiteTiming staging
                 FVector Ground;
                 if (!GroundAt(Ctx.World, Front.X, Front.Y, Ground))
                 {
                     // Same height the hero stands at, minus the capsule difference: the prey drops onto the terrain.
                     Ground = Front - FVector(0.0, 0.0, 60.0);
-                    Ctx.Test->AddInfo(TEXT("HeroVideo bite: no landscape hit 220 uu ahead, prey placed at hero height"));
+                    Ctx.Test->AddInfo(TEXT("HeroVideo bite: no landscape hit 320 uu ahead, prey placed at hero height"));
                 }
                 APSLPreyCharacter* BitePrey = nullptr;
                 for (APSLPreyCharacter* Candidate : GetPrey(Ctx.World))
@@ -766,7 +780,7 @@ struct FVideoState
                     Shot->bPreySpawned = true;
                     Ctx.Test->AddInfo(TEXT("HeroVideo bite: no living prey in the world, spawned one"));
                 }
-                // The bite centre is 220 uu ahead of the actor, radius 120: the prey sits inside it, in front of the open jaw.
+                // The bite centre is 220 uu ahead of the actor, radius 120: the 40 uu prey capsule at 320 overlaps it, just past the snout.
                 Shot->Prey = BitePrey;
                 Shot->bPreyMoved = true;
                 HoldPreyStill(Ctx, *BitePrey);
@@ -820,16 +834,17 @@ bool FPSLHeroShowcaseTest::RunTest(const FString& Parameters)
         AddWarning(TEXT("hero assets absent: showcase skipped"));
         return true;
     }
+    const int32 PrevHero = GetIntCvar(TEXT("psl.Dev.HeroTrex"));
     if (!SetIntCvar(TEXT("psl.Dev.HeroTrex"), 1))
     {
         AddWarning(TEXT("hero assets absent: showcase skipped (psl.Dev.HeroTrex could not be set)"));
-        SetIntCvar(TEXT("psl.Dev.HeroTrex"), 0);
+        SetIntCvar(TEXT("psl.Dev.HeroTrex"), PrevHero);
         return true;
     }
     const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("HeroShowcase"));
     if (!SetPredatorSpawnCvar(1) || !QueuePieStart(*this, Context, HeroMapPath))
     {
-        SetIntCvar(TEXT("psl.Dev.HeroTrex"), 0);
+        SetIntCvar(TEXT("psl.Dev.HeroTrex"), PrevHero);
         return false;
     }
     AddPieStep(Context, TEXT("IgnoreLookInput"), 2.0f, [](FPSLPieCtx& Ctx)
@@ -975,7 +990,8 @@ bool FPSLHeroShowcaseTest::RunTest(const FString& Parameters)
             return Now - Start >= 0.45;
         });
         QueueCapture(Context, TEXT("hero_attack_side"));
-        // bite_seq_0..3: PIE stills at press + 0.30/0.50/0.645/0.85 s with a prey held in front (side camera from hero_attack_side stays).
+        // bite_seq_0..3: PIE stills at press + 0.15 (pull-back) / 0.683 (peak gape) / 0.795 (contact) / 0.95 s (shut, follow-through)
+        // with a prey held in front (side camera from hero_attack_side stays).
         QueueHold(Context, 1.2);
         AddPieStep(Context, TEXT("bite_seq"), 10.0f, [Shot, Start = -1.0, Next = 0](FPSLPieCtx& Ctx) mutable
         {
@@ -998,7 +1014,7 @@ bool FPSLHeroShowcaseTest::RunTest(const FString& Parameters)
                 Ctx.Test->TestTrue(TEXT("TryBite for bite_seq"), Ctx.Character->TryBite());
                 Start = Now;
             }
-            static const double Offsets[4] = {0.30, 0.50, 0.645, 0.85};
+            static const double Offsets[4] = {0.15, 0.683, 0.795, 0.95};
             if (Next < 4 && Now - Start >= Offsets[Next])
             {
                 const FString Label = FString::Printf(TEXT("bite_seq_%d"), Next);
@@ -1168,9 +1184,9 @@ bool FPSLHeroShowcaseTest::RunTest(const FString& Parameters)
     {
         return !Ctx.IsUsable() || S->Tick(Ctx);
     });
-    AddPieStep(Context, TEXT("Cleanup"), 2.0f, [Shot, Guard](FPSLPieCtx& Ctx)
+    AddPieStep(Context, TEXT("Cleanup"), 2.0f, [Shot, Guard, PrevHero](FPSLPieCtx& Ctx)
     {
-        SetIntCvar(TEXT("psl.Dev.HeroTrex"), 0);
+        SetIntCvar(TEXT("psl.Dev.HeroTrex"), PrevHero);
         SetPredatorSpawnCvar(1);
         Guard->Restore();
         Shot->RestoreView(Ctx);

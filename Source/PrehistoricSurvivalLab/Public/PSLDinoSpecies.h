@@ -128,6 +128,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat")
     float BiteCooldown = 1.0f;
 
+    // Radius scale of the contact flash spawned when a bite hits (engine sphere, 50 uu radius at 1). 0 = no flash (old T-Rex, prey).
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat", meta=(ClampMin="0.0"))
+    float HitVfxScale = 0.0f;
+
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Hunger")
     float MaxHunger = 100.0f;
 

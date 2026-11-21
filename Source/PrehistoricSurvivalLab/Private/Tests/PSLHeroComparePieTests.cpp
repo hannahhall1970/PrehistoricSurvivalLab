@@ -333,16 +333,17 @@ bool FPSLHeroCompareTest::RunTest(const FString& Parameters)
         AddWarning(TEXT("hero assets absent: compare skipped"));
         return true;
     }
+    const int32 PrevHero = GetIntCvar(TEXT("psl.Dev.HeroTrex"));
     if (!SetIntCvar(TEXT("psl.Dev.HeroTrex"), 1))
     {
         AddWarning(TEXT("hero assets absent: compare skipped (psl.Dev.HeroTrex could not be set)"));
-        SetIntCvar(TEXT("psl.Dev.HeroTrex"), 0);
+        SetIntCvar(TEXT("psl.Dev.HeroTrex"), PrevHero);
         return true;
     }
     const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("HeroCompare"));
     if (!SetPredatorSpawnCvar(1) || !QueuePieStart(*this, Context, ArenaMapPath))
     {
-        SetIntCvar(TEXT("psl.Dev.HeroTrex"), 0);
+        SetIntCvar(TEXT("psl.Dev.HeroTrex"), PrevHero);
         return false;
     }
     const TSharedRef<FCompareState> S = MakeShared<FCompareState>();
@@ -410,9 +411,9 @@ bool FPSLHeroCompareTest::RunTest(const FString& Parameters)
     });
 
     // HasObjects, not IsUsable: also restore after a failed or timed-out step.
-    AddPieStep(Context, TEXT("Cleanup"), 2.0f, [S](FPSLPieCtx& Ctx)
+    AddPieStep(Context, TEXT("Cleanup"), 2.0f, [S, PrevHero](FPSLPieCtx& Ctx)
     {
-        SetIntCvar(TEXT("psl.Dev.HeroTrex"), 0);
+        SetIntCvar(TEXT("psl.Dev.HeroTrex"), PrevHero);
         SetPredatorSpawnCvar(1);
         for (const TWeakObjectPtr<APawn>& P : S->HiddenPawns)
         {

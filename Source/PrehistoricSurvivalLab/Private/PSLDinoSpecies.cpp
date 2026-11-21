@@ -92,14 +92,15 @@ UPSLDinoSpecies* UPSLDinoSpecies::MakeBuiltin(FName Id, UObject* Outer)
             S->RunAnim = Soft<UAnimSequence>(TEXT("/Game/Dev/ArtDir/Hero/A_HeroTrex_Run.A_HeroTrex_Run"));
             S->AttackAnim = Soft<UAnimSequence>(TEXT("/Game/Dev/ArtDir/Hero/A_HeroTrex_Attack.A_HeroTrex_Attack"));
             S->DeathAnim = Soft<UAnimSequence>(TEXT("/Game/Dev/ArtDir/Hero/A_HeroTrex_Death.A_HeroTrex_Death"));
-            S->AttackPlayRate = 1.5f;       // clip window 0.6..2.1 s -> 1.0 s action, fits BiteCooldown
-            S->AttackStartTime = 0.6f;
-            S->AttackEndTime = 2.1f;
-            S->AttackContactTime = 1.567f;  // jaw contact (clip f47) -> BiteHitDelay 0.645 s
+            S->AttackPlayRate = 1.5f;       // clip window 0.375..1.875 s -> 1.0 s action, fits BiteCooldown
+            S->AttackStartTime = 0.375f;    // r8: keep the head pull-back (clip f11..f27); jaw < 20 deg vs idle up to press + 0.30 s
+            S->AttackEndTime = 1.875f;      // clip f56: jaw shut since f48, lunge follow-through done
+            S->AttackContactTime = 1.567f;  // jaw contact (clip f47, jaw closing 7.8 deg) -> BiteHitDelay 0.795 s
             S->WalkAnimSpeed = 60.0f;  // stance-phase toe contact speed per play-rate unit, mean of PSL.Dev.HeroTrex.Showcase suggested_anim_speed (L 60.1, R 60.5)
-            S->RunAnimSpeed = 245.0f;  // measured: Run clip covers ~245 uu/s
+            S->RunAnimSpeed = 229.0f;  // mean of PSL.Dev.HeroTrex.Showcase run suggested_anim_speed (L 227.7, R 229.4); 245 left 40-47 uu stance slide
             S->MeshScale = 0.0f;      // fit to 90% of the capsule height
             S->MeshYaw = -90.0f;      // import axis_forward=-Y; PSL.Dev.HeroTrex.Showcase measures facing
+            S->HitVfxScale = 0.35f;   // ~17 uu contact flash at the jaw/victim point
         }
 #endif
     }

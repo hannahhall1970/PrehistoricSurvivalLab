@@ -31,6 +31,10 @@
 #include "Perception/AISense_Hearing.h"
 #include "Sound/SoundBase.h"
 #include "PSLGameUserSettings.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/StaticMeshActor.h"
+#include "Components/StaticMeshComponent.h"
+#include "Materials/MaterialInterface.h"
 
 APSLCharacter::APSLCharacter()
 {
@@ -480,6 +484,34 @@ bool APSLCharacter::TryBite()
     return true;
 }
 
+namespace
+{
+// Short additive flash at the bite contact point; engine content only (/Engine/BasicShapes/Sphere + /Engine/EngineMaterials/EmissiveMeshMaterial).
+void SpawnBiteHitFlash(UWorld& World, const FVector& At, float Scale)
+{
+    UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+    UMaterialInterface* Mat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/EmissiveMeshMaterial.EmissiveMeshMaterial"));
+    FActorSpawnParameters Params;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    AStaticMeshActor* Flash = Mesh ? World.SpawnActor<AStaticMeshActor>(At, FRotator::ZeroRotator, Params) : nullptr;
+    if (!Flash)
+    {
+        return;
+    }
+    UStaticMeshComponent* Comp = Flash->GetStaticMeshComponent();
+    Comp->SetMobility(EComponentMobility::Movable);
+    Comp->SetStaticMesh(Mesh);
+    if (Mat)
+    {
+        Comp->SetMaterial(0, Mat);
+    }
+    Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    Comp->SetCastShadow(false);
+    Flash->SetActorScale3D(FVector(Scale));
+    Flash->SetLifeSpan(0.15f);
+}
+}
+
 void APSLCharacter::ResolveBiteHit()
 {
     UWorld* World = GetWorld();
@@ -511,6 +543,18 @@ void APSLCharacter::ResolveBiteHit()
     if (Victims.Num() > 0)
     {
         OnBiteHit.Broadcast();
+        if (ActiveSpecies && ActiveSpecies->HitVfxScale > 0.0f)
+        {
+            // Victim surface point facing the attacker, at jaw height (bone is a socket) when the rig has one.
+            const AActor* First = *Victims.CreateConstIterator();
+            const FVector ToUs = (GetActorLocation() - First->GetActorLocation()).GetSafeNormal2D();
+            FVector At = First->GetActorLocation() + ToUs * First->GetSimpleCollisionRadius();
+            if (GetMesh()->DoesSocketExist(TEXT("DEF-jaw")))
+            {
+                At.Z = GetMesh()->GetSocketLocation(TEXT("DEF-jaw")).Z;
+            }
+            SpawnBiteHitFlash(*World, At, ActiveSpecies->HitVfxScale);
+        }
     }
 
     const float Ate = TryEat(Center);

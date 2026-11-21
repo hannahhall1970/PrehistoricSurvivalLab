@@ -44,6 +44,12 @@ struct FHeroDeathState
     double MaxHoldZ = TNumericLimits<double>::Lowest();
     bool bHave30 = false;
     double Lowest30 = 0.0;
+    double StandLowestAbove = 0.0;
+    // r8: min height above floor over EVERY tick of the death, per body region (index order = DeathRegionNames) and overall.
+    double MinRegion[6] = {TNumericLimits<double>::Max(), TNumericLimits<double>::Max(), TNumericLimits<double>::Max(),
+        TNumericLimits<double>::Max(), TNumericLimits<double>::Max(), TNumericLimits<double>::Max()};
+    double MinLowest = TNumericLimits<double>::Max();
+    double MinLowestAt = -1.0;
     double MaxCapsuleMove = 0.0;
     bool bShot0 = false;
     int32 NextShot = 0;
@@ -68,6 +74,32 @@ double LowestBoneZ(const USkeletalMeshComponent* Mesh)
         }
     }
     return Lowest;
+}
+
+constexpr const TCHAR* DeathRegionNames[6] = {TEXT("pelvis"), TEXT("chest"), TEXT("head"), TEXT("jaw"), TEXT("feet"), TEXT("tail")};
+
+int32 DeathRegionOf(const FString& Name)
+{
+    if (Name == TEXT("DEF-pelvis")) return 0;
+    if (Name.StartsWith(TEXT("DEF-spine"))) return 1;
+    if (Name == TEXT("DEF-head")) return 2;
+    if (Name == TEXT("DEF-jaw")) return 3;
+    if (Name.StartsWith(TEXT("DEF-metatarsus")) || Name.StartsWith(TEXT("DEF-toe"))) return 4;
+    if (Name.StartsWith(TEXT("DEF-tail"))) return 5;
+    return INDEX_NONE;
+}
+
+void SampleRegions(const USkeletalMeshComponent* Mesh, double FloorZ, double (&InOutMin)[6])
+{
+    for (int32 Bone = 0; Bone < Mesh->GetNumBones(); ++Bone)
+    {
+        const FName Name = Mesh->GetBoneName(Bone);
+        const int32 Region = DeathRegionOf(Name.ToString());
+        if (Region != INDEX_NONE)
+        {
+            InOutMin[Region] = FMath::Min(InOutMin[Region], Mesh->GetBoneLocation(Name, EBoneSpaces::WorldSpace).Z - FloorZ);
+        }
+    }
 }
 
 const TCHAR* ActionName(EPSLDinoAction Action)
@@ -173,6 +205,15 @@ bool TickDeath(FPSLPieCtx& Ctx, FHeroDeathState& S)
     const double Lowest = LowestBoneZ(Mesh);
     S.MaxCapsuleMove = FMath::Max(S.MaxCapsuleMove, FVector::Dist(Hero->GetActorLocation(), S.CapsuleStart));
     ++S.Ticks;
+    if (Since >= 0.0)
+    {
+        SampleRegions(Mesh, S.FloorZ, S.MinRegion);
+        if (Lowest - S.FloorZ < S.MinLowest)
+        {
+            S.MinLowest = Lowest - S.FloorZ;
+            S.MinLowestAt = Since;
+        }
+    }
     if ((S.Ticks % 10) == 1)
     {
         T.AddInfo(FString::Printf(TEXT("{\"step\":\"death_sample\",\"t\":%.3f,\"action\":\"%s\",\"weight\":%.3f,\"pelvis_above_floor\":%.1f,\"lowest_bone_above_floor\":%.1f}"),
@@ -224,6 +265,9 @@ bool TickDeath(FPSLPieCtx& Ctx, FHeroDeathState& S)
     T.AddInfo(FString::Printf(TEXT("{\"step\":\"death_result\",\"first_death_s\":%.3f,\"left_death\":\"%s\",\"min_weight\":%.4f,\"max_weight\":%.4f,\"stand_pelvis_above_floor\":%.1f,\"pelvis_above_floor_2_2s\":%.1f,\"hold_drift_2_2_to_4_0\":%.2f,\"lowest_bone_above_floor_3_0s\":%.1f,\"capsule_move\":%.2f,\"floor_z\":%.1f,\"ticks\":%d}"),
         S.FirstDeathAt, S.bLeftDeath ? *S.LeftDeathTo : TEXT("never"), S.MinWeight, S.MaxWeight, S.StandPelvisAbove, S.PelvisAbove22, HoldDrift, S.Lowest30,
         S.MaxCapsuleMove, S.FloorZ, S.Ticks));
+    T.AddInfo(FString::Printf(TEXT("{\"step\":\"death_clearance\",\"stand_lowest_above_floor\":%.1f,\"min_lowest_above_floor\":%.1f,\"min_lowest_at_s\":%.3f,\"%s\":%.1f,\"%s\":%.1f,\"%s\":%.1f,\"%s\":%.1f,\"%s\":%.1f,\"%s\":%.1f}"),
+        S.StandLowestAbove, S.MinLowest, S.MinLowestAt, DeathRegionNames[0], S.MinRegion[0], DeathRegionNames[1], S.MinRegion[1], DeathRegionNames[2], S.MinRegion[2],
+        DeathRegionNames[3], S.MinRegion[3], DeathRegionNames[4], S.MinRegion[4], DeathRegionNames[5], S.MinRegion[5]));
     T.TestTrue(FString::Printf(TEXT("ActiveAction is Death within 0.2 s of the kill (%.3f s)"), S.FirstDeathAt), S.FirstDeathAt >= 0.0 && S.FirstDeathAt <= 0.2);
     T.TestFalse(FString::Printf(TEXT("Action stays Death until 4.0 s (left: %s)"), S.bLeftDeath ? *S.LeftDeathTo : TEXT("never")), S.bLeftDeath);
     T.TestTrue(FString::Printf(TEXT("ActionWeight is 1 +- 0.01 from 0.2 s on (min %.4f, max %.4f)"), S.MinWeight, S.MaxWeight),
@@ -233,6 +277,10 @@ bool TickDeath(FPSLPieCtx& Ctx, FHeroDeathState& S)
     T.TestTrue(FString::Printf(TEXT("Pelvis held: world Z changes <= 2 uu from 2.2 s to 4.0 s (%.2f)"), HoldDrift), HoldDrift <= 2.0);
     T.TestTrue(FString::Printf(TEXT("Lowest bone at 3.0 s within [floor-10, floor+40] (%.1f above floor)"), S.Lowest30),
         S.bHave30 && S.Lowest30 >= -10.0 && S.Lowest30 <= 40.0);
+    // r8: every tick, not just 3.0 s. Floor-relative: standing toes sit ~9 uu up (about the toe skin), so < -2 means the skin is
+    // > ~11 uu through the floor; catches r7 (-34.1). Stand-relative is not asserted: the idle toe height varies with the loop.
+    T.TestTrue(FString::Printf(TEXT("Lowest DEF bone never below floor-2 uu during the whole death (min %.1f at %.3f s)"), S.MinLowest, S.MinLowestAt),
+        S.MinLowestAt >= 0.0 && S.MinLowest >= -2.0);
     T.TestTrue(FString::Printf(TEXT("Capsule moved <= 5 uu (%.2f)"), S.MaxCapsuleMove), S.MaxCapsuleMove <= 5.0);
     return true;
 }
@@ -246,16 +294,17 @@ bool FPSLHeroDeathTest::RunTest(const FString& Parameters)
         AddWarning(TEXT("hero assets absent: death test skipped"));
         return true;
     }
+    const int32 PrevHero = GetIntCvar(TEXT("psl.Dev.HeroTrex"));
     if (!SetIntCvar(TEXT("psl.Dev.HeroTrex"), 1))
     {
         AddWarning(TEXT("hero assets absent: death test skipped (psl.Dev.HeroTrex could not be set)"));
-        SetIntCvar(TEXT("psl.Dev.HeroTrex"), 0);
+        SetIntCvar(TEXT("psl.Dev.HeroTrex"), PrevHero);
         return true;
     }
     const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("HeroDeath"));
     if (!QueuePieStart(*this, Context, ArenaMapPath))
     {
-        SetIntCvar(TEXT("psl.Dev.HeroTrex"), 0);
+        SetIntCvar(TEXT("psl.Dev.HeroTrex"), PrevHero);
         return false;
     }
     const TSharedRef<FHeroDeathState> S = MakeShared<FHeroDeathState>();
@@ -282,9 +331,10 @@ bool FPSLHeroDeathTest::RunTest(const FString& Parameters)
         }
         APSLCharacter* Hero = S->Hero.Get();
         S->StandPelvisAbove = PelvisZ(Hero->GetMesh()) - S->FloorZ;
+        S->StandLowestAbove = LowestBoneZ(Hero->GetMesh()) - S->FloorZ;
         S->CapsuleStart = Hero->GetActorLocation();
         Ctx.Test->AddInfo(FString::Printf(TEXT("{\"step\":\"death_stand\",\"pelvis_above_floor\":%.1f,\"lowest_bone_above_floor\":%.1f,\"capsule\":[%.1f,%.1f,%.1f]}"),
-            S->StandPelvisAbove, LowestBoneZ(Hero->GetMesh()) - S->FloorZ, S->CapsuleStart.X, S->CapsuleStart.Y, S->CapsuleStart.Z));
+            S->StandPelvisAbove, S->StandLowestAbove, S->CapsuleStart.X, S->CapsuleStart.Y, S->CapsuleStart.Z));
         return true;
     });
     AddPieStep(Context, TEXT("Kill"), 5.0f, [S](FPSLPieCtx& Ctx)
@@ -317,9 +367,9 @@ bool FPSLHeroDeathTest::RunTest(const FString& Parameters)
     {
         return !Ctx.IsUsable() || S->DeathWorldTime < 0.0 || TickDeath(Ctx, *S);
     });
-    AddPieStep(Context, TEXT("Cleanup"), 2.0f, [S](FPSLPieCtx& Ctx)
+    AddPieStep(Context, TEXT("Cleanup"), 2.0f, [S, PrevHero](FPSLPieCtx& Ctx)
     {
-        SetIntCvar(TEXT("psl.Dev.HeroTrex"), 0);
+        SetIntCvar(TEXT("psl.Dev.HeroTrex"), PrevHero);
         S->Shot->RestoreView(Ctx);
         if (S->Hero.IsValid())
         {

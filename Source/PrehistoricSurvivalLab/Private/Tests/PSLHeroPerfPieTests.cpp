@@ -294,16 +294,17 @@ bool FPSLHeroPerfTest::RunTest(const FString& Parameters)
         AddWarning(TEXT("hero assets absent: perf skipped"));
         return true;
     }
+    const int32 PrevHero = GetIntCvar(TEXT("psl.Dev.HeroTrex"));
     if (!SetIntCvar(TEXT("psl.Dev.HeroTrex"), 1))
     {
         AddWarning(TEXT("hero assets absent: perf skipped (psl.Dev.HeroTrex could not be set)"));
-        SetIntCvar(TEXT("psl.Dev.HeroTrex"), 0);
+        SetIntCvar(TEXT("psl.Dev.HeroTrex"), PrevHero);
         return true;
     }
     const TSharedRef<FPSLPieCtx> Context = MakeShared<FPSLPieCtx>(this, TEXT("HeroPerf"));
     if (!SetPredatorSpawnCvar(1) || !QueuePieStart(*this, Context, PerfMapPath))
     {
-        SetIntCvar(TEXT("psl.Dev.HeroTrex"), 0);
+        SetIntCvar(TEXT("psl.Dev.HeroTrex"), PrevHero);
         return false;
     }
     const TSharedRef<FPerfState> S = MakeShared<FPerfState>();
@@ -376,10 +377,10 @@ bool FPSLHeroPerfTest::RunTest(const FString& Parameters)
         return true;
     });
     // HasObjects, not IsUsable: also restore after a failed or timed-out step.
-    AddPieStep(Context, TEXT("Cleanup"), 2.0f, [S](FPSLPieCtx& Ctx)
+    AddPieStep(Context, TEXT("Cleanup"), 2.0f, [S, PrevHero](FPSLPieCtx& Ctx)
     {
         PerfRestoreCaps(*S);
-        SetIntCvar(TEXT("psl.Dev.HeroTrex"), 0);
+        SetIntCvar(TEXT("psl.Dev.HeroTrex"), PrevHero);
         SetPredatorSpawnCvar(1);
         if (Ctx.HasObjects())
         {
