@@ -30,5 +30,6 @@
 - Never start a UE build outside the harness lock (`.harness/ue-build.lock`); use `bun harness/src/cli.ts gate build|test`.
 - Protected operations (commit/push/merge/destructive/visibility) are released only by a human typing a one-time code at `resume <runId> --approve` on a real terminal. Agents cannot approve.
 - Role tool limits live in `.omp/roles/*.yml` (OMP overlays via `PI_CONFIG_FILES`). Skills: `.omp/skills/ue-build-test`, `.omp/skills/ue-api-check`.
+- Project skills: `ue58-editor-mcp`, `ue58-build-debug`, `ue58-automation-qa`, `ue58-pie-evidence`, `unreal-gameplay-architecture`, `independent-review`.
 - Before committing, `scripts/check_secrets.sh` must pass. Never commit a literal `SecurityToken=` in `Config/*.ini`.
 - Map: `harness/src/` (state machine `graph.ts`, SQLite `store.ts`, gates `gates.ts`/`classify.ts`, context `context.ts`, Paseo `paseo.ts`). Design: `docs/HARNESS.md`. Paseo scripts: `paseo.json`.

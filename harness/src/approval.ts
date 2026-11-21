@@ -79,11 +79,67 @@ export class TtyApprovalSource {
 			runId: request.runId,
 			runVersion: request.runVersion,
 			nonce,
+			...(request.sourceSha !== undefined
+				? { sourceSha: request.sourceSha }
+				: {}),
+			...(request.targetSha !== undefined
+				? { targetSha: request.targetSha }
+				: {}),
+			...(request.remoteUrl !== undefined
+				? { remoteUrl: request.remoteUrl }
+				: {}),
 			...(request.target !== undefined ? { target: request.target } : {}),
 		});
 		minted.add(grant);
 		return grant;
 	}
+}
+
+export interface ReleaseTransaction {
+	runId: string;
+	runVersion: number;
+	sourceBranch: string;
+	targetBranch: string;
+	sourceSha: string;
+	targetSha: string;
+	remoteUrl: string;
+	files: string[];
+	/** Git LFS objects the push would publish (read-only `git lfs ls-files`), shown to the human. */
+	lfsObjects: string[];
+	operations: Array<"git.merge" | "git.push">;
+}
+
+/**
+ * One human confirmation for a whole release transaction. Mints one distinct single-use grant per
+ * operation, each bound to {operation, runId, runVersion, target, sourceSha, targetSha, remoteUrl}.
+ */
+export function confirmTransaction(
+	tx: ReleaseTransaction,
+	io: ApprovalIO = controllingTerminal,
+): Map<ApprovalOperation, ApprovalGrant> | undefined {
+	const nonce = randomBytes(3).toString("hex").toUpperCase();
+	const answer = io.ask(
+		`\nHARNESS RELEASE TRANSACTION\n  run: ${tx.runId}\n  source: ${tx.sourceBranch} @ ${tx.sourceSha}\n  target: ${tx.targetBranch} @ ${tx.targetSha}\n  remote: ${tx.remoteUrl}\n  files: ${tx.files.join(", ") || "(none)"}\n  lfs objects published: ${tx.lfsObjects.join(", ") || "(none)"}\n  operations: ${tx.operations.join(", ")}\nType ${nonce} to approve exactly these operations (anything else denies): `,
+	);
+	if (answer !== nonce) return undefined;
+	const grants = new Map<ApprovalOperation, ApprovalGrant>();
+	for (const operation of tx.operations) {
+		const grant: ApprovalGrant = Object.freeze({
+			operation,
+			approved: true,
+			source: "tty-challenge",
+			runId: tx.runId,
+			runVersion: tx.runVersion,
+			nonce,
+			target: tx.targetBranch,
+			sourceSha: tx.sourceSha,
+			targetSha: tx.targetSha,
+			remoteUrl: tx.remoteUrl,
+		});
+		minted.add(grant);
+		grants.set(operation, grant);
+	}
+	return grants;
 }
 
 function blocked(operation: string, reason: string): ApprovalDecision {
@@ -119,6 +175,9 @@ export function requireApproval(
 		return blocked(operation, "grant is for a different run or run state");
 	if ((g.target ?? null) !== (request.target ?? null))
 		return blocked(operation, "grant target does not match");
+	for (const key of ["sourceSha", "targetSha", "remoteUrl"] as const)
+		if ((g[key] ?? null) !== (request[key] ?? null))
+			return blocked(operation, `grant ${key} does not match`);
 	return { approved: true };
 }
 

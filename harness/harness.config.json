@@ -8,13 +8,13 @@
 			"configOverlay": ".omp/roles/readonly.yml"
 		},
 		"implementer": {
-			"provider": "omp/openai-codex/gpt-6.1-sol",
+			"provider": "omp/circle-ai/claude-sonnet-5-5",
 			"modeId": "full",
 			"thinkingOptionId": "high",
 			"configOverlay": ".omp/roles/implementer.yml"
 		},
 		"reviewer": {
-			"provider": "omp/cliproxy/codex-auto-review",
+			"provider": "omp/circle-ai/claude-opus-5-5",
 			"modeId": "full",
 			"thinkingOptionId": "high",
 			"configOverlay": ".omp/roles/readonly.yml"

@@ -506,3 +506,171 @@ describe("PSL worktree isolation", () => {
 		expect(gates.cwd).toEqual([]);
 	});
 });
+
+/** Local branch `wip` one commit ahead of origin/main, carrying Source/W1.cpp (stands in for the reviewed W1 commit). */
+function addWipCommit(repo: string): string {
+	command(repo, ["git", "checkout", "-q", "-b", "wip"]);
+	mkdirSync(join(repo, "Source"), { recursive: true });
+	writeFileSync(join(repo, "Source", "W1.cpp"), "w1\n");
+	command(repo, ["git", "add", "Source/W1.cpp"]);
+	command(repo, ["git", "commit", "-qm", "wip W1"]);
+	const sha = command(repo, ["git", "rev-parse", "HEAD"]).trim();
+	command(repo, ["git", "checkout", "-q", "main"]);
+	return sha;
+}
+
+describe("explicit base commit", () => {
+	it("defaults to origin/main and persists no base", async () => {
+		const repo = makeRepo();
+		const agents = new FakeAgents(false, true);
+		const first = makeRunner(repo, agents, new FakeGates());
+		await expect(
+			first.runner.start("default", { tasks: [task(false)] }),
+		).rejects.toThrow("simulated crash");
+		const run = first.store.listRuns()[0]!;
+		expect(run.baseSha).toBeUndefined();
+		expect(command(run.worktreePath!, ["git", "rev-parse", "HEAD"])).toBe(
+			command(repo, ["git", "rev-parse", "origin/main"]),
+		);
+	});
+
+	it("branches the worktree from the resolved SHA, inherits its files, and keeps it across resume", async () => {
+		const repo = makeRepo();
+		const wip = addWipCommit(repo);
+		const agents = new FakeAgents(false, true);
+		const first = makeRunner(repo, agents, new FakeGates());
+		await expect(
+			first.runner.start("continue", {
+				tasks: [task(false)],
+				baseCommit: "wip",
+			}),
+		).rejects.toThrow("simulated crash");
+		const crashed = first.store.listRuns()[0]!;
+		expect(crashed.baseSha).toBe(wip);
+		expect(crashed.baseSha).toMatch(/^[0-9a-f]{40}$/);
+		expect(
+			readFileSync(join(crashed.worktreePath!, "Source", "W1.cpp"), "utf8"),
+		).toBe("w1\n");
+		expect(
+			command(crashed.worktreePath!, ["git", "rev-parse", "HEAD"]).trim(),
+		).toBe(wip);
+		expect(command(crashed.worktreePath!, ["git", "diff", "--stat", wip])).toBe(
+			"",
+		);
+		expect(
+			command(repo, ["git", "worktree", "list"])
+				.split("\n")
+				.filter((l) => l.includes(crashed.id)),
+		).toHaveLength(1);
+
+		// Moving the branch must not change what the run resumes from.
+		command(repo, ["git", "checkout", "-q", "wip"]);
+		writeFileSync(join(repo, "later.txt"), "later\n");
+		command(repo, ["git", "add", "later.txt"]);
+		command(repo, ["git", "commit", "-qm", "later"]);
+		command(repo, ["git", "checkout", "-q", "main"]);
+
+		const second = makeRunner(repo, agents, new FakeGates());
+		const done = await second.runner.resume(crashed.id);
+		expect(done.stage).toBe("DONE");
+		expect(done.baseSha).toBe(wip);
+		expect(done.worktreePath).toBe(crashed.worktreePath);
+		expect(agents.createCount.get(`${crashed.id}:task-1:implementer:1`)).toBe(
+			1,
+		);
+		expect(second.store.listRuns()).toHaveLength(1);
+	});
+
+	it("measures the diff against the base: inherited files do not force a build, new commits do", async () => {
+		const repo = makeRepo();
+		addWipCommit(repo);
+		const docsOnly = { ...task(false), files: ["docs/README.md"] };
+
+		const idle = new FakeGates();
+		const quiet = makeRunner(repo, new FakeAgents(false), idle);
+		const noEdit = await quiet.runner.start("inherit only", {
+			tasks: [docsOnly],
+			baseCommit: "wip",
+		});
+		expect(noEdit.stage).toBe("DONE");
+		expect(idle.cwd).toEqual([]);
+
+		const gates = new FakeGates();
+		const busy = makeRunner(repo, new FakeAgents(true, false, true), gates);
+		const edited = await busy.runner.start("new source", {
+			tasks: [docsOnly],
+			baseCommit: "wip",
+		});
+		expect(edited.stage).toBe("DONE");
+		expect(gates.cwd).toEqual([edited.worktreePath!, edited.worktreePath!]);
+		const handoff = readFileSync(
+			join(
+				repo,
+				".harness",
+				"runs",
+				edited.id,
+				"task-1",
+				"handoff-1-implementer.md",
+			),
+			"utf8",
+		);
+		expect(handoff).toContain(`diff --stat ${edited.baseSha}`);
+	});
+
+	it("rejects an unresolvable ref without creating a run or worktree", async () => {
+		const repo = makeRepo();
+		const { runner, store } = makeRunner(
+			repo,
+			new FakeAgents(false),
+			new FakeGates(),
+		);
+		for (const bad of ["no-such-ref", "--upload-pack=x", "  "]) {
+			await expect(
+				runner.start("bad", { tasks: [task(false)], baseCommit: bad }),
+			).rejects.toThrow();
+		}
+		expect(store.listRuns()).toHaveLength(0);
+		expect(existsSync(join(repo, ".harness", "worktrees"))).toBe(false);
+	});
+
+	it("rejects a commit that does not descend from origin/main", async () => {
+		const repo = makeRepo();
+		const unrelated = command(repo, [
+			"git",
+			"commit-tree",
+			"4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+			"-m",
+			"orphan",
+		]).trim();
+		const { runner, store } = makeRunner(
+			repo,
+			new FakeAgents(false),
+			new FakeGates(),
+		);
+		await expect(
+			runner.start("orphan", { tasks: [task(false)], baseCommit: unrelated }),
+		).rejects.toThrow("does not descend from origin/main");
+		expect(store.listRuns()).toHaveLength(0);
+	});
+
+	it("blocks resume when the existing worktree no longer descends from the persisted base", async () => {
+		const repo = makeRepo();
+		const wip = addWipCommit(repo);
+		const agents = new FakeAgents(false, true);
+		const first = makeRunner(repo, agents, new FakeGates());
+		await expect(
+			first.runner.start("tamper", { tasks: [task(false)], baseCommit: wip }),
+		).rejects.toThrow("simulated crash");
+		const crashed = first.store.listRuns()[0]!;
+		command(crashed.worktreePath!, [
+			"git",
+			"reset",
+			"-q",
+			"--hard",
+			"origin/main",
+		]);
+		const blocked = await first.runner.resume(crashed.id);
+		expect(blocked.stage).toBe("BLOCKED");
+		expect(blocked.parkedReason).toContain("persisted base");
+	});
+});

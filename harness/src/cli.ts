@@ -19,11 +19,12 @@ import type {
 	AgentResult,
 	GateResult,
 	HarnessConfig,
+	TaskSpec,
 } from "./types.ts";
 import { BLOCKING_FAILURES } from "./types.ts";
-import { TtyApprovalSource } from "./approval.ts";
+import { controllingTerminal, TtyApprovalSource } from "./approval.ts";
 
-const usage = `bun harness/src/cli.ts <start "objective" | status [runId] | resume <runId> [--approve] | stop <runId> | logs <runId> [--task id] | gate <preflight|build|test>> [--fake]`;
+const usage = `bun harness/src/cli.ts <start "objective" [--base <commit>] [--tasks-file <json>] | status [runId] | resume <runId> [--approve] | release <runId> | stop <runId> | logs <runId> [--task id] | gate <preflight|build|test>> [--fake]`;
 
 function fakeDelay(): number {
 	const value = Number(process.env.HARNESS_FAKE_DELAY_MS ?? 0);
@@ -343,12 +344,42 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 				: 1;
 	}
 	if (command === "start" && args.length >= 2) {
+		const rest = [...args.slice(1)];
+		const take = (flag: string): string | undefined => {
+			const at = rest.indexOf(flag);
+			if (at < 0) return undefined;
+			const [, value] = rest.splice(at, 2);
+			if (!value || value.startsWith("--"))
+				throw new Error(`${flag} needs a value`);
+			return value;
+		};
+		let baseCommit: string | undefined;
+		let tasks: TaskSpec[] | undefined;
+		try {
+			baseCommit = take("--base");
+			const tasksFile = take("--tasks-file");
+			if (tasksFile)
+				tasks = JSON.parse(
+					readFileSync(resolve(tasksFile), "utf8"),
+				) as TaskSpec[];
+		} catch (error) {
+			console.error(error instanceof Error ? error.message : String(error));
+			return 1;
+		}
 		const { runner, store, agents } = makeRunner(repoRoot, fake);
 		try {
-			const run = await runner.start(args.slice(1).join(" "));
+			const run = await runner.start(rest.join(" "), {
+				...(baseCommit !== undefined ? { baseCommit } : {}),
+				...(tasks ? { tasks } : {}),
+			});
 			console.log(`run ${run.id} stage=${run.stage}`);
+			if (run.baseSha) console.log(`base ${run.baseSha}`);
 			if (run.parkedReason) console.log(`reason: ${run.parkedReason}`);
 			return exitFor(run);
+		} catch (error) {
+			if (baseCommit === undefined) throw error;
+			console.error(error instanceof Error ? error.message : String(error));
+			return 1;
 		} finally {
 			if (agents instanceof PaseoAgentPort) await agents.close();
 			store.close();
@@ -364,6 +395,24 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 			console.log(`run ${run.id} stage=${run.stage}`);
 			if (run.parkedReason) console.log(`reason: ${run.parkedReason}`);
 			return exitFor(run);
+		} finally {
+			if (agents instanceof PaseoAgentPort) await agents.close();
+			store.close();
+		}
+	}
+	if (command === "release" && args[1]) {
+		const { runner, store, agents } = makeRunner(repoRoot, fake);
+		try {
+			// Controlling TTY only: with no terminal the confirmation fails closed (denied).
+			const result = runner.release(args[1], {
+				approvals: controllingTerminal,
+			});
+			console.log(
+				result.ok
+					? `released ${result.sourceSha} to origin/main`
+					: `release refused: ${result.reason}`,
+			);
+			return result.ok ? 0 : 2;
 		} finally {
 			if (agents instanceof PaseoAgentPort) await agents.close();
 			store.close();

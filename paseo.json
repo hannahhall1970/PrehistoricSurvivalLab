@@ -14,6 +14,15 @@
 		},
 		"ue-test": {
 			"command": "bun harness/src/cli.ts gate test"
+		},
+		"evidence-verify": {
+			"command": "bun scripts/evidence.ts verify \"$EVIDENCE_DIR\""
+		},
+		"evidence-show": {
+			"command": "bun scripts/evidence.ts show \"$EVIDENCE_DIR\""
+		},
+		"review-task": {
+			"command": "printf '%s\\n' \"$EVIDENCE_DIR/manifest.json\" \"$EVIDENCE_DIR/verify.json\" \"git diff HEAD + untracked\"; git diff HEAD || exit $?; git ls-files -z -o --exclude-standard | xargs -0 -I{} sh -c 'git diff --no-index -- /dev/null \"$1\"; [ $? -le 1 ]' _ {}"
 		}
 	}
 }

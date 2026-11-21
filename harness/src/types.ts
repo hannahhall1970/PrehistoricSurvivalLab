@@ -14,6 +14,10 @@ export type ApprovalSource = "tty-challenge";
 export interface ApprovalRequest {
 	operation: ApprovalOperation | "agent.permission";
 	target?: string;
+	/** Release transactions bind grants to exact commits and remote; a mismatch fails closed. */
+	sourceSha?: string;
+	targetSha?: string;
+	remoteUrl?: string;
 }
 export interface ApprovalGrant {
 	operation: ApprovalOperation | "agent.permission";
@@ -23,13 +27,15 @@ export interface ApprovalGrant {
 	runVersion: number;
 	nonce: string;
 	target?: string;
+	sourceSha?: string;
+	targetSha?: string;
+	remoteUrl?: string;
 }
 
 export interface ApprovalDecision {
 	approved: boolean;
 	reason?: string;
 }
-
 
 export const STAGES = [
 	"INTAKE",
@@ -82,6 +88,7 @@ export type FailureClass =
 	| "AGENT_ERROR" // worker crashed / returned invalid structured output
 	| "CONTRACT_INVALID" // plan/task contract failed validation
 	| "REVIEW_REJECTED"
+	| "REVIEW_PROTOCOL_ERROR" // reviewer reply not in a documented format; never an implementer fault
 	| "CANCELLED"
 	| "UNKNOWN";
 
@@ -139,6 +146,7 @@ export interface RunState {
 	approvalTarget?: string;
 	worktreePath?: string;
 	worktreeBranch?: string;
+	baseSha?: string; // immutable full commit SHA the worktree branched from; absent = origin/main
 	version: number; // optimistic concurrency, +1 per checkpoint
 }
 

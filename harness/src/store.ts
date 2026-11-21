@@ -16,6 +16,7 @@ type RunRow = {
 	approval_target: string | null;
 	worktree_path: string | null;
 	worktree_branch: string | null;
+	base_sha: string | null;
 	version: number;
 };
 
@@ -173,6 +174,7 @@ export class Store {
 			"approval_target TEXT",
 			"worktree_path TEXT",
 			"worktree_branch TEXT",
+			"base_sha TEXT",
 		]) {
 			try {
 				this.db.run(`ALTER TABLE runs ADD COLUMN ${column}`);
@@ -182,7 +184,7 @@ export class Store {
 		}
 	}
 
-	createRun(objective: string, id?: string): RunState {
+	createRun(objective: string, id?: string, baseSha?: string): RunState {
 		const now = new Date().toISOString();
 		const runId = id ?? crypto.randomUUID();
 		const run: RunState = {
@@ -193,12 +195,13 @@ export class Store {
 			updatedAt: now,
 			stopRequested: false,
 			version: 0,
+			...(baseSha ? { baseSha } : {}),
 		};
 		this.db.run(
 			`INSERT INTO runs
 				(id, objective, stage, current_task_id, created_at, updated_at, stop_requested,
-				 parked_reason, approval_operation, approval_target, worktree_path, worktree_branch, version)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				 parked_reason, approval_operation, approval_target, worktree_path, worktree_branch, base_sha, version)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			[
 				run.id,
 				run.objective,
@@ -212,6 +215,7 @@ export class Store {
 				null,
 				null,
 				null,
+				nullable(run.baseSha),
 				run.version,
 			],
 		);
@@ -438,13 +442,7 @@ export class Store {
 						this.db.run(
 							`UPDATE run_leases SET acquired_at = ?, expires_at = ?, pid = ?
 							 WHERE run_id = ? AND owner = ?`,
-							[
-								acquiredAt,
-								now + Math.max(1, ttl),
-								process.pid,
-								id,
-								leaseOwner,
-							],
+							[acquiredAt, now + Math.max(1, ttl), process.pid, id, leaseOwner],
 						);
 						return true;
 					}
@@ -525,6 +523,7 @@ export class Store {
 			approvalTarget: row.approval_target ?? undefined,
 			worktreePath: row.worktree_path ?? undefined,
 			worktreeBranch: row.worktree_branch ?? undefined,
+			baseSha: row.base_sha ?? undefined,
 			version: row.version,
 		};
 	}

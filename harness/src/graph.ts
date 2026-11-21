@@ -14,7 +14,21 @@ import {
 	resolve as resolvePath,
 	sep,
 } from "node:path";
-import { requireApproval, type TtyApprovalSource } from "./approval.ts";
+import {
+	type ApprovalIO,
+	confirmTransaction,
+	type ReleaseTransaction,
+	requireApproval,
+	type TtyApprovalSource,
+} from "./approval.ts";
+import {
+	defaultLsRemote,
+	executeGitOp,
+	type GitOp,
+	type GitOpDeps,
+	type GitOpEvent,
+} from "./gitops.ts";
+import { classifyOperation } from "./policy.ts";
 
 import {
 	BLOCKING_FAILURES,
@@ -34,6 +48,11 @@ import {
 	type TaskSpec,
 	type TaskState,
 } from "./types.ts";
+import {
+	MAX_REVIEW_PROTOCOL_TRIES,
+	REVIEW_FORMAT,
+	normalizeReview,
+} from "./review.ts";
 import type { ContextBuilder } from "./context.ts";
 import type { Gates } from "./gates.ts";
 import type { Store } from "./store.ts";
@@ -458,6 +477,7 @@ function approvalOperationFor(
 	description: string,
 ): ApprovalOperation | "agent.permission" {
 	const text = description.toLowerCase();
+	if (classifyOperation(text) === "DENY") return "destructive";
 	if (/\bgit\s+commit\b|\bcommit\b/.test(text)) return "git.commit";
 	if (/\bgit\s+push\b|\bpush\b/.test(text)) return "git.push";
 	if (/\bgit\s+merge\b|\bmerge\b/.test(text)) return "git.merge";
@@ -501,11 +521,45 @@ export class Runner {
 		this.owner = deps.owner;
 	}
 
+	/**
+	 * Resolve an explicit base ref to a full commit SHA in the trusted repository.
+	 * The commit must descend from origin/main so an unrelated commit is never accepted.
+	 * Throws instead of falling back to origin/main.
+	 */
+	private resolveBaseCommit(ref: string): string {
+		if (!ref.trim() || ref.startsWith("-"))
+			throw new Error(`invalid base commit ${JSON.stringify(ref)}`);
+		const resolved = gitCommand(this.repoRoot, [
+			"rev-parse",
+			"--verify",
+			"--quiet",
+			`${ref}^{commit}`,
+		]);
+		const sha = resolved.stdout.trim();
+		if (resolved.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(sha))
+			throw new Error(
+				`base commit ${JSON.stringify(ref)} does not resolve to a commit`,
+			);
+		const ancestor = gitCommand(this.repoRoot, [
+			"merge-base",
+			"--is-ancestor",
+			"origin/main",
+			sha,
+		]);
+		if (ancestor.exitCode !== 0)
+			throw new Error(`base commit ${sha} does not descend from origin/main`);
+		return sha;
+	}
+
 	async start(
 		objective: string,
-		opts?: { tasks?: TaskSpec[] },
+		opts?: { tasks?: TaskSpec[]; baseCommit?: string },
 	): Promise<RunState> {
-		const run = this.store.createRun(objective);
+		const baseSha =
+			opts?.baseCommit === undefined
+				? undefined
+				: this.resolveBaseCommit(opts.baseCommit);
+		const run = this.store.createRun(objective, undefined, baseSha);
 		if (opts?.tasks) {
 			const plan = validateTasks(opts.tasks, this.config);
 			if (plan.error || !plan.tasks) {
@@ -604,6 +658,167 @@ export class Runner {
 			});
 		}
 		return this.execute(run);
+	}
+
+	/**
+	 * Protected release of a DONE run: ONE human confirmation of one transaction, then the trusted
+	 * executor runs merge.ff-main and push.main with their grants. Nothing here retries a push.
+	 */
+	release(
+		runId: string,
+		opts?: { approvals?: ApprovalIO; lsRemote?: GitOpDeps["lsRemote"] },
+	): { ok: boolean; reason?: string; sourceSha?: string } {
+		const run = this.store.getRun(runId);
+		const denied = (reason: string, extra: Record<string, unknown> = {}) => {
+			this.store.appendEvent({
+				runId,
+				stage: run?.stage ?? "DONE",
+				kind: "protected_op",
+				data: {
+					opId: "release",
+					argv: null,
+					outcome: "denied",
+					reason,
+					runId,
+					...extra,
+				},
+			});
+			return { ok: false, reason };
+		};
+		if (!run) throw new Error(`Run not found: ${runId}`);
+		if (run.stage !== "DONE") return denied(`run is ${run.stage}, not DONE`);
+		if (!run.worktreeBranch || run.worktreeBranch !== `harness/${run.id}`)
+			return denied("run has no harness worktree branch");
+		const rev = (ref: string) => {
+			const r = gitCommand(this.repoRoot, ["rev-parse", "--verify", ref]);
+			return r.exitCode === 0 ? r.stdout.trim() : "";
+		};
+		const sourceSha = rev(`refs/heads/${run.worktreeBranch}`);
+		const targetSha = rev("refs/heads/main");
+		const origin = gitCommand(this.repoRoot, ["remote", "get-url", "origin"]);
+		const remoteUrl = origin.stdout.trim();
+		if (!sourceSha || !targetSha || origin.exitCode !== 0 || !remoteUrl)
+			return denied("cannot resolve branch tip, main tip, or origin");
+		// R4: only the harness's own recorded commit.task commits may be released.
+		const recorded = this.store
+			.events(run.id)
+			.filter(
+				(event) =>
+					event.kind === "auto_op" &&
+					event.data.opId === "commit.task" &&
+					event.data.outcome === "ok" &&
+					typeof event.data.sha === "string",
+			)
+			.map((event) => String(event.data.sha));
+		if (recorded.length === 0) return denied("no recorded task commit");
+		if (sourceSha !== recorded[recorded.length - 1])
+			return denied("branch tip is not the last recorded task commit", {
+				sourceSha,
+			});
+		// R8: an earlier release may have merged locally and then had its push refused.
+		const originTip = (opts?.lsRemote ?? defaultLsRemote)(this.repoRoot);
+		if (originTip === sourceSha) return denied("already released");
+		let base = targetSha;
+		let operations: ReleaseTransaction["operations"] = [
+			"git.merge",
+			"git.push",
+		];
+		if (targetSha === sourceSha) {
+			if (
+				!originTip ||
+				gitCommand(this.repoRoot, [
+					"merge-base",
+					"--is-ancestor",
+					originTip,
+					sourceSha,
+				]).exitCode !== 0
+			)
+				return denied("origin main is unavailable or not behind local main");
+			base = originTip;
+			operations = ["git.push"];
+		}
+		const range = gitCommand(this.repoRoot, [
+			"rev-list",
+			`${base}..${sourceSha}`,
+		]);
+		const commits = range.stdout.split("\n").filter(Boolean);
+		if (range.exitCode !== 0 || commits.length === 0)
+			return denied("cannot list the commits to release");
+		const foreign = commits.filter((commit) => !recorded.includes(commit));
+		if (foreign.length > 0)
+			return denied(`unrecorded commits on the branch: ${foreign.join(", ")}`);
+		const diff = gitCommand(this.repoRoot, [
+			"diff",
+			"--name-only",
+			base,
+			sourceSha,
+		]);
+		// R10b: show the human which LFS objects the push would publish (read-only).
+		const lfs = gitCommand(this.repoRoot, [
+			"lfs",
+			"ls-files",
+			"-l",
+			base,
+			sourceSha,
+		]);
+		const lfsObjects =
+			lfs.exitCode === 0
+				? lfs.stdout.split("\n").filter(Boolean)
+				: ["(git lfs ls-files failed: cannot list)"];
+		const tx: ReleaseTransaction = {
+			runId: run.id,
+			runVersion: run.version,
+			sourceBranch: run.worktreeBranch,
+			targetBranch: "main",
+			sourceSha,
+			targetSha: base,
+			remoteUrl,
+			files: diff.stdout.split("\n").filter(Boolean),
+			lfsObjects,
+			operations,
+		};
+		// Only a real ApprovalIO can ask a human; anything else (e.g. {approved:true}) is no approval.
+		const io = opts?.approvals;
+		const grants =
+			io && typeof io.ask === "function"
+				? confirmTransaction(tx, io)
+				: undefined;
+		if (!grants)
+			return denied("release not approved", { sourceSha, targetSha: base });
+		const deps: GitOpDeps = {
+			repoRoot: this.repoRoot,
+			runId: run.id,
+			runVersion: run.version,
+			log: (event) =>
+				this.store.appendEvent({
+					runId,
+					stage: "DONE",
+					kind: event.kind,
+					data: event.data,
+				}),
+			...(opts?.lsRemote ? { lsRemote: opts.lsRemote } : {}),
+		};
+		if (operations.includes("git.merge")) {
+			const merged = executeGitOp(
+				{
+					id: "merge.ff-main",
+					sourceBranch: run.worktreeBranch,
+					sourceSha,
+					targetSha: base,
+				},
+				deps,
+				grants.get("git.merge"),
+			);
+			if (!merged.ok) return { ok: false, reason: merged.reason };
+		}
+		const pushed = executeGitOp(
+			{ id: "push.main", remoteUrl, sourceSha, targetSha: base },
+			deps,
+			grants.get("git.push"),
+		);
+		return pushed.ok
+			? { ok: true, sourceSha }
+			: { ok: false, reason: pushed.reason };
 	}
 
 	requestStop(runId: string): void {
@@ -815,6 +1030,7 @@ export class Runner {
 					);
 					return;
 				}
+				if (!this.commitTask(run, task, from)) return;
 				run.stage = transition(from, "SUCCESS", this.contextFor(run));
 				this.checkpoint(
 					run,
@@ -1156,7 +1372,7 @@ export class Runner {
 			baseHead?: string;
 		};
 		let base = hasWorktree
-			? "origin/main"
+			? (run.baseSha ?? "origin/main")
 			: (runWithBaseline.startHead ?? runWithBaseline.baseHead);
 		if (!base) {
 			const upstream = gitCommand(cwd, [
@@ -1183,6 +1399,21 @@ export class Runner {
 		return [...changed];
 	}
 
+	/** A run with a persisted base must only ever run in a worktree that still contains that base. */
+	private assertDescendsFromBase(run: RunState, worktree: string): void {
+		if (!run.baseSha) return;
+		const inherited = gitCommand(worktree, [
+			"merge-base",
+			"--is-ancestor",
+			run.baseSha,
+			"HEAD",
+		]);
+		if (inherited.exitCode !== 0)
+			throw new WorktreeValidationError(
+				`worktree ${worktree} does not descend from persisted base ${run.baseSha}`,
+			);
+	}
+
 	private ensureWorktree(run: RunState): void {
 		if (!this.config.useWorktrees) return;
 		if (!/^[0-9a-f-]{36}$/.test(run.id))
@@ -1190,7 +1421,7 @@ export class Runner {
 				`invalid run id ${JSON.stringify(run.id)}`,
 			);
 		if (run.worktreePath !== undefined) {
-			this.trustedCwd(run);
+			this.assertDescendsFromBase(run, this.trustedCwd(run));
 			return;
 		}
 		const branch = `harness/${run.id}`;
@@ -1218,6 +1449,7 @@ export class Runner {
 			) {
 				throw new Error(`worktree path is not ${branch}: ${trustedPath}`);
 			}
+			this.assertDescendsFromBase(run, trustedPath);
 		} else {
 			mkdirSync(dirname(worktreePath), { recursive: true });
 			const created = gitCommand(this.repoRoot, [
@@ -1226,7 +1458,7 @@ export class Runner {
 				"-b",
 				branch,
 				relativePath,
-				"origin/main",
+				run.baseSha ?? "origin/main",
 			]);
 			if (created.exitCode !== 0) {
 				throw new Error(
@@ -1250,8 +1482,145 @@ export class Runner {
 			stage: run.stage,
 			taskId: run.currentTaskId,
 			kind: "worktree_created",
-			data: { path: trustedPath, branch, base: "origin/main" },
+			data: { path: trustedPath, branch, base: run.baseSha ?? "origin/main" },
 		});
+	}
+
+	/**
+	 * CHECKPOINT auto-commit: stage the exact files that passed the gates, then commit on the run
+	 * branch, via the trusted executor. No form, no TTY. Re-entry after a crash is safe: a clean
+	 * tree means the commit already happened (or nothing changed), so nothing is staged again.
+	 */
+	private commitTask(run: RunState, task: TaskState, from: Stage): boolean {
+		const log = (event: GitOpEvent) =>
+			this.store.appendEvent({
+				runId: run.id,
+				stage: from,
+				taskId: task.id,
+				kind: event.kind,
+				data: event.data,
+			});
+		const skipped = (reason: string) => {
+			log({
+				kind: "auto_op",
+				data: {
+					opId: "commit.task",
+					argv: null,
+					outcome: "skipped",
+					reason,
+					runId: run.id,
+				},
+			});
+			return true;
+		};
+		if (!this.config.useWorktrees || run.worktreePath === undefined)
+			return skipped("worktrees disabled; no auto commit");
+		const cwd = this.trustedCwd(run);
+		const status = gitCommand(cwd, [
+			"status",
+			"--porcelain=v1",
+			"-z",
+			"--untracked-files=all",
+		]);
+		const fail = (reason: string): boolean => {
+			const blocked = failure("UNKNOWN", `auto commit failed: ${reason}`);
+			task.lastFailure = blocked;
+			run.stage = "BLOCKED";
+			run.parkedReason = this.parkedReason(from, blocked);
+			this.checkpoint(run, [task], { kind: "blocked", failure: blocked }, from);
+			return false;
+		};
+		if (status.exitCode !== 0) return fail("git status failed");
+		const paths: string[] = [];
+		const records = status.stdout.split("\0");
+		for (let index = 0; index < records.length; index += 1) {
+			const record = records[index];
+			if (!record) continue;
+			const code = record.slice(0, 2);
+			const path = record.slice(3);
+			if (!path.startsWith(".harness/")) paths.push(path);
+			if (code.includes("R") || code.includes("C")) {
+				// -z lists the ORIGIN path next. It must be declared and staged too, so a rename
+				// cannot hide a deletion; a path that no longer exists fails closed in autoStage (R9).
+				index += 1;
+				const old = records[index];
+				if (old && !old.startsWith(".harness/")) paths.push(old);
+			}
+		}
+		if (paths.length === 0)
+			return skipped("clean tree: nothing to commit or already committed");
+		// R1: every changed path must be covered by the task's declared files (exact or glob).
+		const undeclared = paths.filter(
+			(path) =>
+				!task.files.some(
+					(pattern) => pattern === path || new Bun.Glob(pattern).match(path),
+				),
+		);
+		if (undeclared.length > 0)
+			return fail(`undeclared changed files: ${undeclared.join(", ")}`);
+		// R2/R3: one fingerprint F binds the review approval, the gates, and the blobs staged.
+		const fingerprint = this.treeFingerprint(run);
+		if (fingerprint === null) return fail("cannot fingerprint the tree");
+		const approvedTree = [...this.store.events(run.id)]
+			.reverse()
+			.find(
+				(event) =>
+					event.taskId === task.id &&
+					event.kind === "agent" &&
+					event.data.role === "reviewer" &&
+					event.data.verdict === "approve" &&
+					Number(event.data.attempt) === task.attempt,
+			)?.data.reviewFingerprint;
+		if (approvedTree !== fingerprint)
+			return fail("tree differs from the tree the reviewer approved");
+		const gatesRequired =
+			task.needsBuild ||
+			requiresBuild(task.files, this.changedFiles(run), task.needsBuild)
+				.required;
+		const gatesOk =
+			!gatesRequired ||
+			(this.gateSucceeded(
+				run.id,
+				task.id,
+				"BUILD",
+				task.attempt,
+				fingerprint,
+			) &&
+				this.gateSucceeded(run.id, task.id, "TEST", task.attempt, fingerprint));
+		const expectedBlobs: Record<string, string> = {};
+		for (const path of paths)
+			expectedBlobs[path] = gitCommand(cwd, [
+				"hash-object",
+				"--",
+				path,
+			]).stdout.trim();
+		if (this.treeFingerprint(run) !== fingerprint)
+			return fail("tree changed while preparing the commit");
+		const deps: GitOpDeps = {
+			repoRoot: this.repoRoot,
+			runId: run.id,
+			runVersion: run.version,
+			log,
+			declaredFiles: paths, // already checked against task.files above
+			gatesOk: () => gatesOk,
+		};
+		const stage: GitOp = {
+			id: "stage.exact",
+			worktree: cwd,
+			paths,
+			expectedBlobs,
+		};
+		let result = executeGitOp(stage, deps);
+		if (result.ok)
+			result = executeGitOp(
+				{
+					id: "commit.task",
+					worktree: cwd,
+					message: `harness(${run.id}): ${task.id} ${task.title}`,
+				},
+				deps,
+			);
+		return result.ok ? true : fail(result.reason);
 	}
 
 	private cleanupWorktree(run: RunState): void {
@@ -1299,7 +1668,7 @@ export class Runner {
 		const commits = gitCommand(worktreePath, [
 			"rev-list",
 			"--count",
-			"origin/main..HEAD",
+			`${run.baseSha ?? "origin/main"}..HEAD`,
 		]);
 		const commitCount = Number(commits.stdout.trim());
 		if (
@@ -1318,7 +1687,7 @@ export class Runner {
 					reason:
 						commits.exitCode !== 0
 							? (commits.stderr || "git rev-list failed").trim()
-							: `${commitCount} commit(s) beyond origin/main`,
+							: `${commitCount} commit(s) beyond ${run.baseSha ?? "origin/main"}`,
 				},
 			});
 			return;
@@ -1348,9 +1717,10 @@ export class Runner {
 	private worktreeEvidence(run: RunState): string[] {
 		if (run.worktreePath === undefined) return [];
 		const worktreePath = this.trustedCwd(run);
-		const result = gitCommand(worktreePath, ["diff", "--stat", "origin/main"]);
+		const base = run.baseSha ?? "origin/main";
+		const result = gitCommand(worktreePath, ["diff", "--stat", base]);
 		const output = (result.stdout || result.stderr).trim() || "(no diff)";
-		return [`git -C ${worktreePath} diff --stat origin/main\n${output}`];
+		return [`git -C ${worktreePath} diff --stat ${base}\n${output}`];
 	}
 
 	private taskContract(run: RunState): void {
@@ -1688,91 +2058,135 @@ export class Runner {
 			{ kind: "stage_start", stage: from, attempt: task.attempt },
 			from,
 		);
-		const key = `${run.id}:${task.id}:reviewer:${task.attempt}`;
-		const prompt = await this.context.forTask(
+		const baseKey = `${run.id}:${task.id}:reviewer:${task.attempt}`;
+		const basePrompt = await this.context.forTask(
 			run,
 			task,
 			"reviewer",
 			this.gateEvidence(run.id, task.id, task.attempt),
 		);
-		const result = await this.awaitWithLeases(run, () =>
-			this.agents.run(
-				{
-					role: "reviewer",
-					idempotencyKey: key,
-					title: `Review ${task.id}: ${task.title}`,
-					prompt,
-					cwd: this.taskCwd(run),
-					outputSchema: REVIEW_SCHEMA,
-					timeoutMs: task.budgetMs,
-					labels: {
-						"harness.key": key,
-						"harness.runId": run.id,
-						"harness.taskId": task.id,
-						"harness.role": "reviewer",
+		const snapshot = this.treeFingerprint(run);
+		let verdict: ReviewVerdict | undefined;
+		let result!: AgentResult;
+		let handoffPath: string | undefined;
+		let protocolError: string | undefined;
+		while (!verdict) {
+			const total = this.reviewProtocolErrors(run.id, task);
+			const key = total === 0 ? baseKey : `${baseKey}:p${total}`;
+			const prompt = protocolError
+				? `${basePrompt}\n\n## Previous reply rejected\n${protocolError}. Reply again with exactly one top-level JSON object: ${REVIEW_FORMAT}`
+				: basePrompt;
+			result = await this.awaitWithLeases(run, () =>
+				this.agents.run(
+					{
+						role: "reviewer",
+						idempotencyKey: key,
+						title: `Review ${task.id}: ${task.title}`,
+						prompt,
+						cwd: this.taskCwd(run),
+						outputSchema: REVIEW_SCHEMA,
+						timeoutMs: task.budgetMs,
+						labels: {
+							"harness.key": key,
+							"harness.runId": run.id,
+							"harness.taskId": task.id,
+							"harness.role": "reviewer",
+						},
 					},
-				},
-				signal,
-				{
-					onCreated: (agentId: string) => {
-						task.reviewerAgentId = agentId;
-						this.saveRun(run, [task]);
+					signal,
+					{
+						onCreated: (agentId: string) => {
+							task.reviewerAgentId = agentId;
+							this.saveRun(run, [task]);
+						},
 					},
-				},
-			),
-		);
-		task.reviewerAgentId = result.agentId;
-		if (
-			result.status === "timeout" &&
-			!(await this.stopTimedOutAgent(run, from, result.agentId))
-		)
-			return;
-		const handoffPath = this.writeHandoff(run, task, "reviewer", result);
-		if (result.status === "permission") {
-			const permissionFailure = resultFailure(result);
-			task.lastFailure = permissionFailure;
-			this.parkForApproval(run, from, permissionFailure);
+				),
+			);
+			task.reviewerAgentId = result.agentId;
+			if (
+				result.status === "timeout" &&
+				!(await this.stopTimedOutAgent(run, from, result.agentId))
+			)
+				return;
+			handoffPath = this.writeHandoff(run, task, "reviewer", result);
+			if (result.status === "permission") {
+				const permissionFailure = resultFailure(result);
+				task.lastFailure = permissionFailure;
+				this.parkForApproval(run, from, permissionFailure);
+				this.checkpoint(
+					run,
+					[task],
+					{
+						kind: "agent",
+						role: "reviewer",
+						status: result.status,
+						agentId: result.agentId,
+						handoffPath,
+					},
+					from,
+				);
+				return;
+			}
+			if (result.status !== "idle") {
+				this.failTask(
+					run,
+					task,
+					from,
+					resultFailure(result),
+					result.status === "timeout" ? "TIMEOUT" : "FAILURE",
+					handoffPath,
+				);
+				return;
+			}
+			const parsed = normalizeReview(result.structured, result.text);
+			if (parsed.ok) {
+				verdict = parsed.verdict;
+				break;
+			}
+			// Reviewer formatting fault: never charge the implementer. Retry only the reviewer
+			// on the same verified tree, then park the run for a human.
+			protocolError = parsed.error;
+			const protocolFailure = failure("REVIEW_PROTOCOL_ERROR", parsed.error);
+			task.lastFailure = protocolFailure;
 			this.checkpoint(
 				run,
 				[task],
 				{
-					kind: "agent",
-					role: "reviewer",
-					status: result.status,
+					kind: "review_protocol_error",
+					attempt: task.attempt,
+					error: parsed.error,
 					agentId: result.agentId,
 					handoffPath,
 				},
 				from,
 			);
-			return;
-		}
-		if (result.status !== "idle") {
-			this.failTask(
-				run,
-				task,
-				from,
-				resultFailure(result),
-				result.status === "timeout" ? "TIMEOUT" : "FAILURE",
-				handoffPath,
-			);
-			return;
-		}
-		const verdict = parseStructured<ReviewVerdict>(
-			result.structured,
-			result.text,
-		);
-		const verdictError = this.validateReview(verdict);
-		if (verdictError || !verdict) {
-			const reviewError = verdictError ?? "reviewer output is missing";
-			this.failTask(
-				run,
-				task,
-				from,
-				failure("AGENT_ERROR", reviewError),
-				"FAILURE",
-				handoffPath,
-			);
-			return;
+			if (this.treeFingerprint(run) !== snapshot) {
+				this.failTask(
+					run,
+					task,
+					from,
+					failure(
+						"AGENT_ERROR",
+						"tree changed during review; verification evidence invalidated",
+					),
+					"FAILURE",
+					handoffPath,
+				);
+				return;
+			}
+			if (
+				this.reviewProtocolErrors(run.id, task) >= MAX_REVIEW_PROTOCOL_TRIES
+			) {
+				run.stage = "BLOCKED";
+				run.parkedReason = this.parkedReason(from, protocolFailure);
+				this.checkpoint(
+					run,
+					[task],
+					{ kind: "blocked", failure: protocolFailure, handoffPath },
+					from,
+				);
+				return;
+			}
 		}
 		const blockers = verdict.findings.filter(
 			(finding) => finding.severity === "blocker",
@@ -1842,6 +2256,9 @@ export class Runner {
 				agentId: result.agentId,
 				handoffPath,
 				verdict: "approve",
+				attempt: task.attempt,
+				// Tree the reviewer approved; CHECKPOINT only commits this exact tree.
+				reviewFingerprint: fingerprint,
 			},
 			from,
 		);
@@ -1995,30 +2412,15 @@ export class Runner {
 			);
 	}
 
-	private validateReview(
-		verdict: ReviewVerdict | undefined,
-	): string | undefined {
-		if (
-			!verdict ||
-			(verdict.verdict !== "approve" && verdict.verdict !== "reject")
-		) {
-			return "reviewer output must contain verdict approve or reject";
-		}
-		if (!Array.isArray(verdict.findings))
-			return "reviewer output findings must be an array";
-		for (const finding of verdict.findings) {
-			if (
-				!record(finding) ||
-				typeof finding.id !== "string" ||
-				typeof finding.detail !== "string" ||
-				!(["blocker", "major", "minor"] as const).includes(
-					finding.severity as never,
-				)
-			) {
-				return "reviewer finding is invalid";
-			}
-		}
-		return undefined;
+	private reviewProtocolErrors(runId: string, task: TaskState): number {
+		return this.store
+			.events(runId)
+			.filter(
+				(event) =>
+					event.taskId === task.id &&
+					event.kind === "review_protocol_error" &&
+					Number(event.data.attempt) === task.attempt,
+			).length;
 	}
 
 	private writeHandoff(
@@ -2139,6 +2541,14 @@ export class Runner {
 		reason: Failure,
 		suffix?: string,
 	): void {
+		// R7: policy-DENY text can never be approved, so it must not reach HUMAN_APPROVAL.
+		if (classifyOperation(reason.summary) === "DENY") {
+			run.stage = "BLOCKED";
+			run.approvalOperation = undefined;
+			run.approvalTarget = undefined;
+			run.parkedReason = `${this.parkedReason(stage, reason)}; denied by policy${suffix ? `; ${suffix}` : ""}`;
+			return;
+		}
 		const operation = approvalOperationFor(reason.summary);
 		run.stage = "HUMAN_APPROVAL";
 		run.approvalOperation = operation;
